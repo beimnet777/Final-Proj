@@ -158,7 +158,7 @@ def build_model(cfg: Config) -> Tuple[FrozenSpear, nn.Module]:
     encoder = FrozenSpear(cfg.spear_model_id)
     cfg.encoder_layer_count = encoder.num_layers  # populate runtime field
 
-    if cfg.probe_type == "single":
+    if cfg.probe_type == "final":
         probe = SingleLayerProbe(
             hidden_size=encoder.hidden_size,
             vocab_size=cfg.vocab_size,

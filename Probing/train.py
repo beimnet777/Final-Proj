@@ -224,6 +224,14 @@ def fit(cfg: Config, encoder: FrozenSpear, probe: nn.Module, tokenizer,
                 running_loss = 0.0
                 running_count = 0
 
+        # Snapshot the current weighted-probe layer mixture for analysis.
+        # Logged every epoch (not just eval epochs) so the trajectory is dense.
+        if logger is not None and hasattr(probe, "layer_weights"):
+            logger.log_layer_weights(
+                epoch=epoch + 1,
+                weights=probe.layer_weights.tolist(),
+            )
+
         # Validation at the end of each epoch (configurable).
         if (epoch + 1) % cfg.eval_every_epochs == 0:
             metrics = evaluate(cfg, encoder, probe, tokenizer, val_dl,

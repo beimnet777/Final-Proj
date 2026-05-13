@@ -33,10 +33,11 @@ class Config:
     encoder_layer_count: int = 0
 
     # ---------------------------------------------------------------- Probe
-    # "single"    -> linear classifier on the last SPEAR layer only.
+    # "final"    -> linear classifier on a single SPEAR layer (the final layer
+    #               by default; configurable via layer_idx).
     # "weighted" -> learnable softmax mixture across all SPEAR layers,
     #               then a linear classifier on the mixed representation.
-    probe_type: Literal["single", "weighted"] = "weighted"
+    probe_type: Literal["final", "weighted"] = "weighted"
     layer_idx: int = -1
     probe_dropout: float = 0.1
 

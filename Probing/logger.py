@@ -45,8 +45,10 @@ class RunLogger:
 
         self.train_csv = self.dir / "train.csv"
         self.eval_csv = self.dir / "eval.csv"
+        self.layer_weights_csv = self.dir / "layer_weights.csv"
         self.predictions_jsonl = self.dir / "predictions.jsonl"
         self.summary_json = self.dir / "summary.json"
+        self._layer_weights_header_written = False
         self._t0 = time.time()
 
         # Snapshot the config so any analysis run later can recover the
@@ -94,6 +96,24 @@ class RunLogger:
                         "ref": ref,
                         "hyp": hyp,
                     }) + "\n")
+
+    # -------------------------------------------------- weighted-probe weights
+
+    def log_layer_weights(self, *, epoch: int, weights: Sequence[float]) -> None:
+        """Append the current softmax layer weights for the weighted probe.
+
+        Header is written lazily on the first call because we don't know L
+        (number of SPEAR layers) until the probe is built. Layout:
+
+            epoch,layer_0,layer_1,...,layer_{L-1},wall_time
+        """
+        if not self._layer_weights_header_written:
+            cols = ["epoch"] + [f"layer_{i}" for i in range(len(weights))] + ["wall_time"]
+            self.layer_weights_csv.write_text(",".join(cols) + "\n")
+            self._layer_weights_header_written = True
+        row = [epoch] + [f"{w:.6f}" for w in weights] + [f"{time.time() - self._t0:.2f}"]
+        with self.layer_weights_csv.open("a") as f:
+            f.write(",".join(str(x) for x in row) + "\n")
 
     # ------------------------------------------------------- summary / close
 

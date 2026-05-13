@@ -42,8 +42,9 @@ from train import fit, evaluate
 def parse_args() -> Config:
     cfg = Config()
     p = argparse.ArgumentParser()
-    p.add_argument("--probe", choices=["final", "single"], default=cfg.probe_type,
-                   help="Probe head type: final-layer only or weighted sum of all layers.")
+    p.add_argument("--probe", choices=["final", "weighted"], default=cfg.probe_type,
+                   help="Probe head type: linear on a single layer (default: final), "
+                        "or linear on a learnable softmax mixture of all layers.")
     p.add_argument("--epochs", type=int, default=cfg.num_epochs)
     p.add_argument("--batch_size", type=int, default=cfg.batch_size)
     p.add_argument("--eval_batch_size", type=int, default=cfg.eval_batch_size,
@@ -55,7 +56,7 @@ def parse_args() -> Config:
     p.add_argument("--data_cache_dir", default=str(cfg.data_cache_dir))
     p.add_argument("--device", default=cfg.device)
     p.add_argument("--layer_idx", type=int, default=cfg.layer_idx,
-                   help="For the single-layer probe, which SPEAR layer to use (0-based, -1 for last).")
+                   help="For --probe final, which SPEAR layer to use (0-based, -1 for last).")
     p.add_argument("--warmup_steps", type=int, default=cfg.warmup_steps,
                    help="Number of warmup steps for the learning rate scheduler.")
     p.add_argument("--runs_dir", default="./runs",
