@@ -34,6 +34,7 @@ import torch
 
 from config import Config
 from data import make_dataloaders
+from logger import RunLogger
 from model import build_model
 from train import fit, evaluate
 
@@ -57,6 +58,8 @@ def parse_args() -> Config:
                    help="For the single-layer probe, which SPEAR layer to use (0-based, -1 for last).")
     p.add_argument("--warmup_steps", type=int, default=cfg.warmup_steps,
                    help="Number of warmup steps for the learning rate scheduler.")
+    p.add_argument("--runs_dir", default="./runs",
+                   help="Root directory for per-run logs (CSV/JSON for analysis).")
     args = p.parse_args()
 
     cfg.probe_type = args.probe
@@ -70,6 +73,7 @@ def parse_args() -> Config:
     cfg.device = args.device
     cfg.layer_idx = args.layer_idx
     cfg.warmup_steps = args.warmup_steps
+    cfg.runs_dir = Path(args.runs_dir)
     return cfg
 
 
@@ -90,16 +94,31 @@ def main() -> None:
     tokenizer, train_dl, val_dl, test_dl = make_dataloaders(cfg)
     encoder, probe = build_model(cfg)
 
-    fit(cfg, encoder, probe, tokenizer, train_dl, val_dl)
+    logger = RunLogger(root=cfg.runs_dir, probe_type=cfg.probe_type, cfg=cfg)
+
+    fit(cfg, encoder, probe, tokenizer, train_dl, val_dl, logger=logger)
 
     print("\n=== Final test-set evaluation ===")
-    metrics = evaluate(cfg, encoder, probe, tokenizer, test_dl, label="test")
+    metrics = evaluate(cfg, encoder, probe, tokenizer, test_dl,
+                       label="test", epoch=cfg.num_epochs, logger=logger)
     print(f"test_cer {metrics['cer']:.4f}  test_wer {metrics['wer']:.4f}")
 
+    layer_weights = None
     if cfg.probe_type == "weighted" and hasattr(probe, "layer_weights"):
+        layer_weights = probe.layer_weights.tolist()
         print("Learned softmax weights over SPEAR layers (layer_idx: weight):")
-        for i, w in enumerate(probe.layer_weights.tolist()):
+        for i, w in enumerate(layer_weights):
             print(f"  layer {i:>2d}: {w:.4f}")
+
+    logger.write_summary({
+        "probe_type": cfg.probe_type,
+        "spear_model_id": cfg.spear_model_id,
+        "train_hours": cfg.train_hours,
+        "test_cer": metrics["cer"],
+        "test_wer": metrics["wer"],
+        "layer_weights": layer_weights,
+    })
+    print(f"\n[run done] logs in {logger.dir}")
 
 
 if __name__ == "__main__":

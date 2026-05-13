@@ -1,14 +1,15 @@
 """CTC training loop, greedy CTC decoding, and CER/WER evaluation.
 
 Public entrypoints:
-    fit(cfg, encoder, probe, tokenizer, train_dl, val_dl)
-    evaluate(cfg, encoder, probe, tokenizer, dl) -> {"cer": float, "wer": float}
+    fit(cfg, encoder, probe, tokenizer, train_dl, val_dl, logger=None)
+    evaluate(cfg, encoder, probe, tokenizer, dl, label="eval", epoch=0,
+             logger=None) -> {"cer": float, "wer": float}
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -18,6 +19,7 @@ from torch.optim.lr_scheduler import LambdaLR
 import jiwer
 
 from config import Config
+from logger import RunLogger
 from model import FrozenSpear
 
 
@@ -82,7 +84,8 @@ def _make_lr_schedule(optimizer, warmup_steps: int, total_steps: int):
 
 @torch.no_grad()
 def evaluate(cfg: Config, encoder: FrozenSpear, probe: nn.Module,
-             tokenizer, dl, label: str = "eval") -> dict:
+             tokenizer, dl, label: str = "eval",
+             epoch: int = 0, logger: Optional[RunLogger] = None) -> dict:
     encoder.eval()
     probe.eval()
     device = next(probe.parameters()).device
@@ -128,6 +131,14 @@ def evaluate(cfg: Config, encoder: FrozenSpear, probe: nn.Module,
             print(f"  HYP[{i}]: {all_hyps[i][:120]}")
 
     print(f"[{label}] DONE  cer {cer:.4f}  wer {wer:.4f}")
+
+    if logger is not None:
+        sample_pairs = [(all_hyps[i], all_refs[i]) for i in range(n_show)]
+        logger.log_eval(
+            epoch=epoch, split=label, n_examples=n_total,
+            cer=cer, wer=wer, sample_predictions=sample_pairs,
+        )
+
     return {"cer": cer, "wer": wer}
 
 
@@ -135,7 +146,7 @@ def evaluate(cfg: Config, encoder: FrozenSpear, probe: nn.Module,
 
 
 def fit(cfg: Config, encoder: FrozenSpear, probe: nn.Module, tokenizer,
-        train_dl, val_dl) -> None:
+        train_dl, val_dl, logger: Optional[RunLogger] = None) -> None:
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -205,13 +216,18 @@ def fit(cfg: Config, encoder: FrozenSpear, probe: nn.Module, tokenizer,
                 lr_now = optimizer.param_groups[0]["lr"]
                 avg = running_loss / max(1, running_count)
                 print(f"  step {step:>6d}  loss {avg:.4f}  lr {lr_now:.2e}")
+                if logger is not None:
+                    logger.log_train_step(
+                        step=step, epoch=epoch + 1, batch_idx=batch_idx,
+                        loss=avg, lr=lr_now,
+                    )
                 running_loss = 0.0
                 running_count = 0
 
         # Validation at the end of each epoch (configurable).
         if (epoch + 1) % cfg.eval_every_epochs == 0:
             metrics = evaluate(cfg, encoder, probe, tokenizer, val_dl,
-                               label=f"val/epoch{epoch + 1}")
+                               label="val", epoch=epoch + 1, logger=logger)
             print(f"epoch {epoch + 1:>3d}  val_cer {metrics['cer']:.4f}  "
                   f"val_wer {metrics['wer']:.4f}")
 

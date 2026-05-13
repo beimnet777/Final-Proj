@@ -60,6 +60,7 @@ class Config:
     seed: int = 42
     device: str = "cuda"                 # train.py will fall back to "cpu" if no GPU
     checkpoint_dir: Path = Path("./checkpoints")
+    runs_dir: Path = Path("./runs")      # per-run logs for analysis (CSV/JSON)
     log_every: int = 50                  # steps between train-loss log lines
 
     # --------------------------------------------------------- Derived view
