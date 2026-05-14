@@ -115,7 +115,7 @@ def build_datasets(cfg: Config):
     integer indexing and have the same audio/text key structure.
     """
     n_total = int(cfg.train_hours * 3600 / _LIBRISPEECH_AVG_SEC)
-    examples = _stream_examples("train.100", cfg, n=n_total) # stream a slice of the training set, then split into train/val
+    examples = _stream_examples("train.100", cfg, n=None) # stream a slice of the training set, then split into train/val
 
     # Second shuffle so val examples aren't drawn from a biased tail of the
     # streaming buffer.
@@ -205,6 +205,81 @@ def make_dataloaders(cfg: Config):
     val_dl   = DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, **common)
     test_dl  = DataLoader(test_ds,  batch_size=cfg.eval_batch_size, shuffle=False, **common)
 
+    return tokenizer, train_dl, val_dl, test_dl
+
+
+# ---------------------------------------------------------------------------
+# Cached-features dataset (used when encoder outputs are pre-extracted)
+# ---------------------------------------------------------------------------
+
+class CachedFeaturesDataset(Dataset):
+    """Wraps a list of {"feat": (T_i, D), "target": (T_text,), "text": str}
+    dicts written by cache_features.py.  No audio decoding or encoder forward
+    pass required — __getitem__ just returns the pre-computed tensor."""
+
+    def __init__(self, records: list):
+        self.records = records
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, str]:
+        r = self.records[idx]
+        # feat is stored fp16; cast to fp32 here so the probe and loss stay in
+        # fp32 without needing AMP.
+        return r["feat"].float(), r["target"], r["text"]
+
+
+def _cached_collate_fn(batch):
+    """Collate for CachedFeaturesDataset.
+
+    Returns the same 5-tuple as collate_fn so training/eval loops are
+    identical:
+        feats        : (B, T_max, D) float32, zero-padded
+        frame_lens   : (B,)          long, true frame counts
+        targets      : (B, T_text_max) long, zero-padded
+        target_lens  : (B,)          long
+        texts        : list[str]
+    """
+    feats, targets, texts = zip(*batch)
+    frame_lens   = torch.tensor([f.size(0) for f in feats],   dtype=torch.long)
+    target_lens  = torch.tensor([t.size(0) for t in targets], dtype=torch.long)
+    feats   = pad_sequence(feats,   batch_first=True, padding_value=0.0)
+    targets = pad_sequence(targets, batch_first=True, padding_value=0)
+    return feats, frame_lens, targets, target_lens, list(texts)
+
+
+def make_cached_dataloaders(cfg: "Config", cache_dir):
+    """Return (tokenizer, train_dl, val_dl, test_dl) reading from cached .pt files.
+
+    The returned dataloaders produce the same 5-tuple as the live dataloaders
+    but feats is already the extracted final-layer tensor — no encoder needed.
+    """
+    from pathlib import Path as _Path
+    cache_dir = _Path(cache_dir)
+
+    tokenizer = CharTokenizer(cfg.vocab, blank_id=cfg.blank_id)
+
+    def _load(split: str) -> CachedFeaturesDataset:
+        path = cache_dir / f"{split}.pt"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Cache file not found: {path}\n"
+                f"Run  python cache_features.py --cache_dir {cache_dir}  first."
+            )
+        data = torch.load(path, map_location="cpu", weights_only=False)
+        return CachedFeaturesDataset(data["records"])
+
+    train_ds = _load("train")
+    val_ds   = _load("val")
+    test_ds  = _load("test")
+
+    pin = torch.cuda.is_available()
+    common = dict(collate_fn=_cached_collate_fn, num_workers=cfg.num_workers,
+                  pin_memory=pin)
+    train_dl = DataLoader(train_ds, batch_size=cfg.batch_size,      shuffle=True,  **common)
+    val_dl   = DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, **common)
+    test_dl  = DataLoader(test_ds,  batch_size=cfg.eval_batch_size, shuffle=False, **common)
     return tokenizer, train_dl, val_dl, test_dl
 
 

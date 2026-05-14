@@ -19,8 +19,8 @@ relied on.
 
 Examples
 --------
-    python run.py --probe final    --spear_model_id <hf-id>
-    python run.py --probe weighted --spear_model_id <hf-id>  --epochs 30
+    python run.py --probe final    --model_id <hf-id>
+    python run.py --probe weighted --model_id <hf-id>  --epochs 30
 """
 
 
@@ -33,7 +33,7 @@ import numpy as np
 import torch
 
 from config import Config
-from data import make_dataloaders
+from data import make_dataloaders, make_cached_dataloaders
 from logger import RunLogger
 from model import build_model
 from train import fit, evaluate
@@ -42,16 +42,20 @@ from train import fit, evaluate
 def parse_args() -> Config:
     cfg = Config()
     p = argparse.ArgumentParser()
-    p.add_argument("--probe", choices=["final", "weighted"], default=cfg.probe_type,
-                   help="Probe head type: linear on a single layer (default: final), "
-                        "or linear on a learnable softmax mixture of all layers.")
+    p.add_argument("--probe", choices=["final", "weighted", "lstm", "weighted_lstm"], default=cfg.probe_type,
+                   help="Probe head: final (linear on last layer), weighted (softmax mix + linear), "
+                        "lstm (BLSTM on last layer), weighted_lstm (softmax mix + BLSTM).")
     p.add_argument("--epochs", type=int, default=cfg.num_epochs)
     p.add_argument("--batch_size", type=int, default=cfg.batch_size)
     p.add_argument("--eval_batch_size", type=int, default=cfg.eval_batch_size,
                    help="Batch size for val/test loaders. Can be 2-4x train batch size.")
     p.add_argument("--lr", type=float, default=cfg.learning_rate)
-    p.add_argument("--spear_model_id", default=cfg.spear_model_id,
-                   help="HuggingFace model id or local path for SPEAR.")
+    p.add_argument("--model_id", default=cfg.model_id,
+                   help="HuggingFace model id or local path for the encoder.")
+    p.add_argument("--model_family", default=cfg.model_family,
+                   choices=["spear", "hf"],
+                   help="Encoder family: 'spear' for SPEAR (custom API) or 'hf' for standard "
+                        "HuggingFace speech encoders (wav2vec2, HuBERT, WavLM, …).")
     p.add_argument("--train_hours", type=float, default=cfg.train_hours)
     p.add_argument("--data_cache_dir", default=str(cfg.data_cache_dir))
     p.add_argument("--device", default=cfg.device)
@@ -59,8 +63,15 @@ def parse_args() -> Config:
                    help="For --probe final, which SPEAR layer to use (0-based, -1 for last).")
     p.add_argument("--warmup_steps", type=int, default=cfg.warmup_steps,
                    help="Number of warmup steps for the learning rate scheduler.")
+    p.add_argument("--lstm_hidden", type=int, default=cfg.lstm_hidden,
+                   help="Hidden units per direction for --probe lstm.")
+    p.add_argument("--lstm_layers", type=int, default=cfg.lstm_layers,
+                   help="Number of LSTM layers for --probe lstm.")
     p.add_argument("--runs_dir", default="./runs",
                    help="Root directory for per-run logs (CSV/JSON for analysis).")
+    p.add_argument("--feature_cache_dir", default=None,
+                   help="If set, load pre-extracted SPEAR features from this directory "
+                        "instead of running the encoder. Created by cache_features.py.")
     args = p.parse_args()
 
     cfg.probe_type = args.probe
@@ -68,13 +79,17 @@ def parse_args() -> Config:
     cfg.batch_size = args.batch_size
     cfg.eval_batch_size = args.eval_batch_size
     cfg.learning_rate = args.lr
-    cfg.spear_model_id = args.spear_model_id
+    cfg.model_id = args.model_id
+    cfg.model_family = args.model_family
     cfg.train_hours = args.train_hours
     cfg.data_cache_dir = Path(args.data_cache_dir)
     cfg.device = args.device
     cfg.layer_idx = args.layer_idx
     cfg.warmup_steps = args.warmup_steps
+    cfg.lstm_hidden = args.lstm_hidden
+    cfg.lstm_layers = args.lstm_layers
     cfg.runs_dir = Path(args.runs_dir)
+    cfg.feature_cache_dir = Path(args.feature_cache_dir) if args.feature_cache_dir else None
     return cfg
 
 
@@ -89,11 +104,18 @@ def main() -> None:
     cfg = parse_args()
     set_seed(cfg.seed)
     print(f"=== probe_type     : {cfg.probe_type}")
-    print(f"=== spear_model_id : {cfg.spear_model_id}")
+    print(f"=== model_id       : {cfg.model_id}")
     print(f"=== train_hours    : {cfg.train_hours}")
 
-    tokenizer, train_dl, val_dl, test_dl = make_dataloaders(cfg)
-    encoder, probe = build_model(cfg)
+    if getattr(cfg, "feature_cache_dir", None):
+        print(f"=== feature_cache  : {cfg.feature_cache_dir}  (cached mode — encoder not loaded)")
+        tokenizer, train_dl, val_dl, test_dl = make_cached_dataloaders(cfg, cfg.feature_cache_dir)
+        # Only the probe head is needed; encoder stays None.
+        _encoder_unused, probe = build_model(cfg)
+        encoder = None
+    else:
+        tokenizer, train_dl, val_dl, test_dl = make_dataloaders(cfg)
+        encoder, probe = build_model(cfg)
 
     logger = RunLogger(root=cfg.runs_dir, probe_type=cfg.probe_type, cfg=cfg)
 
@@ -113,7 +135,7 @@ def main() -> None:
 
     logger.write_summary({
         "probe_type": cfg.probe_type,
-        "spear_model_id": cfg.spear_model_id,
+        "model_id": cfg.model_id,
         "train_hours": cfg.train_hours,
         "test_cer": metrics["cer"],
         "test_wer": metrics["wer"],

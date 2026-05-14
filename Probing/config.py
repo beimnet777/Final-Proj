@@ -4,9 +4,9 @@ Everything that another file needs to know about *how* this run is shaped lives
 here. run.py will add a thin CLI on top to override fields like `probe_type`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 
 @dataclass
@@ -25,10 +25,13 @@ class Config:
     # symbol, which we place at index 0 by convention. Hence vocab_size = 29.
     vocab: str = " 'abcdefghijklmnopqrstuvwxyz"
 
-    # ------------------------------------------------------- SPEAR encoder
-    # Anything HF AutoModel can load.
-    spear_model_id: str = "marcoyang/spear-xlarge-speech-audio"
-    # Number of transformer layers SPEAR exposes via hidden_states.
+    # ------------------------------------------------------- Encoder
+    # Anything HF AutoModel can load (default = SPEAR-XLarge).
+    model_id: str = "marcoyang/spear-xlarge-speech-audio"
+    # Encoder family: 'spear' for SPEAR (custom Zipformer API) or 'hf' for
+    # any standard HuggingFace speech encoder (wav2vec2, HuBERT, WavLM, …).
+    model_family: Literal["spear", "hf"] = "spear"
+    # Number of transformer layers the encoder exposes via hidden_states.
     # Populated at runtime in model.py once the encoder is loaded.
     encoder_layer_count: int = 0
 
@@ -37,9 +40,13 @@ class Config:
     #               by default; configurable via layer_idx).
     # "weighted" -> learnable softmax mixture across all SPEAR layers,
     #               then a linear classifier on the mixed representation.
-    probe_type: Literal["final", "weighted"] = "weighted"
+    probe_type: Literal["final", "weighted", "lstm", "weighted_lstm"] = "weighted"
     layer_idx: int = -1
     probe_dropout: float = 0.1
+    lstm_hidden: int = 1024  # hidden units per direction in LSTMProbe
+    lstm_layers: int = 2     # number of LSTM layers
+    time_mask_param: int = 50   # max frames to mask per utterance (SpecAugment)
+    freq_mask_param: int = 64   # max feature dims to mask (SpecAugment)
 
     # ------------------------------------------------------------- Training
     batch_size: int = 8
@@ -63,6 +70,7 @@ class Config:
     checkpoint_dir: Path = Path("./checkpoints")
     runs_dir: Path = Path("./runs")      # per-run logs for analysis (CSV/JSON)
     log_every: int = 50                  # steps between train-loss log lines
+    feature_cache_dir: Optional[Path] = None  # set by run.py --feature_cache_dir
 
     # --------------------------------------------------------- Derived view
     @property

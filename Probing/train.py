@@ -83,10 +83,11 @@ def _make_lr_schedule(optimizer, warmup_steps: int, total_steps: int):
 
 
 @torch.no_grad()
-def evaluate(cfg: Config, encoder: FrozenSpear, probe: nn.Module,
+def evaluate(cfg: Config, encoder: Optional[FrozenSpear], probe: nn.Module,
              tokenizer, dl, label: str = "eval",
              epoch: int = 0, logger: Optional[RunLogger] = None) -> dict:
-    encoder.eval()
+    if encoder is not None:
+        encoder.eval()
     probe.eval()
     device = next(probe.parameters()).device
     n_total = len(dl.dataset)
@@ -103,9 +104,15 @@ def evaluate(cfg: Config, encoder: FrozenSpear, probe: nn.Module,
         audios = audios.to(device, non_blocking=True)
         audio_lens = audio_lens.to(device, non_blocking=True)
 
-        layers = encoder(audios, audio_lens)              # list of (B, T, D)
+        if encoder is None:
+            # Cached mode: audios is already (B, T, D) extracted features;
+            # audio_lens are pre-computed frame counts.
+            layers = [audios]          # wrap as 1-element list for the probe
+            frame_lens = audio_lens
+        else:
+            layers = encoder(audios, audio_lens)              # list of (B, T, D)
+            frame_lens = encoder.output_lengths(audio_lens)   # (B,)
         logits = probe(layers)                            # (B, T, V)
-        frame_lens = encoder.output_lengths(audio_lens)   # (B,)
 
         hyps = greedy_ctc_decode(logits, frame_lens, tokenizer, cfg.blank_id)
         refs = [t.lower() for t in texts]
@@ -145,7 +152,7 @@ def evaluate(cfg: Config, encoder: FrozenSpear, probe: nn.Module,
 # ----------------------------------------------------------- Training ------
 
 
-def fit(cfg: Config, encoder: FrozenSpear, probe: nn.Module, tokenizer,
+def fit(cfg: Config, encoder: Optional[FrozenSpear], probe: nn.Module, tokenizer,
         train_dl, val_dl, logger: Optional[RunLogger] = None) -> None:
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -153,14 +160,18 @@ def fit(cfg: Config, encoder: FrozenSpear, probe: nn.Module, tokenizer,
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
-    encoder.to(device)
+    if encoder is not None:
+        encoder.to(device)
     probe.to(device)
 
-    # Sanity print: confirm only the probe is trainable.
+    # Sanity print.
     trainable = [p for p in probe.parameters() if p.requires_grad]
-    n_frozen = sum(p.numel() for p in encoder.parameters())
+    if encoder is not None:
+        n_frozen = sum(p.numel() for p in encoder.parameters())
+        print(f"frozen encoder params : {n_frozen:,}")
+    else:
+        print("frozen encoder params : (cached — encoder not loaded)")
     n_learn = sum(p.numel() for p in trainable)
-    print(f"frozen encoder params : {n_frozen:,}")
     print(f"trainable probe params: {n_learn:,}")
 
     optimizer = AdamW(trainable, lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
@@ -175,7 +186,8 @@ def fit(cfg: Config, encoder: FrozenSpear, probe: nn.Module, tokenizer,
 
     for epoch in range(cfg.num_epochs):
         probe.train()
-        encoder.eval()  # belt-and-braces; FrozenSpear.train() already enforces this
+        if encoder is not None:
+            encoder.eval()  # belt-and-braces; FrozenSpear.train() already enforces this
 
         n_batches = len(train_dl)
         print(f"\nepoch {epoch + 1}/{cfg.num_epochs}  ({n_batches} batches) ...")
@@ -188,9 +200,16 @@ def fit(cfg: Config, encoder: FrozenSpear, probe: nn.Module, tokenizer,
             targets = targets.to(device, non_blocking=True)
             target_lens = target_lens.to(device, non_blocking=True)
 
-            # 1) Frozen encoder forward (no grad). Returns list of L tensors,
-            #    each (B, T_frames, D).
-            layers = encoder(audios, audio_lens)
+            # 1) Encoder forward (or use pre-extracted cached features).
+            if encoder is None:
+                # Cached mode: audios is already (B, T, D); audio_lens are
+                # pre-computed frame counts — no encoder call needed.
+                layers = [audios]
+                input_lens = audio_lens
+            else:
+                with torch.no_grad():
+                    layers = encoder(audios, audio_lens)
+                input_lens = encoder.output_lengths(audio_lens)  # (B,)
 
             # 2) Probe forward. Gradient flows here only.
             logits = probe(layers)                        # (B, T_frames, V)
@@ -198,8 +217,6 @@ def fit(cfg: Config, encoder: FrozenSpear, probe: nn.Module, tokenizer,
             # 3) Log-probs and CTC. CTC wants (T, B, V).
             log_probs = F.log_softmax(logits, dim=-1)     # (B, T, V)
             log_probs_t = log_probs.transpose(0, 1)       # (T, B, V)
-
-            input_lens = encoder.output_lengths(audio_lens)  # (B,)
             loss = ctc_loss(log_probs_t, targets, input_lens, target_lens)
 
             optimizer.zero_grad(set_to_none=True)
