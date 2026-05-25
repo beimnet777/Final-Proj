@@ -28,6 +28,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from er_config import ERConfig, EMOTION_NAMES
 from er_data import make_er_dataloaders
@@ -124,6 +127,7 @@ def main() -> None:
 
     fold_results: dict[int, float] = {}
     fold_layer_weights: dict[int, list] = {}
+    base_ckpt_dir = cfg.checkpoint_dir
 
     for fold in folds:
         print(f"\n{'=' * 62}")
@@ -131,7 +135,7 @@ def main() -> None:
         print(f"{'=' * 62}")
 
         cfg.test_fold      = fold
-        cfg.checkpoint_dir = cfg.checkpoint_dir.parent / f"fold{fold}"
+        cfg.checkpoint_dir = base_ckpt_dir / f"fold{fold}"
         cfg.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         set_seed(cfg.seed)
 

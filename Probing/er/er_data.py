@@ -158,7 +158,7 @@ def make_er_dataloaders(cfg: ERConfig):
     _loader = lambda ds, bs, shuffle: DataLoader(
         ds, batch_size=bs, shuffle=shuffle,
         num_workers=cfg.num_workers, collate_fn=_collate,
-        pin_memory=True,
+        pin_memory=torch.cuda.is_available() and cfg.num_workers > 0,
     )
     train_dl = _loader(train_ds, cfg.batch_size,       True)
     val_dl   = _loader(val_ds,   cfg.eval_batch_size,  False)

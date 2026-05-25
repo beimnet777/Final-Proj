@@ -72,7 +72,7 @@ class ERConfig:
     warmup_steps: int = 100
 
     # ----------------------------------------------------------------- Misc
-    num_workers: int = 4
+    num_workers: int = 0
     seed: int = 42
     device: str = "cuda"
     checkpoint_dir: Path = _ER_DIR / "checkpoints"
