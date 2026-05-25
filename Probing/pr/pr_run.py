@@ -33,6 +33,7 @@ from pr_config import PRConfig
 from pr_data   import make_pr_dataloaders
 from pr_model  import build_pr_model
 from pr_train  import fit_pr, evaluate_pr
+from tb_logger import TBLogger
 
 
 # ---------------------------------------------------------------- Seed ---
@@ -116,12 +117,16 @@ def main() -> None:
     tokenizer, train_dl, val_dl, test_dl = make_pr_dataloaders(cfg)
     encoder, probe = build_pr_model(cfg)
 
-    best_val_per = fit_pr(cfg, encoder, probe, tokenizer, train_dl, val_dl)
+    from datetime import datetime as _dt
+    ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+    tb = TBLogger(cfg.runs_dir / "tb", run_name=f"{ts}_{cfg.probe_type}", task="pr")
+
+    best_val_per = fit_pr(cfg, encoder, probe, tokenizer, train_dl, val_dl, tb=tb)
     print(f"\n[PR] best val PER : {best_val_per:.4f}")
 
     print("\n=== Final test-set evaluation ===")
     test_metrics = evaluate_pr(cfg, encoder, probe, tokenizer, test_dl,
-                               label="test", epoch=cfg.num_epochs)
+                               label="test", epoch=cfg.num_epochs, tb=tb)
     print(f"[PR] test PER     : {test_metrics['per']:.4f}")
 
     # Layer weights (weighted probe only).
@@ -146,6 +151,7 @@ def main() -> None:
     }
     with summary_path.open("w") as f:
         json.dump(summary, f, indent=2)
+    tb.close()
     print(f"\n[run done] summary saved to {summary_path}")
 
 

@@ -18,6 +18,7 @@ from torch.optim.lr_scheduler import LambdaLR
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from sid_config import SIDConfig
+from tb_logger import TBLogger
 
 
 # --------------------------------------------------------- LR schedule ----
@@ -43,6 +44,7 @@ def evaluate_sid(
     dl,
     label: str = "val",
     epoch: int = 0,
+    tb=None,
 ) -> dict:
     """Compute top-1 accuracy over a DataLoader."""
     if encoder is not None:
@@ -68,6 +70,8 @@ def evaluate_sid(
 
     acc = correct / total if total > 0 else 0.0
     print(f"[{label}] epoch {epoch:>3d}  acc {acc:.4f}  ({correct}/{total})")
+    if tb is not None:
+        tb.log_eval(epoch, label, {"acc": acc})
     return {"acc": acc, "correct": correct, "total": total}
 
 
@@ -80,6 +84,7 @@ def fit_sid(
     probe: nn.Module,
     train_dl,
     val_dl,
+    tb=None,
 ) -> float:
     """Train the probe for cfg.num_epochs with cross-entropy loss.
 
@@ -151,14 +156,18 @@ def fit_sid(
                     f"  loss {avg:.4f}"
                     f"  lr {lr_now:.2e}"
                 )
+                if tb is not None:
+                    tb.log_train_step(step, avg, lr_now)
                 running_loss = running_count = 0
 
         if hasattr(probe, "layer_weights"):
             weights_str = "  ".join(f"{w:.3f}" for w in probe.layer_weights.tolist())
             print(f"  layer weights: [{weights_str}]")
+            if tb is not None:
+                tb.log_layer_weights(epoch + 1, probe.layer_weights.tolist())
 
         metrics = evaluate_sid(cfg, encoder, probe, val_dl,
-                               label="val", epoch=epoch + 1)
+                               label="val", epoch=epoch + 1, tb=tb)
         if metrics["acc"] > best_acc:
             best_acc   = metrics["acc"]
             best_state = {k: v.cpu().clone() for k, v in probe.state_dict().items()}

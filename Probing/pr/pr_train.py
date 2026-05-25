@@ -23,6 +23,7 @@ import jiwer
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from pr_config import PRConfig
+from tb_logger import TBLogger
 
 
 # ====================================================================
@@ -110,6 +111,7 @@ def evaluate_pr(
     dl,
     label: str = "val",
     epoch: int = 0,
+    tb=None,
 ) -> dict:
     """Compute PER over a DataLoader."""
     if encoder is not None:
@@ -139,6 +141,8 @@ def evaluate_pr(
     safe_refs = _safe_refs(all_refs)
     per = jiwer.wer(safe_refs, all_hyps)
     print(f"[{label}] epoch {epoch:>3d}  PER {per:.4f}")
+    if tb is not None:
+        tb.log_eval(epoch, label, {"per": per})
     return {"per": per, "n_examples": len(all_refs)}
 
 
@@ -153,6 +157,7 @@ def fit_pr(
     tokenizer,
     train_dl,
     val_dl,
+    tb=None,
 ) -> float:
     """Train CTC probe for cfg.num_epochs. Returns best validation PER.
 
@@ -232,14 +237,18 @@ def fit_pr(
                     f"  loss {avg:.4f}"
                     f"  lr {lr_now:.2e}"
                 )
+                if tb is not None:
+                    tb.log_train_step(step, avg, lr_now)
                 running_loss = running_count = 0
 
         if hasattr(probe, "layer_weights"):
             weights_str = "  ".join(f"{w:.3f}" for w in probe.layer_weights.tolist())
             print(f"  layer weights: [{weights_str}]")
+            if tb is not None:
+                tb.log_layer_weights(epoch + 1, probe.layer_weights.tolist())
 
         metrics = evaluate_pr(cfg, encoder, probe, tokenizer, val_dl,
-                              label="val", epoch=epoch + 1)
+                              label="val", epoch=epoch + 1, tb=tb)
         val_per = metrics["per"]
         if val_per < best_per:
             best_per   = val_per

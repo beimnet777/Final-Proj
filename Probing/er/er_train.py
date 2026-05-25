@@ -19,6 +19,7 @@ from torch.optim.lr_scheduler import LambdaLR
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from er_config import ERConfig
+from tb_logger import TBLogger
 
 
 # --------------------------------------------------------- LR schedule ----
@@ -44,6 +45,7 @@ def evaluate_er(
     dl,
     label: str = "val",
     epoch: int = 0,
+    tb: Optional[TBLogger] = None,
 ) -> dict:
     """Compute accuracy over a DataLoader.
 
@@ -72,6 +74,8 @@ def evaluate_er(
 
     acc = correct / total if total > 0 else 0.0
     print(f"[{label}] epoch {epoch:>3d}  acc {acc:.4f}  ({correct}/{total})")
+    if tb is not None:
+        tb.log_eval(epoch, label, {"acc": acc})
     return {"acc": acc, "correct": correct, "total": total}
 
 
@@ -84,6 +88,7 @@ def fit_er(
     probe: nn.Module,
     train_dl,
     val_dl,
+    tb: Optional[TBLogger] = None,
 ) -> float:
     """Train probe for cfg.num_epochs with cross-entropy loss.
 
@@ -159,16 +164,20 @@ def fit_er(
                     f"  loss {avg:.4f}"
                     f"  lr {lr_now:.2e}"
                 )
+                if tb is not None:
+                    tb.log_train_step(step, avg, lr_now)
                 running_loss = running_count = 0
 
         # Log weighted-probe layer mixture for analysis.
         if hasattr(probe, "layer_weights"):
             weights_str = "  ".join(f"{w:.3f}" for w in probe.layer_weights.tolist())
             print(f"  layer weights: [{weights_str}]")
+            if tb is not None:
+                tb.log_layer_weights(epoch + 1, probe.layer_weights.tolist())
 
         # Validation.
         metrics = evaluate_er(cfg, encoder, probe, val_dl,
-                               label="val", epoch=epoch + 1)
+                               label="val", epoch=epoch + 1, tb=tb)
         if metrics["acc"] > best_acc:
             best_acc   = metrics["acc"]
             best_state = {k: v.cpu().clone() for k, v in probe.state_dict().items()}

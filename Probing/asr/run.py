@@ -141,6 +141,7 @@ def main() -> None:
         "test_wer": metrics["wer"],
         "layer_weights": layer_weights,
     })
+    logger.close()
     print(f"\n[run done] logs in {logger.dir}")
 
 

@@ -36,6 +36,7 @@ from er_config import ERConfig, EMOTION_NAMES
 from er_data import make_er_dataloaders
 from er_model import build_er_model
 from er_train import fit_er, evaluate_er
+from tb_logger import TBLogger
 
 
 # ---------------------------------------------------------------- Seed ---
@@ -139,14 +140,16 @@ def main() -> None:
         cfg.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         set_seed(cfg.seed)
 
+        tb = TBLogger(cfg.runs_dir / "tb", run_name=f"fold{fold}", task="er")
+
         encoder, probe = build_er_model(cfg)
         train_dl, val_dl, test_dl = make_er_dataloaders(cfg)
 
-        best_val_acc = fit_er(cfg, encoder, probe, train_dl, val_dl)
+        best_val_acc = fit_er(cfg, encoder, probe, train_dl, val_dl, tb=tb)
         print(f"\n[fold {fold}] best val acc : {best_val_acc:.4f}")
 
         test_metrics = evaluate_er(
-            cfg, encoder, probe, test_dl, label="test", epoch=cfg.num_epochs
+            cfg, encoder, probe, test_dl, label="test", epoch=cfg.num_epochs, tb=tb
         )
         fold_results[fold] = test_metrics["acc"]
 
@@ -154,6 +157,7 @@ def main() -> None:
             fold_layer_weights[fold] = probe.layer_weights.tolist()
 
         print(f"[fold {fold}] test acc     : {test_metrics['acc']:.4f}")
+        tb.close()
 
     # ------------------------------------------------- Summary printout
     print(f"\n{'=' * 62}")

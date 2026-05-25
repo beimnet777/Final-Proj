@@ -28,6 +28,27 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    _TB_AVAILABLE = True
+except ImportError:
+    _TB_AVAILABLE = False
+
+_LW_TAGS = [f"layer_weights/layer_{i:02d}" for i in range(13)]
+_ASR_LAYOUT = {
+    "Training": {
+        "CTC Loss":      ["Multiline", ["train/loss"]],
+        "Learning Rate": ["Multiline", ["train/lr"]],
+    },
+    "Error Rates": {
+        "CER": ["Multiline", ["val/cer", "test/cer"]],
+        "WER": ["Multiline", ["val/wer", "test/wer"]],
+    },
+    "Layer Weights": {
+        "Softmax Mix (all layers)": ["Multiline", _LW_TAGS],
+    },
+}
+
 
 # Fixed column orders so downstream readers don't have to deal with
 # header drift between runs.
@@ -51,6 +72,15 @@ class RunLogger:
         self._layer_weights_header_written = False
         self._t0 = time.time()
 
+        if _TB_AVAILABLE:
+            tb_dir = self.dir / "tb"
+            tb_dir.mkdir(parents=True, exist_ok=True)
+            self._tb = SummaryWriter(log_dir=str(tb_dir))
+            self._tb.add_custom_scalars(_ASR_LAYOUT)
+            print(f"[logger] TensorBoard events → {tb_dir}")
+        else:
+            self._tb = None
+
         # Snapshot the config so any analysis run later can recover the
         # exact hyperparameters that produced these numbers.
         with (self.dir / "config.json").open("w") as f:
@@ -70,6 +100,9 @@ class RunLogger:
                f"{time.time() - self._t0:.2f}"]
         with self.train_csv.open("a") as f:
             f.write(",".join(str(x) for x in row) + "\n")
+        if self._tb is not None:
+            self._tb.add_scalar("train/loss", loss, step)
+            self._tb.add_scalar("train/lr",   lr,   step)
 
     # ------------------------------------------------------------------- eval
 
@@ -86,6 +119,9 @@ class RunLogger:
                f"{time.time() - self._t0:.2f}"]
         with self.eval_csv.open("a") as f:
             f.write(",".join(str(x) for x in row) + "\n")
+        if self._tb is not None:
+            self._tb.add_scalar(f"{split}/cer", cer, epoch)
+            self._tb.add_scalar(f"{split}/wer", wer, epoch)
 
         if sample_predictions:
             with self.predictions_jsonl.open("a") as f:
@@ -114,6 +150,9 @@ class RunLogger:
         row = [epoch] + [f"{w:.6f}" for w in weights] + [f"{time.time() - self._t0:.2f}"]
         with self.layer_weights_csv.open("a") as f:
             f.write(",".join(str(x) for x in row) + "\n")
+        if self._tb is not None:
+            for i, w in enumerate(weights):
+                self._tb.add_scalar(f"layer_weights/layer_{i:02d}", float(w), epoch)
 
     # ------------------------------------------------------- summary / close
 
@@ -126,6 +165,12 @@ class RunLogger:
         summary = {**_jsonable(summary), "wall_time_total": time.time() - self._t0}
         with self.summary_json.open("w") as f:
             json.dump(summary, f, indent=2)
+
+    def close(self) -> None:
+        """Flush and close the TensorBoard writer."""
+        if self._tb is not None:
+            self._tb.flush()
+            self._tb.close()
 
 
 # --------------------------------------------------------------------- utils
