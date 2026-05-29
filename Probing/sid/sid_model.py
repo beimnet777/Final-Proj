@@ -44,19 +44,22 @@ def _masked_mean(x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
 
 
 class MeanPoolLinearProbe(nn.Module):
-    """Single encoder layer → masked mean pool → dropout → linear."""
+    """Single encoder layer → frame-level projection → masked mean pool → linear.
+
+    Matches SUPERB: Linear(upstream_dim, proj_dim) applied at frame level before pooling.
+    """
 
     def __init__(
         self,
         hidden_size: int,
         num_classes: int,
-        dropout: float = 0.1,
+        proj_dim: int = 256,
         layer_idx: int = -1,
     ) -> None:
         super().__init__()
         self.layer_idx = layer_idx
-        self.drop   = nn.Dropout(dropout)
-        self.linear = nn.Linear(hidden_size, num_classes)
+        self.projector = nn.Linear(hidden_size, proj_dim)
+        self.linear    = nn.Linear(proj_dim, num_classes)
 
     def forward(
         self,
@@ -64,29 +67,32 @@ class MeanPoolLinearProbe(nn.Module):
         frame_lengths: torch.Tensor,
     ) -> torch.Tensor:
         x = hidden_states[self.layer_idx]   # (B, T, D)
-        x = _masked_mean(x, frame_lengths)  # (B, D)
-        x = self.drop(x)
+        x = self.projector(x)               # (B, T, proj_dim)
+        x = _masked_mean(x, frame_lengths)  # (B, proj_dim)
         return self.linear(x)               # (B, num_classes)
 
 
 class WeightedMeanPoolLinearProbe(nn.Module):
-    """Learnable softmax-weighted sum of all layers → mean pool → linear."""
+    """Softmax-weighted sum of all layers → frame-level projection → mean pool → linear.
+
+    Matches SUPERB: projection applied at frame level after mixing, before pooling.
+    """
 
     def __init__(
         self,
         num_layers: int,
         hidden_size: int,
         num_classes: int,
-        dropout: float = 0.1,
+        proj_dim: int = 256,
     ) -> None:
         super().__init__()
         self.num_layers = num_layers
         self.layer_norm = nn.ModuleList(
             [nn.LayerNorm(hidden_size) for _ in range(num_layers)]
         )
-        self.weights = nn.Parameter(torch.zeros(num_layers))
-        self.drop    = nn.Dropout(dropout)
-        self.linear  = nn.Linear(hidden_size, num_classes)
+        self.weights   = nn.Parameter(torch.zeros(num_layers))
+        self.projector = nn.Linear(hidden_size, proj_dim)
+        self.linear    = nn.Linear(proj_dim, num_classes)
 
     @property
     def layer_weights(self) -> torch.Tensor:
@@ -102,8 +108,8 @@ class WeightedMeanPoolLinearProbe(nn.Module):
             w[i] * self.layer_norm[i](hidden_states[i])
             for i in range(self.num_layers)
         )                                   # (B, T, D)
-        x = _masked_mean(x, frame_lengths)  # (B, D)
-        x = self.drop(x)
+        x = self.projector(x)               # (B, T, proj_dim)
+        x = _masked_mean(x, frame_lengths)  # (B, proj_dim)
         return self.linear(x)               # (B, num_classes)
 
 
@@ -123,7 +129,7 @@ def build_sid_model(cfg: SIDConfig):
         probe = MeanPoolLinearProbe(
             hidden_size=encoder.hidden_size,
             num_classes=cfg.num_classes,
-            dropout=cfg.probe_dropout,
+            proj_dim=cfg.proj_dim,
             layer_idx=cfg.layer_idx,
         )
     elif cfg.probe_type == "weighted":
@@ -131,7 +137,7 @@ def build_sid_model(cfg: SIDConfig):
             num_layers=encoder.num_layers,
             hidden_size=encoder.hidden_size,
             num_classes=cfg.num_classes,
-            dropout=cfg.probe_dropout,
+            proj_dim=cfg.proj_dim,
         )
     else:
         raise ValueError(f"Unknown probe_type for SID: {cfg.probe_type!r}")

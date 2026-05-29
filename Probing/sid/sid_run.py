@@ -79,8 +79,11 @@ def parse_args():
     p.add_argument("--seed", type=int, default=cfg.seed)
     p.add_argument("--num_workers", type=int, default=cfg.num_workers,
                    help="DataLoader worker processes. Set 0 to avoid /dev/shm issues on HPC.")
-    p.add_argument("--max_duration_s", type=float, default=cfg.max_duration_s,
-                   help="Truncate utterances to at most this many seconds (avoids OOM on long clips).")
+    p.add_argument("--train_max_duration_s", type=float, default=cfg.train_max_duration_s,
+                   help="Random-crop training utterances to at most this many seconds (SUPERB: 8.0). "
+                        "Val and test are always evaluated on full utterances.")
+    p.add_argument("--max_examples", type=int, default=cfg.max_examples,
+                   help="Cap each split to this many examples (0 = no cap; for smoke tests).")
     args = p.parse_args()
 
     cfg.probe_type      = args.probe
@@ -98,7 +101,8 @@ def parse_args():
     cfg.log_dir         = Path(args.log_dir)         if args.log_dir         else cfg.log_dir
     cfg.seed            = args.seed
     cfg.num_workers     = args.num_workers
-    cfg.max_duration_s  = args.max_duration_s
+    cfg.train_max_duration_s = args.train_max_duration_s
+    cfg.max_examples         = args.max_examples
     return cfg
 
 
@@ -121,7 +125,7 @@ def main() -> None:
     print(f"=== logs          : {cfg.log_dir}")
     print(f"=== epochs        : {cfg.num_epochs}  lr={cfg.learning_rate}")
 
-    train_dl, val_dl, test_dl, speaker_map = make_sid_dataloaders(cfg)
+    train_dl, val_dl, test_dl = make_sid_dataloaders(cfg)
     encoder, probe = build_sid_model(cfg)
 
     from datetime import datetime as _dt

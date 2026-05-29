@@ -151,58 +151,58 @@ FrozenSpear = FrozenEncoder
 
 
 class SingleLayerProbe(nn.Module):
-    """Linear classifier on the last SPEAR transformer layer.
+    """Single encoder layer → projector → dropout → linear.
+
+    Matches SUPERB: Linear(upstream_dim, proj_dim) before the CTC head.
 
         layers      : list of L tensors, each (B, T, D)
         out logits  : (B, T, V)
     """
 
-    def __init__(self, hidden_size: int, vocab_size: int, dropout: float = 0.1, layer_idx: int = -1):
+    def __init__(self, hidden_size: int, vocab_size: int, proj_dim: int = 1024,
+                 dropout: float = 0.1, layer_idx: int = -1):
         super().__init__()
-        self.dropout = nn.Dropout(dropout)
-        self.classifier = nn.Linear(hidden_size, vocab_size)
-        self.layer_idx = layer_idx
+        self.layer_idx  = layer_idx
+        self.projector  = nn.Linear(hidden_size, proj_dim)
+        self.dropout    = nn.Dropout(dropout)
+        self.classifier = nn.Linear(proj_dim, vocab_size)
 
     def forward(self, layers: List[torch.Tensor]) -> torch.Tensor:
-        h = layers[self.layer_idx]                       # (B, T, D)  -- last layer only
+        h = layers[self.layer_idx]           # (B, T, D)
+        h = self.projector(h)                # (B, T, proj_dim)
         h = self.dropout(h)
         return self.classifier(h)            # (B, T, V)
 
 
 class WeightedLayerSumProbe(nn.Module):
-    """Learnable softmax mixture of all L SPEAR layers, then a linear head.
+    """Weighted sum of all L layers → projector → dropout → linear.
 
-    The L raw mixing parameters live in `self.mix_logits`; softmax over them
-    makes the per-layer weights a convex combination so they sum to 1.
+    Matches SUPERB: weighted sum first, then Linear(upstream_dim, proj_dim) before head.
 
         layers      : list of L tensors, each (B, T, D)
         out logits  : (B, T, V)
     """
 
     def __init__(self, num_layers: int, hidden_size: int, vocab_size: int,
-                 dropout: float = 0.1):
+                 proj_dim: int = 1024, dropout: float = 0.1):
         super().__init__()
-        # Uniform init: softmax(zeros) = 1/L for each layer.
-        self.mix_logits = nn.Parameter(torch.zeros(num_layers))         # (L,)
+        self.mix_logits  = nn.Parameter(torch.zeros(num_layers))
         self.layer_norms = nn.ModuleList([nn.LayerNorm(hidden_size) for _ in range(num_layers)])
-        self.dropout = nn.Dropout(dropout)
-        self.classifier = nn.Linear(hidden_size, vocab_size)
+        self.projector   = nn.Linear(hidden_size, proj_dim)
+        self.dropout     = nn.Dropout(dropout)
+        self.classifier  = nn.Linear(proj_dim, vocab_size)
 
     def forward(self, layers: List[torch.Tensor]) -> torch.Tensor:
-        # Normalize each layer's representations before mixing, to put them on a common scale. Each normed layer is (B, T, D).
         normed_layers = [ln(h) for ln, h in zip(self.layer_norms, layers)]
-        # Stack along a new layer axis: (L, B, T, D)
-        stacked = torch.stack(normed_layers, dim=0)
-        # Broadcast weights to (L, 1, 1, 1):    softmax over layers -> sums to 1.
+        stacked = torch.stack(normed_layers, dim=0)                 # (L, B, T, D)
         w = F.softmax(self.mix_logits, dim=0).view(-1, 1, 1, 1)
-        # Weighted sum across the L axis:       (B, T, D)
-        h = (w * stacked).sum(dim=0)
+        h = (w * stacked).sum(dim=0)                                # (B, T, D)
+        h = self.projector(h)                                       # (B, T, proj_dim)
         h = self.dropout(h)
-        return self.classifier(h)             # (B, T, V)
+        return self.classifier(h)                                   # (B, T, V)
 
     @property
     def layer_weights(self) -> torch.Tensor:
-        """Detached softmax weights for logging/analysis. Shape: (L,)."""
         return F.softmax(self.mix_logits.detach(), dim=0)
 
 
@@ -217,18 +217,19 @@ class WeightedLSTMProbe(nn.Module):
     """
 
     def __init__(self, num_layers: int, hidden_size: int, vocab_size: int,
-                 lstm_hidden: int = 1024, lstm_num_layers: int = 2,
+                 proj_dim: int = 1024, lstm_hidden: int = 1024, lstm_num_layers: int = 2,
                  dropout: float = 0.1,
                  time_mask_param: int = 50, freq_mask_param: int = 64):
         super().__init__()
-        self.mix_logits = nn.Parameter(torch.zeros(num_layers))
+        self.mix_logits  = nn.Parameter(torch.zeros(num_layers))
         self.layer_norms = nn.ModuleList([nn.LayerNorm(hidden_size) for _ in range(num_layers)])
+        self.projector   = nn.Linear(hidden_size, proj_dim)
 
         self.time_mask_param = time_mask_param
         self.freq_mask_param = freq_mask_param
 
         self.lstm = nn.LSTM(
-            input_size=hidden_size,
+            input_size=proj_dim,
             hidden_size=lstm_hidden,
             num_layers=lstm_num_layers,
             batch_first=True,
@@ -257,6 +258,7 @@ class WeightedLSTMProbe(nn.Module):
         stacked = torch.stack(normed, dim=0)                    # (L, B, T, D)
         w = F.softmax(self.mix_logits, dim=0).view(-1, 1, 1, 1)
         h = (w * stacked).sum(dim=0)                            # (B, T, D)
+        h = self.projector(h)                                   # (B, T, proj_dim)
         if self.training:
             h = h.clone()
             h = self._spec_augment(h)
@@ -283,20 +285,18 @@ class LSTMProbe(nn.Module):
     """
 
     def __init__(self, hidden_size: int, vocab_size: int,
-                 lstm_hidden: int = 1024, num_layers: int = 2,
+                 proj_dim: int = 1024, lstm_hidden: int = 1024, num_layers: int = 2,
                  dropout: float = 0.1, layer_idx: int = -1,
                  time_mask_param: int = 50, freq_mask_param: int = 64):
         super().__init__()
         self.layer_idx = layer_idx
+        self.projector = nn.Linear(hidden_size, proj_dim)
 
-        # SpecAugment on representations: time masking + frequency (feature) masking.
-        # Applied only during training; probe.eval() disables it automatically
-        # because we gate on self.training.
         self.time_mask_param = time_mask_param
         self.freq_mask_param = freq_mask_param
 
         self.lstm = nn.LSTM(
-            input_size=hidden_size,
+            input_size=proj_dim,
             hidden_size=lstm_hidden,
             num_layers=num_layers,
             batch_first=True,
@@ -325,8 +325,9 @@ class LSTMProbe(nn.Module):
 
     def forward(self, layers: List[torch.Tensor]) -> torch.Tensor:
         h = layers[self.layer_idx]           # (B, T, D)
+        h = self.projector(h)                # (B, T, proj_dim)
         if self.training:
-            h = h.clone()                    # don't mutate the frozen encoder's output
+            h = h.clone()
             h = self._spec_augment(h)
         h, _ = self.lstm(h)                  # (B, T, lstm_hidden*2)
         h = self.dropout(h)
@@ -345,6 +346,7 @@ def build_model(cfg: Config) -> Tuple[FrozenEncoder, nn.Module]:
         probe = SingleLayerProbe(
             hidden_size=encoder.hidden_size,
             vocab_size=cfg.vocab_size,
+            proj_dim=cfg.proj_dim,
             dropout=cfg.probe_dropout,
             layer_idx=cfg.layer_idx,
         )
@@ -353,6 +355,7 @@ def build_model(cfg: Config) -> Tuple[FrozenEncoder, nn.Module]:
             num_layers=encoder.num_layers,
             hidden_size=encoder.hidden_size,
             vocab_size=cfg.vocab_size,
+            proj_dim=cfg.proj_dim,
             dropout=cfg.probe_dropout,
         )
     elif cfg.probe_type == "weighted_lstm":
@@ -360,6 +363,7 @@ def build_model(cfg: Config) -> Tuple[FrozenEncoder, nn.Module]:
             num_layers=encoder.num_layers,
             hidden_size=encoder.hidden_size,
             vocab_size=cfg.vocab_size,
+            proj_dim=cfg.proj_dim,
             lstm_hidden=cfg.lstm_hidden,
             lstm_num_layers=cfg.lstm_layers,
             dropout=cfg.probe_dropout,
@@ -370,6 +374,7 @@ def build_model(cfg: Config) -> Tuple[FrozenEncoder, nn.Module]:
         probe = LSTMProbe(
             hidden_size=encoder.hidden_size,
             vocab_size=cfg.vocab_size,
+            proj_dim=cfg.proj_dim,
             lstm_hidden=cfg.lstm_hidden,
             num_layers=cfg.lstm_layers,
             dropout=cfg.probe_dropout,

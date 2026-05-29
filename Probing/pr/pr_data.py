@@ -1,22 +1,27 @@
 """LibriSpeech phone tokenizer and DataLoader factory for Phone Recognition.
 
-Text → phone pipeline  (SUPERB-compliant)
-------------------------------------------
-1. Lowercase the transcript and split into words.
+Text → phone pipeline  (SUPERB-compliant, matches phoneme.txt exactly)
+-----------------------------------------------------------------------
+1. Uppercase the transcript and split into words.
 2. Look up each word in the official LibriSpeech lexicon
    (librispeech-lexicon.txt from openslr.org/11).
-   - Strip stress digits from vowel phones (AH1 → ah).
-   - Apply a small remap table for non-TIMIT-39 phones.
+   - Keep raw CMU ARPAbet phones WITH stress digits (AH0, AH1, AA2, …).
    - OOV words: run g2p_en if available, else emit SPN token.
-3. The resulting flat list of phone strings is integer-encoded with
-   PhoneTokenizer.encode() and passed to CTC.
+3. The flat list of phone strings is integer-encoded with PhoneTokenizer.encode(),
+   which appends <eos> (index 1), and passed to CTC.
+
+Tokenizer index layout (matches SUPERB CharacterTextEncoder + phoneme.txt):
+  0  <pad>  — CTC blank
+  1  <eos>  — appended by encode()
+  2  <unk>  — unknown phone
+  3  SIL,  4  SPN,  5  AA0  …  73  ZH
+  vocab_size = 74
 
 LibriSpeech loading  (SUPERB-compliant)
 ----------------------------------------
 train-clean-100  → training
 dev-clean        → validation (early stopping)
 test-clean       → test
-Audio is decoded lazily in __getitem__ using soundfile.
 """
 
 from __future__ import annotations
@@ -32,9 +37,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 from datasets import load_dataset, Audio
 
-from pr_config import (
-    PRConfig, ARPABET_39, SPN_TOKEN, _CMU_REMAP,
-)
+from pr_config import PRConfig, SUPERB_PHONES
 
 
 # ====================================================================
@@ -48,10 +51,8 @@ _G2P = None  # g2p_en instance or False if unavailable
 def _get_lexicon(path) -> dict:
     """Load (and cache) the official LibriSpeech lexicon from disk.
 
-    File format (openslr.org/resources/11/librispeech-lexicon.txt)::
-
-        WORD\tPH1 PH2 PH3 ...
-        WORD(2)\tPH1 PH2 ...   <- alternate pronunciation, skip if base seen
+    Returns UPPERCASE word → list of raw CMU phone strings (with stress digits).
+    Alternate pronunciations (WORD(2), WORD(3)) are discarded; first entry kept.
     """
     global _LEXICON
     if _LEXICON is None:
@@ -65,9 +66,9 @@ def _get_lexicon(path) -> dict:
                 if len(parts) < 2:
                     continue
                 word = parts[0].upper()
-                base = word.split("(")[0]   # strip alternate-pron suffix
-                if base not in lexicon:      # keep first (most common) pron
-                    lexicon[base] = parts[1:]
+                base = word.split("(")[0]
+                if base not in lexicon:
+                    lexicon[base] = parts[1:]   # raw CMU phones e.g. ["AH0", "AA1"]
         _LEXICON = lexicon
         print(f"[pr_data] loaded LibriSpeech lexicon: {len(_LEXICON):,} entries")
     return _LEXICON
@@ -92,70 +93,82 @@ def _get_g2p():
 # ====================================================================
 
 class PhoneTokenizer:
-    """Converts phone strings to integer ids and back.
+    """Maps CMU ARPAbet phone strings (stress-marked) to integer ids.
 
-    Index layout:
-        0           CTC blank
-        1 … 39      ARPAbet 39 phones (ARPABET_39 order)
-        40          SPN (spoken noise / OOV)
+    Index layout — matches SUPERB's CharacterTextEncoder + phoneme.txt:
+        0           <pad>  — CTC blank
+        1           <eos>  — appended to every encoded sequence
+        2           <unk>  — unknown phone
+        3 … 73      71 SUPERB phones (SIL, SPN, AA0 … ZH)
     """
 
     BLANK_ID = 0
+    EOS_ID   = 1
+    UNK_ID   = 2
 
     def __init__(self) -> None:
-        phones = ARPABET_39 + [SPN_TOKEN]
-        self.phone_to_id: dict[str, int] = {p: i + 1 for i, p in enumerate(phones)}
-        self.id_to_phone: dict[int, str] = {v: k for k, v in self.phone_to_id.items()}
-        self.vocab_size: int = 1 + len(phones)   # blank + phones
+        all_tokens = ["<pad>", "<eos>", "<unk>"] + SUPERB_PHONES  # 74 total
+        self.phone_to_id: dict[str, int] = {p: i for i, p in enumerate(all_tokens)}
+        self.id_to_phone: dict[int, str] = {i: p for i, p in enumerate(all_tokens)}
+        self.vocab_size: int = len(all_tokens)   # 74
 
-    # ------------------------------------------------------------------
     def encode(self, phones: List[str]) -> torch.Tensor:
-        """Map a list of phone strings to a 1-D LongTensor of ids."""
-        ids = [self.phone_to_id.get(p, self.phone_to_id[SPN_TOKEN]) for p in phones]
+        """Map phone list → 1-D LongTensor; appends EOS (index 1)."""
+        ids = [self.phone_to_id.get(p, self.UNK_ID) for p in phones]
+        ids.append(self.EOS_ID)
         return torch.tensor(ids, dtype=torch.long)
 
     def decode(self, ids: Iterable[int]) -> str:
-        """Map integer ids → space-separated phone string (for PER computation)."""
-        return " ".join(self.id_to_phone.get(int(i), SPN_TOKEN) for i in ids)
+        """Map integer ids → space-separated phone string. Stops at EOS."""
+        phones = []
+        for i in ids:
+            if int(i) == self.EOS_ID:
+                break
+            tok = self.id_to_phone.get(int(i), "<unk>")
+            if tok not in ("<pad>", "<eos>", "<unk>"):
+                phones.append(tok)
+        return " ".join(phones)
 
 
 # ====================================================================
 # Text → phone conversion
 # ====================================================================
 
-def _normalise_cmu_phone(raw: str) -> str:
-    """Strip stress digit and apply remap table to get an ARPAbet-39 phone."""
-    p = raw.lower().rstrip("012")      # "AH1" → "ah"
-    return _CMU_REMAP.get(p, p)
+_PHONE_VOCAB: Optional[set] = None
+
+def _phone_vocab_set() -> set:
+    global _PHONE_VOCAB
+    if _PHONE_VOCAB is None:
+        _PHONE_VOCAB = set(SUPERB_PHONES)
+    return _PHONE_VOCAB
 
 
 def text_to_phones(text: str, lexicon: dict) -> List[str]:
-    """Convert a transcript to a flat list of ARPAbet-39 phone strings.
+    """Convert a transcript to a flat list of raw CMU ARPAbet phone strings.
 
-    Uses the official LibriSpeech lexicon.  OOV words are handled by g2p_en
-    (required); no word is ever skipped or mapped to SPN.
+    Stress digits are kept (AH0, AH1, AA2, …) to match SUPERB's phoneme.txt.
+    OOV words fall back to g2p_en; phones not in SUPERB's vocab map to SPN.
     """
+    vocab = _phone_vocab_set()
     phones: List[str] = []
     g2p = _get_g2p()
-    if g2p is False:
-        raise RuntimeError(
-            "g2p_en is required but not installed. "
-            "Run: pip install g2p_en"
-        )
+
     for word in text.upper().split():
         word = word.strip("'-.,!?;:")
         if not word:
             continue
         if word in lexicon:
-            phones.extend(_normalise_cmu_phone(p) for p in lexicon[word])
-        else:
+            for p in lexicon[word]:
+                phones.append(p if p in vocab else "SPN")
+        elif g2p is not False:
             raw = g2p(word)
-            converted = [
-                _normalise_cmu_phone(p) for p in raw
-                if p.strip() and not p.isspace()
-            ]
-            valid = [p for p in converted if p in set(ARPABET_39)]
-            phones.extend(valid if valid else [SPN_TOKEN])
+            for p in raw:
+                p = p.strip()
+                if not p or p.isspace():
+                    continue
+                phones.append(p if p in vocab else "SPN")
+        else:
+            phones.append("SPN")
     return phones
 
 
@@ -212,7 +225,7 @@ class LibriSpeechPhoneDataset(Dataset):
         ex = self.examples[idx]
         arr = _decode_audio(ex["audio"], self.sample_rate)
         audio = torch.from_numpy(arr)
-        text  = ex["text"].lower()
+        text  = ex["text"]
         phones = text_to_phones(text, self.lexicon)
         target = self.tokenizer.encode(phones)
         return audio, target, text
@@ -256,7 +269,7 @@ def make_pr_dataloaders(cfg: PRConfig):
     Returns (tokenizer, train_dl, val_dl, test_dl).
     """
     tokenizer = PhoneTokenizer()
-    cfg.vocab_size = tokenizer.vocab_size   # 41
+    cfg.vocab_size = tokenizer.vocab_size   # 74
 
     lexicon = _get_lexicon(cfg.librispeech_lexicon)
     n_cap = cfg.max_examples if cfg.max_examples > 0 else None

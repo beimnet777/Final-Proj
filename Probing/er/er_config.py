@@ -58,8 +58,8 @@ class ERConfig:
     # 'final'    — linear on a single encoder layer (selected by layer_idx)
     # 'weighted' — learnable softmax mix of all layers, then linear
     probe_type: Literal["final", "weighted"] = "weighted"
-    # For probe_type='final': which layer to use (0-based, -1 = last).
     layer_idx: int = -1
+    proj_dim: int = 256        # frame-level projection dim before mean-pool (SUPERB: 256)
     probe_dropout: float = 0.1
 
     # ------------------------------------------------------------- Training

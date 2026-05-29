@@ -33,52 +33,55 @@ from pr_config import PRConfig
 # ====================================================================
 
 class CTCFinalLayerProbe(nn.Module):
-    """Take a single encoder layer → dropout → 2-layer linear → log-softmax."""
+    """Single encoder layer → projector → linear → log-softmax.
+
+    Matches SUPERB: Linear(upstream_dim, proj_dim) before the CTC head.
+    """
 
     def __init__(
         self,
         hidden_size: int,
         vocab_size: int,
-        dropout: float = 0.1,
+        proj_dim: int = 256,
         layer_idx: int = -1,
     ) -> None:
         super().__init__()
         self.layer_idx = layer_idx
-        self.drop   = nn.Dropout(dropout)
-        self.linear1 = nn.Linear(hidden_size, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, vocab_size)
+        self.projector = nn.Linear(hidden_size, proj_dim)
+        self.linear    = nn.Linear(proj_dim, vocab_size)
 
     def forward(
         self,
         hidden_states: List[torch.Tensor],
-        frame_lengths: torch.Tensor,   # kept for API symmetry (not used here)
+        frame_lengths: torch.Tensor,
     ) -> torch.Tensor:
         x = hidden_states[self.layer_idx]       # (B, T, D)
-        x = self.drop(x)
-        x = F.relu(self.linear1(x))             # (B, T, D)
-        x = self.linear2(x)                     # (B, T, V)
-        return F.log_softmax(x, dim=-1)         # (B, T, V)
+        x = self.projector(x)                   # (B, T, proj_dim)
+        x = self.linear(x)                      # (B, T, V)
+        return F.log_softmax(x, dim=-1)
 
 
 class CTCWeightedLayerProbe(nn.Module):
-    """Learnable softmax-weighted mix of all encoder layers → linear → log-softmax."""
+    """Weighted sum of all encoder layers → projector → linear → log-softmax.
+
+    Matches SUPERB: weighted sum first, then Linear(upstream_dim, proj_dim) before CTC head.
+    """
 
     def __init__(
         self,
         num_layers: int,
         hidden_size: int,
         vocab_size: int,
-        dropout: float = 0.1,
+        proj_dim: int = 256,
     ) -> None:
         super().__init__()
         self.num_layers = num_layers
         self.layer_norm = nn.ModuleList(
             [nn.LayerNorm(hidden_size) for _ in range(num_layers)]
         )
-        self.weights = nn.Parameter(torch.zeros(num_layers))
-        self.drop    = nn.Dropout(dropout)
-        self.linear1 = nn.Linear(hidden_size, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, vocab_size)
+        self.weights   = nn.Parameter(torch.zeros(num_layers))
+        self.projector = nn.Linear(hidden_size, proj_dim)
+        self.linear    = nn.Linear(proj_dim, vocab_size)
 
     @property
     def layer_weights(self) -> torch.Tensor:
@@ -87,17 +90,16 @@ class CTCWeightedLayerProbe(nn.Module):
     def forward(
         self,
         hidden_states: List[torch.Tensor],
-        frame_lengths: torch.Tensor,   # kept for API symmetry
+        frame_lengths: torch.Tensor,
     ) -> torch.Tensor:
         w = torch.softmax(self.weights, dim=0)
         x = sum(
             w[i] * self.layer_norm[i](hidden_states[i])
             for i in range(self.num_layers)
         )                                       # (B, T, D)
-        x = self.drop(x)
-        x = F.relu(self.linear1(x))             # (B, T, D)
-        x = self.linear2(x)                     # (B, T, V)
-        return F.log_softmax(x, dim=-1)         # (B, T, V)
+        x = self.projector(x)                   # (B, T, proj_dim)
+        x = self.linear(x)                      # (B, T, V)
+        return F.log_softmax(x, dim=-1)
 
 
 # ====================================================================
@@ -117,7 +119,7 @@ def build_pr_model(cfg: PRConfig):
         probe = CTCFinalLayerProbe(
             hidden_size=encoder.hidden_size,
             vocab_size=cfg.vocab_size,
-            dropout=cfg.probe_dropout,
+            proj_dim=cfg.proj_dim,
             layer_idx=cfg.layer_idx,
         )
     elif cfg.probe_type == "weighted":
@@ -125,7 +127,7 @@ def build_pr_model(cfg: PRConfig):
             num_layers=encoder.num_layers,
             hidden_size=encoder.hidden_size,
             vocab_size=cfg.vocab_size,
-            dropout=cfg.probe_dropout,
+            proj_dim=cfg.proj_dim,
         )
     else:
         raise ValueError(f"Unknown probe_type for PR: {cfg.probe_type!r}")

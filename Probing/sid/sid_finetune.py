@@ -83,7 +83,7 @@ def main() -> None:
     print(f"=== extra epochs  : {cfg.num_epochs}  lr={cfg._finetune_lr}")
 
     # ------------------------------------------------------------------ data
-    train_dl, val_dl, test_dl, _ = make_sid_dataloaders(cfg)
+    train_dl, val_dl, test_dl = make_sid_dataloaders(cfg)
 
     # ----------------------------------------------------------------- model
     encoder, probe = build_sid_model(cfg)

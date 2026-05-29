@@ -37,7 +37,7 @@ from typing import List, Tuple
 
 import torch
 import torchaudio
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, random_split
 
 from er_config import EMOTION_MAP, ERConfig
 
@@ -141,14 +141,14 @@ def make_er_dataloaders(cfg: ERConfig):
         else:
             train_records.extend(records)
 
-    # Hold out last 10 % of non-test utterances as validation.
-    val_size = max(1, int(len(train_records) * 0.10))
-    val_records   = train_records[-val_size:]
-    train_records = train_records[:-val_size]
+    # Random 20 % val split — matches SUPERB (torch.manual_seed(0) + random_split).
+    train_ds_full = IEMOCAPDataset(train_records, cfg.sample_rate)
+    val_size   = max(1, int(len(train_ds_full) * 0.20))
+    train_size = len(train_ds_full) - val_size
+    torch.manual_seed(0)
+    train_ds, val_ds = random_split(train_ds_full, [train_size, val_size])
 
-    train_ds = IEMOCAPDataset(train_records, cfg.sample_rate)
-    val_ds   = IEMOCAPDataset(val_records,   cfg.sample_rate)
-    test_ds  = IEMOCAPDataset(test_records,  cfg.sample_rate)
+    test_ds = IEMOCAPDataset(test_records, cfg.sample_rate)
 
     print(
         f"[fold {cfg.test_fold}]  "

@@ -56,7 +56,7 @@ CMD=(
   --lr 4e-4
   --warmup_steps 100
   --num_workers 0
-  --max_duration_s 30.0
+  --train_max_duration_s 8.0
   --checkpoint_dir "${WORKDIR}/checkpoints/${JOBID}"
   --runs_dir "${WORKDIR}/runs/${JOBID}"
 )

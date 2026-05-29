@@ -23,7 +23,7 @@ set -euo pipefail
 source /rds/project/rds-xyBFuSj0hm0/MLMI6.L2026/miniconda3/bin/activate
 conda activate mlmi4
 
-WORKDIR="$(cd "${SLURM_SUBMIT_DIR}" && [[ "$(basename "$PWD")" == scripts ]] && cd .. ; pwd)"
+WORKDIR="/rds/user/${USER}/hpc-work/Thesis/Final-Proj/Probing/asr"
 cd "${WORKDIR}"
 mkdir -p logs
 export OMP_NUM_THREADS=1

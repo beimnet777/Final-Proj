@@ -15,8 +15,7 @@ class Config:
     # LibriSpeech is fetched via `datasets` and cached under this directory.
     # We carve a ~10h slice out of train-clean-100 (see data.py).
     data_cache_dir: Path = Path("./data")
-    train_hours: float = 10.0            # target size of the training slice
-    val_split: float = 0.05              # fraction of the slice held out for validation
+    train_hours: float = 100.0           # informational only; full train-clean-100 is always used
     sample_rate: int = 16_000            # SPEAR and LibriSpeech both expect 16 kHz mono
 
     # --------------------------------------------------------------- Vocab
@@ -42,6 +41,7 @@ class Config:
     #               then a linear classifier on the mixed representation.
     probe_type: Literal["final", "weighted", "lstm", "weighted_lstm"] = "weighted"
     layer_idx: int = -1
+    proj_dim: int = 1024       # frame-level projection dim before LSTM/linear (SUPERB ASR: 1024)
     probe_dropout: float = 0.1
     lstm_hidden: int = 1024  # hidden units per direction in LSTMProbe
     lstm_layers: int = 2     # number of LSTM layers

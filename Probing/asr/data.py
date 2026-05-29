@@ -1,21 +1,17 @@
-"""LibriSpeech 10h slice + character tokenizer + CTC-friendly collate function.
+"""LibriSpeech character tokenizer + CTC-friendly collate function.
 
 Pipeline:
-    We stream librispeech_asr train.100 with a shuffle buffer, materialise only
-    the ~`cfg.train_hours` examples we need, then split off `cfg.val_split` for
-    validation. test.clean is loaded normally (it's already a small split).
+    train  — full train-clean-100 (streamed, ~100h)
+    val    — dev-clean             (streamed, ~5.4h) — matches SUPERB
+    test   — test-clean            (streamed, ~5.4h)
 
-    Streaming matters: without it, `load_dataset("librispeech_asr", "clean", ...)`
-    downloads the *entire* "clean" config -- train.100 + train.360 (~28 GB) --
-    even if you only request split="train.100". With streaming we pull ~2 shards
-    (~950 MB) instead.
+    Streaming avoids downloading train.360 when only train.100 is needed.
 """
 
 from __future__ import annotations
 
 import io
 import itertools
-import random
 from typing import Iterable, List, Tuple
 
 import numpy as np
@@ -104,36 +100,19 @@ def _stream_examples(split_name: str, cfg: Config, n: Optional[int] = None) -> L
 
 
 def build_datasets(cfg: Config):
-    """Return (train_examples, val_examples, test_hf).
+    """Return (train_examples, val_examples, test_examples) as plain lists of dicts.
 
-    train_examples and val_examples are plain Python lists of dicts:
-        {"audio": {"bytes": b"...", "path": "..."}, "text": str, ...}
-
-    test_hf is a regular HF Dataset (test.clean is small enough to load fully).
-
-    LibriSpeechCharDataset accepts both types transparently since both support
-    integer indexing and have the same audio/text key structure.
+    Splits used (matches SUPERB):
+        train — train-clean-100  (~28,539 utts, 100h)
+        val   — dev-clean        ( ~2,703 utts,  5.4h)  used for checkpointing
+        test  — test-clean       ( ~2,620 utts,  5.4h)  final evaluation
     """
-    n_total = int(cfg.train_hours * 3600 / _LIBRISPEECH_AVG_SEC)
-    examples = _stream_examples("train.100", cfg, n=None) # stream a slice of the training set, then split into train/val
+    train_examples = _stream_examples("train.100",  cfg, n=None)
+    val_examples   = _stream_examples("validation", cfg, n=None)  # dev-clean
+    test_examples  = _stream_examples("test",       cfg, n=None)  # test-clean
 
-    # Second shuffle so val examples aren't drawn from a biased tail of the
-    # streaming buffer.
-    rng = random.Random(cfg.seed)
-    rng.shuffle(examples)
-
-    n_val = max(1, int(len(examples) * cfg.val_split))
-    val_examples   = examples[:n_val]
-    train_examples = examples[n_val:]
-
-    # test.clean (~350 MB, single shard) — load fully, already cached.
-    test_examples = _stream_examples("test", cfg, n=None) # the n_total is set to None, so it will load the entire test set
-
-    # Length-bucket the test set: sort by encoded audio byte size as a proxy
-    # for duration (FLAC compression ratio is stable on speech, so longer
-    # utterances → larger byte arrays). With sorted-by-length batches, each
-    # batch pads to a length close to its members' true length, instead of
-    # to one outlier. Test order doesn't affect metrics so this is safe.
+    # Length-sort test so each batch pads to near-true length; safe because
+    # test order does not affect metrics.
     test_examples.sort(key=lambda ex: len(ex["audio"]["bytes"]))
 
     return train_examples, val_examples, test_examples

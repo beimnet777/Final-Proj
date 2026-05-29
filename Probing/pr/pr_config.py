@@ -2,8 +2,8 @@
 
 Data   : LibriSpeech train-clean-100 (full ~100h), validated on dev-clean,
          tested on test-clean.  Follows the SUPERB benchmark exactly.
-Labels : ARPAbet phone sequences from the official LibriSpeech lexicon
-         (librispeech-lexicon.txt from openslr.org/11); g2p_en used for OOV.
+Labels : Full CMU ARPAbet phone sequences WITH stress digits (71 phones),
+         matching SUPERB's vocab/phoneme.txt exactly.
 Loss   : CTC
 Metric : Phone Error Rate (PER)
 """
@@ -17,36 +17,42 @@ from typing import Literal, Optional
 _PR_DIR = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
-# Standard 39-phone ARPAbet set (TIMIT-style, stress digits stripped).
-# Blank (CTC) lives at index 0; phones at 1..39; SPN at 40.
+# SUPERB 71-phone vocab (s3prl/downstream/ctc/vocab/phoneme.txt, in order).
+# Stress digits are kept (AH0, AH1, AH2 are three distinct tokens).
+#
+# Tokenizer index layout — matches SUPERB's CharacterTextEncoder:
+#   0   <pad>  — CTC blank
+#   1   <eos>  — appended to every encoded sequence
+#   2   <unk>  — unknown phone
+#   3   SIL
+#   4   SPN
+#   5   AA0  …  73  ZH
+#
+# vocab_size = 74  (3 special + 71 phones)
 # ---------------------------------------------------------------------------
-ARPABET_39 = [
-    "aa", "ae", "ah", "ao", "aw", "ay",
-    "b",  "ch", "d",  "dh",
-    "eh", "er", "ey",
-    "f",  "g",  "hh",
-    "ih", "iy", "jh",
-    "k",  "l",  "m",  "n",  "ng",
-    "ow", "oy", "p",  "r",
-    "s",  "sh", "t",  "th",
-    "uh", "uw", "v",  "w",  "y",  "z",  "zh",
-]
-# Special tokens (appended after the 39 phones)
-SPN_TOKEN   = "spn"   # spoken noise / OOV placeholder
-
-# Mapping from CMU dict stress-marked phones → ARPAbet 39 base phones.
-# Vowels carry stress digit 0/1/2; we strip it. A few CMU phones need
-# explicit remapping to the TIMIT-39 set.
-_CMU_REMAP = {
-    "ax":  "ah",   # reduced vowel → ah
-    "axr": "er",
-    "ix":  "ih",
-    "ux":  "uw",
-    "el":  "l",    # syllabic l
-    "em":  "m",    # syllabic m
-    "en":  "n",    # syllabic n
-    "nx":  "ng",
-}
+SUPERB_PHONES = [
+    "SIL", "SPN",
+    "AA0", "AA1", "AA2",
+    "AE0", "AE1", "AE2",
+    "AH0", "AH1", "AH2",
+    "AO0", "AO1", "AO2",
+    "AW0", "AW1", "AW2",
+    "AY0", "AY1", "AY2",
+    "B", "CH", "D", "DH",
+    "EH0", "EH1", "EH2",
+    "ER0", "ER1", "ER2",
+    "EY0", "EY1", "EY2",
+    "F", "G", "HH",
+    "IH0", "IH1", "IH2",
+    "IY0", "IY1", "IY2",
+    "JH", "K", "L", "M", "N", "NG",
+    "OW0", "OW1", "OW2",
+    "OY0", "OY1", "OY2",
+    "P", "R", "S", "SH", "T", "TH",
+    "UH0", "UH1", "UH2",
+    "UW0", "UW1", "UW2",
+    "V", "W", "Y", "Z", "ZH",
+]  # 71 entries → indices 3..73
 
 
 @dataclass
@@ -62,7 +68,7 @@ class PRConfig:
 
     # --------------------------------------------------------------- Vocab
     # Populated at build time; kept here for serialisation.
-    vocab_size: int        = 41   # blank + 39 phones + SPN
+    vocab_size: int        = 74   # 3 special (<pad>/<eos>/<unk>) + 71 SUPERB phones
 
     # ----------------------------------------------------- Encoder
     model_id: str          = "marcoyang/spear-xlarge-speech-audio"
@@ -72,6 +78,7 @@ class PRConfig:
     # ---------------------------------------------------------------- Probe
     probe_type: Literal["final", "weighted"] = "weighted"
     layer_idx: int         = -1
+    proj_dim: int          = 256   # frame-level projection dim before CTC head (SUPERB: 256)
     probe_dropout: float   = 0.1
 
     # ------------------------------------------------------------- Training

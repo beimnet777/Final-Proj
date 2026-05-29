@@ -38,14 +38,18 @@ _SID_DIR = Path(__file__).parent
 @dataclass
 class SIDConfig:
     # ----------------------------------------------------------------- Data
-    # Absolute path to the VoxCeleb1 root (contains dev/ and test/).
+    # Absolute path to the VoxCeleb1 root (must contain dev/ sub-directory).
     voxceleb1_root: Path = Path("/path/to/VoxCeleb1")
-    # Fraction of dev utterances held out for validation (early stopping).
-    val_split: float = 0.05
+    # SUPERB split manifest — defines exact train/val/test utterance assignments.
+    # Download once: already bundled at sid/veri_test_class.txt
+    meta_data: Path = _SID_DIR / "veri_test_class.txt"
     num_classes: int = 1251
     sample_rate: int = 16_000
-    # Truncate utterances to at most this many seconds (avoids OOM on pathologically long clips).
-    max_duration_s: float = 30.0
+    # Random-crop cap applied to TRAINING utterances only (SUPERB: 128,000 = 8 s).
+    # Val and test are always evaluated on full utterances (no cap).
+    train_max_duration_s: float = 8.0
+    # Cap each split to this many examples (0 = no cap; for smoke tests).
+    max_examples: int = 0
 
     # ------------------------------------------------------------ Encoder
     model_id: str = "marcoyang/spear-xlarge-speech-audio"
@@ -59,6 +63,7 @@ class SIDConfig:
     # 'weighted' — learnable softmax mix of all layers, then linear
     probe_type: Literal["final", "weighted"] = "weighted"
     layer_idx: int = -1
+    proj_dim: int = 256        # frame-level projection dim before mean-pool (SUPERB: 256)
     probe_dropout: float = 0.1
 
     # ------------------------------------------------------------- Training
