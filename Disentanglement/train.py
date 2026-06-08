@@ -397,15 +397,18 @@ def run_stage1(cfg: DISConfig) -> Path:
 
 # ================================================================ Stage 2
 
-def run_stage2(cfg: DISConfig, stage1_ckpt: Path) -> Path:
-    """Full disentanglement training.  Loads SAE from stage1_ckpt.  Returns best checkpoint."""
+def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
+    """Full disentanglement training.  Optionally loads SAE from stage1_ckpt."""
     _set_seed(cfg.seed)
     device = torch.device(cfg.device)
 
     tokenizer, train_dl, val_dl = make_stage2_dataloaders(cfg)
 
     model = build_dis_model(cfg)
-    _load_stage1_checkpoint(Path(stage1_ckpt), model, cfg)
+    if stage1_ckpt is not None:
+        _load_stage1_checkpoint(Path(stage1_ckpt), model, cfg)
+    else:
+        print("[train] stage2_from_scratch=True — SAE/routing/heads start from initialization")
     frozen, trainable = _count_params(model)
     print(f"[stage 2] frozen={frozen:,}  trainable={trainable:,}  device={device}")
     print(f"[stage 2] speakers={cfg.num_speakers}  vocab={cfg.vocab_size}")

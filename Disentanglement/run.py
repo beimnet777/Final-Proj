@@ -13,6 +13,10 @@ Usage
     python run.py --stage 2 --stage1_ckpt checkpoints/stage1_best.pt \
                   --stage2_steps 8000 --alpha 0.1 --beta 0.3 --grl_weight 0.2
 
+    # Stage 2 from scratch — train SAE + routing + heads in one run
+    python run.py --stage 2 --stage2_from_scratch --stage2_steps 8000 \
+                  --alpha 0.02 --beta 0.01 --grl_weight 0.01
+
     # Smoke-test
     python run.py --stage 1 --total_steps 20 --max_train_examples 50 --max_val_examples 20
 """
@@ -45,6 +49,8 @@ def _parse_args():
     p.add_argument("--stage", type=int, choices=[1, 2], required=True)
     p.add_argument("--stage1_ckpt", default=None,
                    help="Path to stage-1 best checkpoint (required for --stage 2)")
+    p.add_argument("--stage2_from_scratch", action="store_true",
+                   help="For --stage 2, skip loading stage-1 SAE weights")
 
     # data
     p.add_argument("--librispeech_cache_dir", default=str(cfg.librispeech_cache_dir))
@@ -138,7 +144,7 @@ def _parse_args():
     cfg.bf16                  = not args.no_bf16
     cfg.device                = "cuda" if torch.cuda.is_available() else "cpu"
 
-    return cfg, args.stage, args.stage1_ckpt
+    return cfg, args.stage, args.stage1_ckpt, args.stage2_from_scratch
 
 
 def _seed_all(seed):
@@ -147,7 +153,7 @@ def _seed_all(seed):
 
 
 def main() -> None:
-    cfg, stage, stage1_ckpt = _parse_args()
+    cfg, stage, stage1_ckpt, stage2_from_scratch = _parse_args()
     _seed_all(cfg.seed)
 
     print(f"=== Disentanglement  stage={stage}")
@@ -161,11 +167,11 @@ def main() -> None:
     if stage == 1:
         best = run_stage1(cfg)
     else:
-        if stage1_ckpt is None:
+        if stage1_ckpt is None and not stage2_from_scratch:
             raise ValueError("--stage1_ckpt required for stage 2")
         if cfg.stage2_steps == 0:
             raise ValueError("--stage2_steps required for stage 2")
-        best = run_stage2(cfg, Path(stage1_ckpt))
+        best = run_stage2(cfg, None if stage2_from_scratch else Path(stage1_ckpt))
 
     print(f"\n[done]  best checkpoint → {best}")
 
