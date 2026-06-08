@@ -1,23 +1,40 @@
-"""TensorBoard logger for the SAE reconstruction system."""
+"""TensorBoard logger for the disentanglement system."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 _LAYOUT = {
     "Training": {
-        "Recon MSE": ["Multiline", ["train/recon"]],
+        "Recon MSE":         ["Multiline", ["train/recon"]],
+        "Decor loss (raw)":  ["Multiline", ["train/decor"]],
+        "Decor weighted":    ["Multiline", ["train/decor_weighted"]],
+        "PR CTC":            ["Multiline", ["train/pr"]],
+        "SID CE":            ["Multiline", ["train/sid"]],
+        "GRL":               ["Multiline", ["train/grl"]],
+        "Route entropy loss":["Multiline", ["train/route"]],
+        "Total":             ["Multiline", ["train/total"]],
+    },
+    "Validation": {
+        "Val Recon MSE":  ["Multiline", ["val/recon"]],
+        "Val PR CTC":     ["Multiline", ["val/pr"]],
+        "Val PER":        ["Multiline", ["val/per"]],
+        "Val SID Acc":    ["Multiline", ["val/sid_acc"]],
+    },
+    "Routing": {
+        "Feature counts (L/P/U)": ["Multiline", ["routing/count_L","routing/count_P","routing/count_U"]],
+        "Fractions":              ["Multiline", ["routing/frac_L", "routing/frac_P", "routing/frac_U"]],
+        "Entropy (nats)":         ["Multiline", ["routing/entropy"]],
     },
     "SAE": {
         "z_pre positive fraction": ["Multiline", ["sae/z_dense_density"]],
-        "Active fraction of TopK": ["Multiline", ["sae/active_frac"]],
     },
     "Gradient Norms": {
-        "SAE |g| (recon)": ["Multiline", ["grad_norms/recon"]],
-    },
-    "Validation": {
-        "Val Recon MSE": ["Multiline", ["val/recon"]],
+        "Stage-1 |g|":           ["Multiline", ["grad_norms/recon","grad_norms/decor"]],
+        "Raw |g| per loss":      ["Multiline", ["grad_norms/recon","grad_norms/pr_raw","grad_norms/sid_raw","grad_norms/grl","grad_norms/route"]],
+        "Weighted |g| per loss": ["Multiline", ["grad_norms/recon","grad_norms/pr_weighted","grad_norms/sid_weighted","grad_norms/grl","grad_norms/route"]],
+        "Ratio to recon (raw)":  ["Multiline", ["grad_norms/ratio_pr","grad_norms/ratio_sid","grad_norms/ratio_grl","grad_norms/ratio_route"]],
     },
 }
 
@@ -44,16 +61,31 @@ class DISLogger:
         for k, v in losses.items():
             self._add(f"train/{k}", v, step)
 
-    def log_val(self, step: int, recon: float) -> None:
-        self._add("val/recon", recon, step)
+    def log_val(self, step: int, metrics: Dict[str, float]) -> None:
+        for k, v in metrics.items():
+            self._add(f"val/{k}", v, step)
 
-    def log_sae(self, step: int, z_pre_pos_frac: float, topk: int) -> None:
+    def log_routing(self, step: int, n_L: int, n_P: int, n_U: int, entropy: float) -> None:
+        total = max(n_L + n_P + n_U, 1)
+        self._add("routing/count_L",  n_L,          step)
+        self._add("routing/count_P",  n_P,          step)
+        self._add("routing/count_U",  n_U,          step)
+        self._add("routing/frac_L",   n_L / total,  step)
+        self._add("routing/frac_P",   n_P / total,  step)
+        self._add("routing/frac_U",   n_U / total,  step)
+        self._add("routing/entropy",  entropy,      step)
+
+    def log_sae(self, step: int, z_pre_pos_frac: float) -> None:
         self._add("sae/z_dense_density", z_pre_pos_frac, step)
-        self._add("sae/active_frac", topk / max(topk, 1), step)
 
     def log_grad_norms(self, step: int, norms: Dict[str, float]) -> None:
         for k, v in norms.items():
             self._add(f"grad_norms/{k}", v, step)
+        recon = norms.get("recon", 0.0)
+        if recon > 1e-8:
+            for k in ("pr_raw", "sid_raw", "grl", "route"):
+                if k in norms:
+                    self._add(f"grad_norms/ratio_{k.replace('_raw','')}", norms[k] / recon, step)
 
     def flush(self) -> None:
         if self._writer is not None:

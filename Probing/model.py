@@ -41,12 +41,16 @@ class FrozenEncoder(nn.Module):
         self.encoder.eval()
 
         if model_family == "spear":
-            self.hidden_size = getattr(self.encoder.config, "hidden_size", 1280)
-            self.num_layers  = getattr(self.encoder.config, "num_hidden_layers", 13)
-            if self.hidden_size == 0:
-                self.hidden_size = 1280
-            if self.num_layers == 0:
-                self.num_layers = 13
+            # Config fields may not match actual output dims (e.g. spear-base reports
+            # hidden_size=1280 but outputs 512-dim tensors).  Run a tiny dummy forward
+            # on CPU to read the real shape before building any probe layers.
+            with torch.no_grad():
+                _dummy_audio = torch.zeros(1, 16000)
+                _dummy_lens  = torch.tensor([16000])
+                _dummy_out   = self.encoder(_dummy_audio, _dummy_lens)
+                _dummy_hs    = list(_dummy_out["hidden_states"])
+            self.num_layers  = len(_dummy_hs)
+            self.hidden_size = _dummy_hs[0].size(-1)
         else:
             cfg = self.encoder.config
             self.hidden_size = cfg.hidden_size

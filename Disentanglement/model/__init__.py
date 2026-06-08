@@ -1,4 +1,18 @@
-"""DISModel: frozen SPEAR final-layer encoder + TopK SAE for reconstruction."""
+"""DISModel: frozen SPEAR encoder + TopK SAE + stage-2 routing and task heads.
+
+Stage 1 : encoder → SAE encode → SAE decode(z_t) → recon loss only
+Stage 2 : routing carves z_t → z_L / z_P / z_U
+          decoder input: z_L (frame) + z_U (frame) + broadcast(mean_t(z_P))
+          decoder shape stays (D, K) — stage-1 weights load directly
+
+Experiment flags (all via cfg):
+  no_routing=True       (D) — bypass routing, feed full z to all heads
+  fixed_routing=True    (E) — freeze routing at init split
+  n_routes=2            (F) — binary L/P, no U bucket
+  grl_phoneme_weight>0  (1) — dual GRL: phoneme adversary on z_P
+  ste_routing=True      (5) — straight-through estimator on routing mask mult:
+                              forward = m × z_t (sparse), backward = m × z_pre (dense)
+"""
 
 from __future__ import annotations
 
@@ -9,40 +23,116 @@ import torch.nn as nn
 
 from .spear_encoder import SpearEncoder
 from .sae import SparseAutoencoder
+from .routing import RoutingModule
+from .heads import PRHead, SIDHead, GRLHead, PR_GRL_Head
 
+
+# ---------------------------------------------------------------- pooling
+
+def _mean_pool(z: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    """Utterance-level mean pool over valid frames → (B, K)."""
+    B, T, K = z.shape
+    mask  = (torch.arange(T, device=z.device).unsqueeze(0) < lengths.unsqueeze(1)
+             ).float().unsqueeze(-1)
+    count = lengths.float().clamp(min=1).view(B, 1, 1)
+    return (z * mask).sum(1) / count.squeeze(-1)
+
+
+# ---------------------------------------------------------------- model
 
 class DISModel(nn.Module):
-    """
-    encoder : SpearEncoder        — frozen SPEAR, returns final-layer h_t
-    sae     : SparseAutoencoder   — TopK SAE trained to reconstruct h_t
-    """
-
     def __init__(self, cfg) -> None:
         super().__init__()
-        self.encoder = SpearEncoder(cfg)
-        self.sae     = SparseAutoencoder(cfg)
+        self.cfg        = cfg
+        self.encoder    = SpearEncoder(cfg)
+        self.sae        = SparseAutoencoder(cfg)
+        self.routing    = RoutingModule(cfg)
+        self.pr_head    = PRHead(cfg)
+        self.sid_head   = SIDHead(cfg)
+        self.grl_head   = GRLHead(cfg)
+        self.pr_grl_head = PR_GRL_Head(cfg)   # Exp 1: phoneme GRL on z_P
 
     def forward(
         self,
         audio: torch.Tensor,
         audio_lengths: torch.Tensor,
+        stage: int = 1,
+        grl_lambda: float = 0.0,
     ) -> Dict[str, torch.Tensor]:
-        """
-        audio         : (B, T_samples)  16 kHz waveform, zero-padded
-        audio_lengths : (B,)            true sample counts
 
-        Returns dict with keys: h_t, h_hat, z_t, z_pre, out_lengths
-        """
-        h_t, out_lengths = self.encoder(audio, audio_lengths)   # (B, T, D)
-        z_t, z_pre       = self.sae.encode(h_t)                 # (B, T, K)
-        h_hat            = self.sae.decode(z_t)                 # (B, T, D)
-        return {
+        h_t, out_lengths = self.encoder(audio, audio_lengths)    # (B, T, D)
+        z_t, z_pre       = self.sae.encode(h_t)                  # (B, T, K)
+
+        if stage == 1:
+            h_hat = self.sae.decode(z_t)
+            return {"h_t": h_t, "h_hat": h_hat, "z_t": z_t,
+                    "z_pre": z_pre, "out_lengths": out_lengths}
+
+        no_routing = getattr(self.cfg, 'no_routing', False)
+        n_routes   = getattr(self.cfg, 'n_routes', 3)
+        ste        = getattr(self.cfg, 'ste_routing', False)
+        grl_p      = getattr(self.cfg, 'grl_phoneme_weight', 0.0)
+
+        # ---- Experiment D: bypass routing entirely ----
+        if no_routing:
+            h_hat    = self.sae.decode(z_t)
+            z_t_pool = _mean_pool(z_t, out_lengths)
+            return {
+                "h_t": h_t, "h_hat": h_hat, "z_t": z_t,
+                "z_pre": z_pre, "out_lengths": out_lengths,
+                "z_L": z_t, "z_P": z_t, "z_P_bar": z_t_pool,
+                "pr_logits":   self.pr_head(z_t),
+                "sid_logits":  self.sid_head(z_t_pool),
+                "grl_logits":  self.grl_head(z_t, out_lengths, grl_lambda),
+            }
+
+        # ---- Normal stage 2: get routing masks ----
+        if n_routes == 2:
+            m_L, m_P = self.routing()
+            m_U = torch.zeros_like(m_L)
+        else:
+            m_L, m_P, m_U = self.routing()   # each (K,)
+
+        # ---- Reconstruction: always from sparse z_t (decoder-consistent) ----
+        z_L_sp = m_L * z_t
+        z_P_sp = m_P * z_t
+        z_U_sp = m_U * z_t
+        z_P_bar_sp    = _mean_pool(z_P_sp, out_lengths)
+        z_P_broadcast = z_P_bar_sp.unsqueeze(1).expand_as(z_t)
+        z_recon       = z_L_sp + z_U_sp + z_P_broadcast
+        h_hat         = self.sae.decode(z_recon)
+
+        # ---- Exp 5: STE — task heads use dense z_pre in backward only ----
+        # Forward: m × z_t (sparse, identical to standard).
+        # Backward: gradient flows through m × z_pre (dense) → routing gets gradient.
+        if ste:
+            z_L = m_L * z_pre + (m_L * z_t - m_L * z_pre).detach()
+            z_P = m_P * z_pre + (m_P * z_t - m_P * z_pre).detach()
+            z_P_bar = _mean_pool(z_P, out_lengths)
+        else:
+            z_L, z_P, z_P_bar = z_L_sp, z_P_sp, z_P_bar_sp
+
+        out = {
             "h_t":         h_t,
             "h_hat":       h_hat,
             "z_t":         z_t,
             "z_pre":       z_pre,
             "out_lengths": out_lengths,
+            "z_L":         z_L,
+            "z_P":         z_P,
+            "z_P_bar":     z_P_bar,
+            "m_L":         m_L,    # Exp 4: needed for ub_loss
+            "m_P":         m_P,
+            "pr_logits":   self.pr_head(z_L),
+            "sid_logits":  self.sid_head(z_P_bar),
+            "grl_logits":  self.grl_head(z_L, out_lengths, grl_lambda),
         }
+
+        # Exp 1: phoneme GRL on z_P (only when weight > 0)
+        if grl_p > 0.0:
+            out["pr_grl_logits"] = self.pr_grl_head(z_P, grl_lambda)
+
+        return out
 
 
 def build_dis_model(cfg) -> DISModel:
