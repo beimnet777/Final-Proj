@@ -32,7 +32,7 @@ from pathlib import Path
 
 import torch
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent.parent))
 from config import Config
 from data import make_dataloaders, make_cached_dataloaders
 from logger import RunLogger

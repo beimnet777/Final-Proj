@@ -23,7 +23,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from datasets import load_dataset, Audio
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent.parent))
 from config import Config
 from reproducibility import dataloader_seed_kwargs
 from typing import Optional
