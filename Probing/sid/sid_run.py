@@ -7,6 +7,7 @@ Usage
     # From the sid/ directory:
     python sid_run.py --probe final    --voxceleb1_root /path/to/VoxCeleb1
     python sid_run.py --probe weighted --voxceleb1_root /path/to/VoxCeleb1
+    python sid_run.py --probe fixed_weighted --voxceleb1_root /path/to/VoxCeleb1
 
     # Different encoder:
     python sid_run.py --probe weighted --voxceleb1_root /path/...
@@ -55,9 +56,10 @@ def parse_args():
         description="VoxCeleb1 speaker identification probing."
     )
     p.add_argument(
-        "--probe", choices=["final", "weighted"], default=cfg.probe_type,
+        "--probe", choices=["final", "weighted", "fixed_weighted"], default=cfg.probe_type,
         help="Probe head: 'final' (single layer + mean pool + linear) or "
-             "'weighted' (softmax layer mix + mean pool + linear).",
+             "'weighted' (softmax layer mix + mean pool + linear) or "
+             "'fixed_weighted' (uniform layer average + mean pool + linear).",
     )
     p.add_argument("--voxceleb1_root", required=True,
                    help="Path to the VoxCeleb1 root directory (contains dev/ and test/).")
@@ -140,11 +142,12 @@ def main() -> None:
                                 label="test", epoch=cfg.num_epochs, tb=tb)
     print(f"[SID] test acc     : {test_metrics['acc']:.4f}")
 
-    # Layer weights (weighted probe only).
+    # Layer weights (learned or fixed weighted probes).
     layer_weights = None
-    if cfg.probe_type == "weighted" and hasattr(probe, "layer_weights"):
+    if hasattr(probe, "layer_weights"):
         layer_weights = probe.layer_weights.tolist()
-        print("\nLearned softmax weights over encoder layers:")
+        label = "Fixed uniform weights" if cfg.probe_type == "fixed_weighted" else "Learned softmax weights"
+        print(f"\n{label} over encoder layers:")
         for i, w in enumerate(layer_weights):
             print(f"  layer {i:>2d}: {w:.4f}")
 

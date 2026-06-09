@@ -76,7 +76,7 @@ class PRConfig:
     encoder_layer_count: int = 0
 
     # ---------------------------------------------------------------- Probe
-    probe_type: Literal["final", "weighted"] = "weighted"
+    probe_type: Literal["final", "weighted", "fixed_weighted"] = "weighted"
     layer_idx: int         = -1
     proj_dim: int          = 256   # frame-level projection dim before CTC head (SUPERB: 256)
     probe_dropout: float   = 0.1

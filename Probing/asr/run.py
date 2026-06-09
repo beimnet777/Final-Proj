@@ -21,6 +21,7 @@ Examples
 --------
     python run.py --probe final    --model_id <hf-id>
     python run.py --probe weighted --model_id <hf-id>  --epochs 30
+    python run.py --probe fixed_weighted_lstm --model_id <hf-id>
 """
 
 
@@ -42,9 +43,10 @@ from train import fit, evaluate
 def parse_args() -> Config:
     cfg = Config()
     p = argparse.ArgumentParser()
-    p.add_argument("--probe", choices=["final", "weighted", "lstm", "weighted_lstm"], default=cfg.probe_type,
+    p.add_argument("--probe", choices=["final", "weighted", "lstm", "weighted_lstm", "fixed_weighted_lstm"], default=cfg.probe_type,
                    help="Probe head: final (linear on last layer), weighted (softmax mix + linear), "
-                        "lstm (BLSTM on last layer), weighted_lstm (softmax mix + BLSTM).")
+                        "lstm (BLSTM on last layer), weighted_lstm (softmax mix + BLSTM), "
+                        "fixed_weighted_lstm (uniform layer average + BLSTM).")
     p.add_argument("--epochs", type=int, default=cfg.num_epochs)
     p.add_argument("--batch_size", type=int, default=cfg.batch_size)
     p.add_argument("--eval_batch_size", type=int, default=cfg.eval_batch_size,
@@ -127,9 +129,14 @@ def main() -> None:
     print(f"test_cer {metrics['cer']:.4f}  test_wer {metrics['wer']:.4f}")
 
     layer_weights = None
-    if cfg.probe_type == "weighted" and hasattr(probe, "layer_weights"):
+    if hasattr(probe, "layer_weights"):
         layer_weights = probe.layer_weights.tolist()
-        print("Learned softmax weights over SPEAR layers (layer_idx: weight):")
+        weight_label = "Layer weights over SPEAR layers"
+        if cfg.probe_type == "fixed_weighted_lstm":
+            weight_label += " (fixed uniform)"
+        else:
+            weight_label += " (learned softmax)"
+        print(f"{weight_label}:")
         for i, w in enumerate(layer_weights):
             print(f"  layer {i:>2d}: {w:.4f}")
 

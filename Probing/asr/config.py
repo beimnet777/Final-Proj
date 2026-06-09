@@ -39,7 +39,8 @@ class Config:
     #               by default; configurable via layer_idx).
     # "weighted" -> learnable softmax mixture across all SPEAR layers,
     #               then a linear classifier on the mixed representation.
-    probe_type: Literal["final", "weighted", "lstm", "weighted_lstm"] = "weighted"
+    # "fixed_weighted_lstm" -> uniform, non-learned layer average, then BLSTM.
+    probe_type: Literal["final", "weighted", "lstm", "weighted_lstm", "fixed_weighted_lstm"] = "weighted"
     layer_idx: int = -1
     proj_dim: int = 1024       # frame-level projection dim before LSTM/linear (SUPERB ASR: 1024)
     probe_dropout: float = 0.1

@@ -102,6 +102,42 @@ class CTCWeightedLayerProbe(nn.Module):
         return F.log_softmax(x, dim=-1)
 
 
+class CTCFixedWeightedLayerProbe(nn.Module):
+    """Uniform, non-learned layer average → projector → linear → log-softmax."""
+
+    def __init__(
+        self,
+        num_layers: int,
+        hidden_size: int,
+        vocab_size: int,
+        proj_dim: int = 256,
+    ) -> None:
+        super().__init__()
+        self.num_layers = num_layers
+        self.layer_norm = nn.ModuleList(
+            [nn.LayerNorm(hidden_size, elementwise_affine=False) for _ in range(num_layers)]
+        )
+        self.projector = nn.Linear(hidden_size, proj_dim)
+        self.linear = nn.Linear(proj_dim, vocab_size)
+
+    @property
+    def layer_weights(self) -> torch.Tensor:
+        return torch.full((self.num_layers,), 1.0 / self.num_layers)
+
+    def forward(
+        self,
+        hidden_states: List[torch.Tensor],
+        frame_lengths: torch.Tensor,
+    ) -> torch.Tensor:
+        x = torch.stack(
+            [self.layer_norm[i](hidden_states[i]) for i in range(self.num_layers)],
+            dim=0,
+        ).mean(dim=0)                         # (B, T, D)
+        x = self.projector(x)                 # (B, T, proj_dim)
+        x = self.linear(x)                    # (B, T, V)
+        return F.log_softmax(x, dim=-1)
+
+
 # ====================================================================
 # Factory
 # ====================================================================
@@ -124,6 +160,13 @@ def build_pr_model(cfg: PRConfig):
         )
     elif cfg.probe_type == "weighted":
         probe = CTCWeightedLayerProbe(
+            num_layers=encoder.num_layers,
+            hidden_size=encoder.hidden_size,
+            vocab_size=cfg.vocab_size,
+            proj_dim=cfg.proj_dim,
+        )
+    elif cfg.probe_type == "fixed_weighted":
+        probe = CTCFixedWeightedLayerProbe(
             num_layers=encoder.num_layers,
             hidden_size=encoder.hidden_size,
             vocab_size=cfg.vocab_size,

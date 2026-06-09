@@ -7,6 +7,7 @@ Usage
     # From the er/ directory:
     python er_run.py --probe final    --iemocap_root /path/to/IEMOCAP_full_release
     python er_run.py --probe weighted --iemocap_root /path/to/IEMOCAP_full_release
+    python er_run.py --probe fixed_weighted --iemocap_root /path/to/IEMOCAP_full_release
 
     # Run only specific folds:
     python er_run.py --probe weighted --iemocap_root /path/... --folds 1 2
@@ -58,9 +59,10 @@ def parse_args():
         description="IEMOCAP emotion recognition — 5-fold cross-validation."
     )
     p.add_argument(
-        "--probe", choices=["final", "weighted"], default=cfg.probe_type,
+        "--probe", choices=["final", "weighted", "fixed_weighted"], default=cfg.probe_type,
         help="Probe head: 'final' (single layer + mean pool + linear) or "
-             "'weighted' (softmax layer mix + mean pool + linear).",
+             "'weighted' (softmax layer mix + mean pool + linear) or "
+             "'fixed_weighted' (uniform layer average + mean pool + linear).",
     )
     p.add_argument(
         "--iemocap_root", required=True,

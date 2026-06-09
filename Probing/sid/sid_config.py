@@ -60,8 +60,9 @@ class SIDConfig:
 
     # ---------------------------------------------------------------- Probe
     # 'final'    — linear on a single encoder layer (layer_idx)
-    # 'weighted' — learnable softmax mix of all layers, then linear
-    probe_type: Literal["final", "weighted"] = "weighted"
+    # 'weighted'       — learnable softmax mix of all layers, then linear
+    # 'fixed_weighted' — uniform, non-learned average of all layers, then linear
+    probe_type: Literal["final", "weighted", "fixed_weighted"] = "weighted"
     layer_idx: int = -1
     proj_dim: int = 256        # frame-level projection dim before mean-pool (SUPERB: 256)
     probe_dropout: float = 0.1

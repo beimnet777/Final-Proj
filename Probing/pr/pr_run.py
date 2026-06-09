@@ -7,6 +7,7 @@ Usage
     # From the pr/ directory:
     python pr_run.py --probe final
     python pr_run.py --probe weighted
+    python pr_run.py --probe fixed_weighted
 
     # Different encoder:
     python pr_run.py --probe weighted \\
@@ -55,7 +56,7 @@ def parse_args() -> PRConfig:
         description="LibriSpeech 100h phone recognition probing."
     )
     p.add_argument(
-        "--probe", choices=["final", "weighted"], default=cfg.probe_type,
+        "--probe", choices=["final", "weighted", "fixed_weighted"], default=cfg.probe_type,
         help="Probe head type.",
     )
     p.add_argument("--model_id",        default=cfg.model_id)
@@ -129,11 +130,12 @@ def main() -> None:
                                label="test", epoch=cfg.num_epochs, tb=tb)
     print(f"[PR] test PER     : {test_metrics['per']:.4f}")
 
-    # Layer weights (weighted probe only).
+    # Layer weights (learned or fixed weighted probes).
     layer_weights = None
-    if cfg.probe_type == "weighted" and hasattr(probe, "layer_weights"):
+    if hasattr(probe, "layer_weights"):
         layer_weights = probe.layer_weights.tolist()
-        print("\nLearned softmax weights over encoder layers:")
+        label = "Fixed uniform weights" if cfg.probe_type == "fixed_weighted" else "Learned softmax weights"
+        print(f"\n{label} over encoder layers:")
         for i, w in enumerate(layer_weights):
             print(f"  layer {i:>2d}: {w:.4f}")
 
