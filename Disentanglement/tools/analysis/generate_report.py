@@ -22,7 +22,7 @@ import matplotlib.image as mpimg
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.patches import FancyBboxPatch
 
-DIS_DIR  = Path(__file__).parent
+DIS_DIR  = Path(__file__).resolve().parents[2]
 ANA_DIR  = DIS_DIR / "analysis"
 OUT_PDF  = DIS_DIR / "analysis" / "disentanglement_report.pdf"
 

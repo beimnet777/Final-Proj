@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=dis_sae
-#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/sae_%j.out
-#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/sae_%j.err
+#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage1/sae_%j.out
+#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage1/sae_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -19,7 +19,7 @@ PYTHON=/home/bbg25/.conda/envs/mlmi4/bin/python
 DIS_DIR=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement
 export PYTHONUNBUFFERED=1
 
-mkdir -p "${DIS_DIR}/logs"
+mkdir -p "${DIS_DIR}/logs/train/stage1"
 cd "${DIS_DIR}"
 
 echo "=== SAE Reconstruction — full LibriSpeech 100h, no duration clip ==="

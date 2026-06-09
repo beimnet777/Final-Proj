@@ -3,10 +3,10 @@
 
 Outputs
 -------
-  analysis/stage1_curves.png        — loss + routing + tau curves
-  analysis/stage1_layer_weights.png — learned SPEAR layer importance
-  analysis/stage1_sparsity.png      — SAE activation statistics on val
-  analysis/stage1_summary.txt       — key numbers
+  analysis/stage1/stage1_curves.png        — loss + routing + tau curves
+  analysis/stage1/stage1_layer_weights.png — fixed/uniform SPEAR layer mix
+  analysis/stage1/stage1_sparsity.png      — SAE activation statistics on val
+  analysis/stage1/stage1_summary.txt       — key numbers
 """
 
 from __future__ import annotations
@@ -25,14 +25,19 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 import torch
 
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT))
+DIS_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(DIS_DIR))
 
-OUT  = ROOT / "analysis"
-OUT.mkdir(exist_ok=True)
+OUT  = DIS_DIR / "analysis" / "stage1"
+OUT.mkdir(parents=True, exist_ok=True)
 
-CKPT = ROOT / "checkpoints" / "stage1_best.pt"
-LOG  = list((ROOT / "logs").glob("stage1_*.out"))
+CKPT_CANDIDATES = [
+    DIS_DIR / "checkpoints" / "stage1_best.pt",
+    DIS_DIR / "checkpoints" / "best.pt",
+]
+CKPT = next((p for p in CKPT_CANDIDATES if p.exists()), CKPT_CANDIDATES[0])
+LOG_DIR = DIS_DIR / "logs" / "train" / "stage1"
+LOG  = sorted(LOG_DIR.glob("*.out"))
 
 # ---------------------------------------------------------------- 1. Parse log
 def parse_log(paths: list[Path]) -> dict:
@@ -136,9 +141,16 @@ def load_and_analyse() -> None:
     model.load_state_dict(ckpt["model_state"], strict=False)
     model.eval()
 
-    # --- Layer weights
-    weights = torch.softmax(model.encoder.mix_logits, dim=0).detach().cpu().numpy()
-    plot_layer_weights(weights)
+    # --- Layer weights. Current SPEAR uses fixed uniform averaging; older
+    # checkpoints may still carry a trainable mix_logits parameter.
+    if hasattr(model.encoder, "mix_logits"):
+        weights = torch.softmax(model.encoder.mix_logits, dim=0).detach().cpu().numpy()
+        layer_title = "Learned Layer-Weighted Sum of SPEAR Hidden States"
+    else:
+        n_layers = getattr(model.encoder, "n_layers", 13)
+        weights = np.full(n_layers, 1.0 / n_layers)
+        layer_title = "Fixed Uniform Average of SPEAR Hidden States"
+    plot_layer_weights(weights, layer_title)
 
     # --- Routing hard assignment
     with torch.no_grad():
@@ -152,14 +164,14 @@ def load_and_analyse() -> None:
     return model, cfg, ckpt
 
 
-def plot_layer_weights(weights: np.ndarray) -> None:
+def plot_layer_weights(weights: np.ndarray, title: str) -> None:
     fig, ax = plt.subplots(figsize=(9, 4))
     bars = ax.bar(range(len(weights)), weights, color="#2196F3", alpha=0.8)
     ax.set_xticks(range(len(weights)))
     ax.set_xticklabels([f"L{i}" for i in range(len(weights))], fontsize=9)
     ax.set_xlabel("SPEAR Transformer Layer")
     ax.set_ylabel("Softmax Weight")
-    ax.set_title("Learned Layer-Weighted Sum of SPEAR Hidden States", fontsize=11)
+    ax.set_title(title, fontsize=11)
     # annotate top-3
     top3 = np.argsort(weights)[-3:]
     for i in top3:
@@ -215,7 +227,11 @@ def write_summary(d: dict, model) -> None:
     threshold = r0 * 0.95
     breakout  = next((s for s, r in zip(d["steps"], d["recon"]) if r < threshold), None)
 
-    weights = torch.softmax(model.encoder.mix_logits, dim=0).detach().cpu().numpy()
+    if hasattr(model.encoder, "mix_logits"):
+        weights = torch.softmax(model.encoder.mix_logits, dim=0).detach().cpu().numpy()
+    else:
+        n_layers = getattr(model.encoder, "n_layers", 13)
+        weights = np.full(n_layers, 1.0 / n_layers)
     top_layers = np.argsort(weights)[-3:][::-1]
 
     hard = model.routing.hard_counts
@@ -277,7 +293,7 @@ if __name__ == "__main__":
     print("\n=== Stage 1 Analysis ===\n")
 
     if not LOG:
-        print("No stage1 log files found in logs/"); sys.exit(1)
+        print(f"No stage1 log files found in {LOG_DIR}/"); sys.exit(1)
     if not CKPT.exists():
         print(f"Checkpoint not found: {CKPT}"); sys.exit(1)
 

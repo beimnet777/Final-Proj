@@ -15,7 +15,7 @@ Reported per checkpoint:
   frac|r|>0.5   fraction of feature pairs with |corr| > 0.5
 
 Usage:
-  python decor_diagnostic.py \
+  python tools/diagnostics/decor_diagnostic.py \
       --ckpt baseline=checkpoints/best.pt \
       --ckpt decor_only=checkpoints/decor_only/stage1_best.pt
 """
@@ -28,7 +28,8 @@ from pathlib import Path
 
 import torch
 
-sys.path.insert(0, str(Path(__file__).parent))
+DIS_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(DIS_DIR))
 
 from config import DISConfig
 from model import build_dis_model

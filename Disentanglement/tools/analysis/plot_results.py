@@ -48,15 +48,20 @@ plt.rcParams.update({
     "figure.dpi":        150,
 })
 
-DIS_DIR = Path(__file__).parent
+DIS_DIR = Path(__file__).resolve().parents[2]
 LOG_DIR = DIS_DIR / "logs"
 OUT_DIR = DIS_DIR / "analysis"
+STAGE1_LOG_DIR = LOG_DIR / "train" / "stage1"
+STAGE2_LOG_DIR = LOG_DIR / "train" / "stage2"
+PROBE_LOG_DIR = LOG_DIR / "probes"
+HIST_PROBE_DIR = PROBE_LOG_DIR / "diagnostic_historical"
+HIST_PROBE_SUCCESS_DIR = HIST_PROBE_DIR / "successful"
 
 # ─────────────────────────────────────────── experiment registry
 
 EXPERIMENTS = {
     "baseline": {
-        "stage1_log": LOG_DIR / "stage1/sae_29858328.out",
+        "stage1_log": STAGE1_LOG_DIR / "sae_29858328.out",
         "stage2_log": None,
         "probe_log":  None,
         "hparams":    {"K": 5120, "topk": 256, "stage": 1},
@@ -65,9 +70,9 @@ EXPERIMENTS = {
         "category": "baseline",
     },
     "decor_only": {
-        "stage1_log": LOG_DIR / "stage1/decor_only_29986441.out",
-        "stage2_log": LOG_DIR / "stage2/decor_only_29986442.out",
-        "probe_log":  LOG_DIR / "probes/probe_decor_only_29986443.out",
+        "stage1_log": STAGE1_LOG_DIR / "decor_only_29986441.out",
+        "stage2_log": STAGE2_LOG_DIR / "main/decor_only_29986442.out",
+        "probe_log":  HIST_PROBE_DIR / "probe_decor_only_29986443.out",
         "hparams":    {"K": 5120, "topk": 256, "decor_weight": 1.0,
                        "beta": 0.01, "grl": 0.01},
         "desc": "SAE with full K×K frame-level VICReg decorrelation loss (delta=1.0). "
@@ -77,8 +82,8 @@ EXPERIMENTS = {
         "category": "sae_variant",
     },
     "K10240_t128": {
-        "stage1_log": LOG_DIR / "stage1/stage1_K10240_t128_29970559.out",
-        "stage2_log": LOG_DIR / "stage2/K10240_t128_29981421.out",
+        "stage1_log": STAGE1_LOG_DIR / "stage1_K10240_t128_29970559.out",
+        "stage2_log": STAGE2_LOG_DIR / "main/K10240_t128_29981421.out",
         "probe_log":  None,
         "hparams":    {"K": 10240, "topk": 128, "beta": 0.01,
                        "grl": 0.01, "n_routes": 2},
@@ -89,8 +94,8 @@ EXPERIMENTS = {
     },
     "sid1_weakgrl": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/sweep/stage2_sid1_weakgrl_29888468.out",
-        "probe_log":  LOG_DIR / "probes/probe_ste_29970552.out",
+        "stage2_log": STAGE2_LOG_DIR / "sweep/stage2_sid1_weakgrl_29888468.out",
+        "probe_log":  HIST_PROBE_SUCCESS_DIR / "probe_A_29924130.out",
         "hparams":    {"beta": 0.01, "grl": 0.01, "rho": 0.001},
         "desc": "Core disentanglement baseline: GRL on z_L (beta=0.01, grl=0.01). "
                 "Best result across all experiments — dominates both axis-1 (z_L→SID=0.104) "
@@ -99,8 +104,8 @@ EXPERIMENTS = {
     },
     "sid1_nogrl": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/sweep/stage2_sid1_nogrl_29888469.out",
-        "probe_log":  None,
+        "stage2_log": STAGE2_LOG_DIR / "sweep/stage2_sid1_nogrl_29888469.out",
+        "probe_log":  HIST_PROBE_SUCCESS_DIR / "probe_C_29924131.out",
         "hparams":    {"beta": 0.01, "grl": 0.0, "rho": 0.001},
         "desc": "No GRL — routing only, no adversarial speaker removal from z_L. "
                 "Shows routing alone cannot separate speaker from phoneme features.",
@@ -108,7 +113,7 @@ EXPERIMENTS = {
     },
     "sid1_delayedgrl": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/sweep/stage2_sid1_delayedgrl_29888470.out",
+        "stage2_log": STAGE2_LOG_DIR / "sweep/stage2_sid1_delayedgrl_29888470.out",
         "probe_log":  None,
         "hparams":    {"beta": 0.01, "grl": 0.01, "grl_delay": 2000},
         "desc": "GRL with 2000-step warm-up delay. Tests whether letting routing "
@@ -117,7 +122,7 @@ EXPERIMENTS = {
     },
     "sid1_highrho": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/sweep/stage2_sid1_highrho_29888471.out",
+        "stage2_log": STAGE2_LOG_DIR / "sweep/stage2_sid1_highrho_29888471.out",
         "probe_log":  None,
         "hparams":    {"beta": 0.01, "grl": 0.01, "rho": 0.1},
         "desc": "Higher route entropy regularisation (rho=0.1 vs 0.001). "
@@ -126,8 +131,8 @@ EXPERIMENTS = {
     },
     "beta_002": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/beta_sweep/stage2_beta_002_29937686.out",
-        "probe_log":  LOG_DIR / "probes/successful/probe_beta_002_29937687.out",
+        "stage2_log": STAGE2_LOG_DIR / "beta_sweep/stage2_beta_002_29937686.out",
+        "probe_log":  HIST_PROBE_SUCCESS_DIR / "probe_beta_002_29937687.out",
         "hparams":    {"beta": 0.02, "grl": 0.01},
         "desc": "Increased SID adversary weight beta=0.02. Middle ground between "
                 "weakgrl (0.01) and beta_003 (0.03).",
@@ -135,8 +140,8 @@ EXPERIMENTS = {
     },
     "beta_003": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/beta_sweep/stage2_beta_003_29937688.out",
-        "probe_log":  LOG_DIR / "probes/successful/probe_beta_003_29937689.out",
+        "stage2_log": STAGE2_LOG_DIR / "beta_sweep/stage2_beta_003_29937688.out",
+        "probe_log":  HIST_PROBE_SUCCESS_DIR / "probe_beta_003_29937689.out",
         "hparams":    {"beta": 0.03, "grl": 0.01},
         "desc": "Strong SID adversary beta=0.03. Better z_P→SID (0.938) but collapses "
                 "z_P→PR (0.184). Higher beta aggressively removes speaker from z_L "
@@ -145,8 +150,8 @@ EXPERIMENTS = {
     },
     "dual_grl_03": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/experiments/dual_grl_03_29970545.out",
-        "probe_log":  LOG_DIR / "probes/probe_dual_grl_03_29970546.out",
+        "stage2_log": STAGE2_LOG_DIR / "experiments/dual_grl_03_29970545.out",
+        "probe_log":  HIST_PROBE_DIR / "probe_dual_grl_03_29970546.out",
         "hparams":    {"beta": 0.03, "grl": 0.01, "grl_phoneme": 0.01},
         "desc": "Dual GRL: speaker adversary on z_L + phoneme adversary on z_P (beta=0.03). "
                 "Best z_P→PR after weakgrl (0.425) but catastrophic z_L→SID (0.844). "
@@ -155,8 +160,8 @@ EXPERIMENTS = {
     },
     "ub": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/experiments/ub_29970549.out",
-        "probe_log":  LOG_DIR / "probes/probe_ub_29970550.out",
+        "stage2_log": STAGE2_LOG_DIR / "experiments/ub_29970549.out",
+        "probe_log":  HIST_PROBE_DIR / "probe_ub_29970550.out",
         "hparams":    {"beta": 0.01, "grl": 0.01, "ub_weight": 0.01},
         "desc": "Undecided-bucket bottleneck (ub_weight=0.01). Forces features toward "
                 "uncommitted U route. Balanced but mediocre on both axes (0.292, 0.293).",
@@ -164,8 +169,8 @@ EXPERIMENTS = {
     },
     "ste": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/experiments/ste_29970551.out",
-        "probe_log":  LOG_DIR / "probes/probe_ste_29970552.out",
+        "stage2_log": STAGE2_LOG_DIR / "experiments/ste_29970551.out",
+        "probe_log":  HIST_PROBE_DIR / "probe_ste_29970552.out",
         "hparams":    {"beta": 0.01, "grl": 0.01, "ste_routing": True},
         "desc": "Straight-through estimator routing (beta=0.01, grl=0.01). "
                 "Denser gradient coverage through routing masks. Second best z_L→SID (0.186) "
@@ -174,8 +179,8 @@ EXPERIMENTS = {
     },
     "ste_ub": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/ste_ub_29981425.out",
-        "probe_log":  LOG_DIR / "probes/probe_ste_ub_29981426.out",
+        "stage2_log": STAGE2_LOG_DIR / "main/ste_ub_29981425.out",
+        "probe_log":  HIST_PROBE_DIR / "probe_ste_ub_29981426.out",
         "hparams":    {"beta": 0.01, "grl": 0.01, "ste_routing": True, "ub_weight": 0.01},
         "desc": "STE routing + undecided bucket. Combines STE's gradient density with "
                 "UB pressure valve. Suspicious z_t→SID=0.592 suggests SAE information "
@@ -184,8 +189,8 @@ EXPERIMENTS = {
     },
     "combined": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/combined_29981427.out",
-        "probe_log":  LOG_DIR / "probes/probe_combined_29981428.out",
+        "stage2_log": STAGE2_LOG_DIR / "main/combined_29981427.out",
+        "probe_log":  HIST_PROBE_DIR / "probe_combined_29981428.out",
         "hparams":    {"beta": 0.03, "grl": 0.01, "grl_phoneme": 0.01,
                        "ste_routing": True, "ub_weight": 0.01},
         "desc": "Kitchen-sink combination: beta=0.03, dual-GRL, STE, UB. "
@@ -195,8 +200,8 @@ EXPERIMENTS = {
     },
     "dual_weak_ub": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/dual_weak_ub_29989276.out",
-        "probe_log":  LOG_DIR / "probes/probe_dual_weak_ub_29989277.out",
+        "stage2_log": STAGE2_LOG_DIR / "main/dual_weak_ub_29989276.out",
+        "probe_log":  HIST_PROBE_DIR / "probe_dual_weak_ub_29989277.out",
         "hparams":    {"beta": 0.01, "grl": 0.01, "grl_phoneme": 0.01, "ub_weight": 0.01},
         "desc": "Dual GRL with weak beta=0.01 + UB. Best z_P→SID (0.942) of all runs — "
                 "the phoneme adversary on z_P concentrates speaker info in P. "
@@ -205,7 +210,7 @@ EXPERIMENTS = {
     },
     "no_routing": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/ablations/stage2_no_routing_29909640.out",
+        "stage2_log": STAGE2_LOG_DIR / "ablations/stage2_no_routing_29909640.out",
         "probe_log":  None,
         "hparams":    {"beta": 0.01, "grl": 0.01, "no_routing": True},
         "desc": "No routing module — all features shared between tasks. GRL still applied. "
@@ -214,7 +219,7 @@ EXPERIMENTS = {
     },
     "fixed_70_30": {
         "stage1_log": None,
-        "stage2_log": LOG_DIR / "stage2/ablations/stage2_fixed_70_30_29909641.out",
+        "stage2_log": STAGE2_LOG_DIR / "ablations/stage2_fixed_70_30_29909641.out",
         "probe_log":  None,
         "hparams":    {"beta": 0.01, "grl": 0.01, "fixed_routing": True, "split": 0.7},
         "desc": "Fixed 70/30 routing split (not learned). 70% features go to L, 30% to P. "

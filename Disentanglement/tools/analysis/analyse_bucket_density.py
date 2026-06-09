@@ -16,7 +16,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent))
+DIS_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(DIS_DIR))
 
 
 class _FakeSpear(nn.Module):
@@ -44,7 +45,7 @@ def _run():
     from model import build_dis_model
     from train import _load_checkpoint
 
-    ckpt_path = Path("checkpoints/stage2_best.pt")
+    ckpt_path = DIS_DIR / "checkpoints" / "stage2_best.pt"
     cfg = DISConfig()
     cfg.device = "cpu"
     cfg.bf16 = False

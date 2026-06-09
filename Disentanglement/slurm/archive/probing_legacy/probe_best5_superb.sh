@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
 #SBATCH --job-name=probe_superb_b5
-#SBATCH --array=0-4
+#SBATCH --array=0-4%1
 #SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/probes/superb_best5/%x_%A_%a.out
 #SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/probes/superb_best5/%x_%A_%a.err
 
@@ -21,6 +21,9 @@ module load rhel8/default-amp 2>/dev/null
 PYTHON=/home/bbg25/.conda/envs/mlmi4/bin/python
 DIS_DIR=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement
 export PYTHONUNBUFFERED=1
+export HF_HOME="${DIS_DIR}/../Probing/data/hf_home"
+export HF_DATASETS_CACHE="${DIS_DIR}/../Probing/data/datasets_cache"
+export HF_HUB_CACHE="${DIS_DIR}/../Probing/data/hub_cache"
 
 mkdir -p "${DIS_DIR}/logs/probes/superb_best5"
 cd "${DIS_DIR}"
