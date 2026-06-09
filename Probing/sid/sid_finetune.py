@@ -55,7 +55,9 @@ def parse_args() -> SIDConfig:
     p.add_argument("--checkpoint_dir",   default=None)
     p.add_argument("--runs_dir",         default=None)
     p.add_argument("--num_workers",      type=int,   default=cfg.num_workers)
-    p.add_argument("--max_duration_s",   type=float, default=cfg.max_duration_s)
+    p.add_argument("--train_max_duration_s", "--max_duration_s",
+                   type=float, default=cfg.train_max_duration_s,
+                   help="Random-crop training utterances to at most this many seconds.")
     p.add_argument("--seed",             type=int,   default=cfg.seed)
     args = p.parse_args()
 
@@ -67,7 +69,7 @@ def parse_args() -> SIDConfig:
     cfg.batch_size      = args.batch_size
     cfg.eval_batch_size = args.eval_batch_size
     cfg.num_workers     = args.num_workers
-    cfg.max_duration_s  = args.max_duration_s
+    cfg.train_max_duration_s = args.train_max_duration_s
     cfg.seed            = args.seed
     cfg.checkpoint_dir  = Path(args.checkpoint_dir) if args.checkpoint_dir else cfg.checkpoint_dir
     cfg.runs_dir        = Path(args.runs_dir)        if args.runs_dir        else cfg.runs_dir
