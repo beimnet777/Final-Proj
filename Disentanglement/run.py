@@ -76,6 +76,8 @@ def _parse_args():
     p.add_argument("--fixed_routing_split", type=float,          default=cfg.fixed_routing_split)
     p.add_argument("--n_routes",            type=int,            default=cfg.n_routes)
     p.add_argument("--pre_topk_routing",    action="store_true", default=cfg.pre_topk_routing)
+    p.add_argument("--hard_gumbel_routing", action="store_true", default=cfg.hard_gumbel_routing,
+                   help="Use one-hot straight-through Gumbel masks during training.")
 
     # experiment flags
     p.add_argument("--grl_phoneme_weight",  type=float, default=cfg.grl_phoneme_weight)
@@ -123,6 +125,7 @@ def _parse_args():
     cfg.fixed_routing_split   = args.fixed_routing_split
     cfg.n_routes              = args.n_routes
     cfg.pre_topk_routing      = args.pre_topk_routing
+    cfg.hard_gumbel_routing   = args.hard_gumbel_routing
     cfg.grl_phoneme_weight    = args.grl_phoneme_weight
     cfg.decor_weight          = args.decor_weight
     cfg.ub_weight             = args.ub_weight

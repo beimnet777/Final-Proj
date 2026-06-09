@@ -21,6 +21,7 @@ class DISConfig:
     # ---------------------------------------------------------------- Routing / Gumbel
     gumbel_tau_start: float = 1.0
     gumbel_tau_end:   float = 0.1
+    hard_gumbel_routing: bool = False  # If True, stage-2 training uses one-hot ST-Gumbel masks.
 
     # ---------------------------------------------------------------- Loss weights  (stage 2)
     alpha:      float = 1.0     # PR (CTC) weight          — calibrated from grad norms

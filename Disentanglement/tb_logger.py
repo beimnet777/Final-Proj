@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 _LAYOUT = {
     "Training": {
@@ -25,7 +25,11 @@ _LAYOUT = {
     "Routing": {
         "Feature counts (L/P/U)": ["Multiline", ["routing/count_L","routing/count_P","routing/count_U"]],
         "Fractions":              ["Multiline", ["routing/frac_L", "routing/frac_P", "routing/frac_U"]],
-        "Entropy (nats)":         ["Multiline", ["routing/entropy"]],
+        "Entropy (nats)":         ["Multiline", ["routing/entropy", "routing/unit_entropy"]],
+        "Specialisation":         ["Multiline", ["routing/specialized_frac_h_lt_0_5",
+                                                  "routing/specialized_frac_h_lt_0_8",
+                                                  "routing/top1_top2_margin"]],
+        "Logit stats":            ["Multiline", ["routing/logit_std", "routing/logit_range"]],
     },
     "SAE": {
         "z_pre positive fraction": ["Multiline", ["sae/z_dense_density"]],
@@ -65,7 +69,15 @@ class DISLogger:
         for k, v in metrics.items():
             self._add(f"val/{k}", v, step)
 
-    def log_routing(self, step: int, n_L: int, n_P: int, n_U: int, entropy: float) -> None:
+    def log_routing(
+        self,
+        step: int,
+        n_L: int,
+        n_P: int,
+        n_U: int,
+        entropy: float,
+        diagnostics: Optional[Dict[str, float]] = None,
+    ) -> None:
         total = max(n_L + n_P + n_U, 1)
         self._add("routing/count_L",  n_L,          step)
         self._add("routing/count_P",  n_P,          step)
@@ -74,6 +86,9 @@ class DISLogger:
         self._add("routing/frac_P",   n_P / total,  step)
         self._add("routing/frac_U",   n_U / total,  step)
         self._add("routing/entropy",  entropy,      step)
+        if diagnostics:
+            for k, v in diagnostics.items():
+                self._add(f"routing/{k}", v, step)
 
     def log_sae(self, step: int, z_pre_pos_frac: float) -> None:
         self._add("sae/z_dense_density", z_pre_pos_frac, step)

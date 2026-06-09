@@ -420,6 +420,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += f"  ub={cfg.ub_weight}"
     if getattr(cfg, 'ste_routing', False):
         extra_str += "  ste=True"
+    if getattr(cfg, 'hard_gumbel_routing', False):
+        extra_str += "  hard_gumbel=True"
     print(f"[stage 2] α={cfg.alpha}  β={cfg.beta}  grl={cfg.grl_weight}  ρ={cfg.rho}{delay_str}{extra_str}")
     print(f"[stage 2] steps={cfg.stage2_steps}  batch={cfg.batch_size}")
 
@@ -523,9 +525,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             lr_now = optimizer.param_groups[0]["lr"]
             if not no_routing:
                 n_L, n_P, n_U = model.routing.hard_counts
-                entropy = model.routing.routing_entropy
+                routing_diag = model.routing.routing_diagnostics
+                entropy = routing_diag["balance_entropy"]
             else:
                 n_L, n_P, n_U = cfg.K, 0, 0
+                routing_diag = {}
                 entropy = float('nan')
             density = (out["z_pre"] > 0).float().mean().item()
             losses  = {"recon": l_recon.item(), "pr": l_pr.item(),
@@ -556,10 +560,14 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 f"  L/P/U={n_L}/{n_P}/{n_U}"
                 f"  actL/P/U={act_L.item():.0f}/{act_P.item():.0f}/{act_U.item():.0f}"
                 f"  H={entropy:.3f}"
+                f"  Hu={routing_diag.get('unit_entropy', float('nan')):.3f}"
+                f"  spec<.5={routing_diag.get('specialized_frac_h_lt_0_5', float('nan')):.2f}"
+                f"  marg={routing_diag.get('top1_top2_margin', float('nan')):.3f}"
+                f"  lstd={routing_diag.get('logit_std', float('nan')):.4f}"
                 f"  lr={lr_now:.2e}"
             )
             tb.log_train(step, losses)
-            tb.log_routing(step, n_L, n_P, n_U, entropy)
+            tb.log_routing(step, n_L, n_P, n_U, entropy, routing_diag)
             tb.log_sae(step, density)
 
         if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
