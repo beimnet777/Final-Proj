@@ -30,6 +30,8 @@ WORKDIR="/rds/user/${USER}/hpc-work/Thesis/Final-Proj/Probing/pr"
 cd "${WORKDIR}"
 mkdir -p logs
 export OMP_NUM_THREADS=1
+SEED="${SEED:-42}"
+export PYTHONHASHSEED="${SEED}"
 
 JOBID="${SLURM_JOB_ID}"
 EXPERIMENT_NAME="spear_pr_weighted_librispeech100"
@@ -56,6 +58,7 @@ CMD=(
   --warmup_steps 500
   --data_cache_dir "${DATA_CACHE}"
   --lexicon_path "${LEXICON_PATH}"
+  --seed "${SEED}"
   --checkpoint_dir "${WORKDIR}/checkpoints/${JOBID}"
   --runs_dir "${WORKDIR}/runs/${JOBID}"
 )
@@ -66,6 +69,7 @@ echo "Time: $(date)"
 echo "Node: $(hostname)"
 echo "Working dir: $(pwd)"
 echo "Log file: ${LOG_FILE}"
+echo "Seed: ${SEED}"
 echo "Running command: ${CMD[*]}"
 
 "${CMD[@]}" > "${LOG_FILE}" 2>&1

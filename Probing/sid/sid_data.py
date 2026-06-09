@@ -16,6 +16,7 @@ Speaker label: int(speaker_id[2:]) - 10001  →  id10001=0 … id11251=1250
 from __future__ import annotations
 
 import random
+import sys
 from pathlib import Path
 from typing import List, Tuple
 
@@ -23,7 +24,9 @@ import torch
 import torchaudio
 from torch.utils.data import DataLoader, Dataset
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from sid_config import SIDConfig
+from reproducibility import dataloader_seed_kwargs
 
 Record = Tuple[Path, int]
 
@@ -171,13 +174,25 @@ def make_sid_dataloaders(cfg: SIDConfig):
 
     pin = torch.cuda.is_available()
     def _loader(ds, bs, shuffle):
+        stream = 0 if shuffle else 1
         return DataLoader(
             ds, batch_size=bs, shuffle=shuffle,
             num_workers=cfg.num_workers, collate_fn=_collate,
             pin_memory=pin,
+            **dataloader_seed_kwargs(cfg.seed, stream=stream),
         )
 
     train_dl = _loader(train_ds, cfg.batch_size,      True)
-    val_dl   = _loader(val_ds,   cfg.eval_batch_size, False)
-    test_dl  = _loader(test_ds,  cfg.eval_batch_size, False)
+    val_dl   = DataLoader(
+        val_ds, batch_size=cfg.eval_batch_size, shuffle=False,
+        num_workers=cfg.num_workers, collate_fn=_collate,
+        pin_memory=pin,
+        **dataloader_seed_kwargs(cfg.seed, stream=1),
+    )
+    test_dl  = DataLoader(
+        test_ds, batch_size=cfg.eval_batch_size, shuffle=False,
+        num_workers=cfg.num_workers, collate_fn=_collate,
+        pin_memory=pin,
+        **dataloader_seed_kwargs(cfg.seed, stream=2),
+    )
     return train_dl, val_dl, test_dl

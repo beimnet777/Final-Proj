@@ -27,16 +27,17 @@ Examples
 
 
 import argparse
-import random
+import sys
 from pathlib import Path
 
-import numpy as np
 import torch
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import Config
 from data import make_dataloaders, make_cached_dataloaders
 from logger import RunLogger
 from model import build_model
+from reproducibility import set_seed
 from train import fit, evaluate
 
 
@@ -74,6 +75,8 @@ def parse_args() -> Config:
     p.add_argument("--feature_cache_dir", default=None,
                    help="If set, load pre-extracted SPEAR features from this directory "
                         "instead of running the encoder. Created by cache_features.py.")
+    p.add_argument("--seed", type=int, default=cfg.seed,
+                   help="Random seed for model init, shuffling, and augmentation.")
     args = p.parse_args()
 
     cfg.probe_type = args.probe
@@ -92,14 +95,8 @@ def parse_args() -> Config:
     cfg.lstm_layers = args.lstm_layers
     cfg.runs_dir = Path(args.runs_dir)
     cfg.feature_cache_dir = Path(args.feature_cache_dir) if args.feature_cache_dir else None
+    cfg.seed = args.seed
     return cfg
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
 
 
 def main() -> None:
@@ -108,6 +105,7 @@ def main() -> None:
     print(f"=== probe_type     : {cfg.probe_type}")
     print(f"=== model_id       : {cfg.model_id}")
     print(f"=== train_hours    : {cfg.train_hours}")
+    print(f"=== seed           : {cfg.seed}")
 
     if getattr(cfg, "feature_cache_dir", None):
         print(f"=== feature_cache  : {cfg.feature_cache_dir}  (cached mode — encoder not loaded)")
@@ -144,6 +142,9 @@ def main() -> None:
         "probe_type": cfg.probe_type,
         "model_id": cfg.model_id,
         "train_hours": cfg.train_hours,
+        "seed": cfg.seed,
+        "deterministic": True,
+        "num_workers": cfg.num_workers,
         "test_cer": metrics["cer"],
         "test_wer": metrics["wer"],
         "layer_weights": layer_weights,

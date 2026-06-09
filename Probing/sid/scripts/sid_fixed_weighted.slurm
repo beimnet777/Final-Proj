@@ -30,6 +30,8 @@ cd "${WORKDIR}"
 mkdir -p logs
 export OMP_NUM_THREADS=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+SEED="${SEED:-42}"
+export PYTHONHASHSEED="${SEED}"
 
 JOBID="${SLURM_JOB_ID}"
 EXPERIMENT_NAME="spear_sid_fixed_weighted_voxceleb1"
@@ -53,6 +55,7 @@ CMD=(
   --warmup_steps 100
   --num_workers 0
   --train_max_duration_s 8.0
+  --seed "${SEED}"
   --checkpoint_dir "${WORKDIR}/checkpoints/${JOBID}"
   --runs_dir "${WORKDIR}/runs/${JOBID}"
 )
@@ -63,6 +66,7 @@ echo "Time: $(date)"
 echo "Node: $(hostname)"
 echo "Working dir: $(pwd)"
 echo "Log file: ${LOG_FILE}"
+echo "Seed: ${SEED}"
 echo "Running command: ${CMD[*]}"
 
 "${CMD[@]}" > "${LOG_FILE}" 2>&1

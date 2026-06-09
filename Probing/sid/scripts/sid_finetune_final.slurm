@@ -29,6 +29,8 @@ cd "${WORKDIR}"
 mkdir -p logs
 export OMP_NUM_THREADS=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+SEED="${SEED:-42}"
+export PYTHONHASHSEED="${SEED}"
 
 JOBID="${SLURM_JOB_ID}"
 EXPERIMENT_NAME="spear_sid_finetune_final_voxceleb1"
@@ -46,6 +48,7 @@ CMD=(
   --lr 1e-5
   --batch_size 8
   --eval_batch_size 16
+  --seed "${SEED}"
   --checkpoint_dir "${WORKDIR}/checkpoints/${JOBID}"
   --runs_dir "${WORKDIR}/runs/${JOBID}"
   --num_workers 0
@@ -53,6 +56,7 @@ CMD=(
 
 echo "JobID: ${JOBID}"
 echo "Checkpoint: ${CHECKPOINT}"
+echo "Seed: ${SEED}"
 echo "Time: $(date)"
 
 "${CMD[@]}" 2>&1 | tee "${LOG_FILE}"
