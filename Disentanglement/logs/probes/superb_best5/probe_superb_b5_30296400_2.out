@@ -1,0 +1,65 @@
+=== SUPERB-aligned best-5 probe ===
+Job ID       : 30297777
+Array task   : 2
+Node         : gpu-q-67
+GPU          : NVIDIA A100-SXM4-80GB
+Started      : Tue Jun  9 12:31:25 BST 2026
+run_name     : superb_probe_ste
+model        : ste
+stage2_ckpt  : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ste/stage2_best.pt
+probe_steps  : 2000
+pr_max_examples: 0
+[probe] run=superb_probe_ste  device=cuda
+[probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/best.pt
+[probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ste/stage2_best.pt
+[probe] probe_steps=2000  sid_train_examples=0  pr_max_examples=0
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=28039  val=500  vocab=41  speakers=251
+[probe] num_speakers overridden from checkpoint → 251
+[train] WARNING: unexpected missing SAE keys: ['pr_grl_head.fc.weight', 'pr_grl_head.fc.bias']
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/best.pt  (step=6000  val=0.0049)
+[probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ste/stage2_best.pt
+
+[probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[probe] PR data/head: Probing/pr SUPERB-style loader + CTC projector head
+[probe] SID head: Probing/sid SUPERB-style projector + masked mean + linear
+[probe] sources=['h_t', 'z_t', 'z_L', 'z_P']  tasks=['pr', 'sid']
+
+  training probe: h_t → PR ...
+[pr_data] g2p_en loaded for OOV words
+    h_t → PR                PER=0.070
+  training probe: h_t → SID ...
+[dis_data] g2p_en loaded for OOV words
+    h_t → SID               acc=0.550
+  training probe: z_t → PR ...
+    z_t → PR                PER=0.060
+  training probe: z_t → SID ...
+    z_t → SID               acc=0.548
+  training probe: z_L → PR ...
+    z_L → PR                PER=0.062
+  training probe: z_L → SID ...
+    z_L → SID               acc=0.488
+  training probe: z_P → PR ...
+    z_P → PR                PER=0.290
+  training probe: z_P → SID ...
+    z_P → SID               acc=0.140
+
+============================================================
+  PROBE RESULTS — superb_probe_ste
+============================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  h_t              0.070         0.550
+  z_t              0.060         0.548
+  z_L              0.062         0.488  ← leakage?
+  z_P              0.290         0.140
+============================================================
+
+Finished     : Tue Jun  9 13:57:53 BST 2026
