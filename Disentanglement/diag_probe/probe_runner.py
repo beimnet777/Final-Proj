@@ -23,14 +23,14 @@ Cross-leakage cells:
 Usage
 -----
   # Mode B — baselines only (no stage-2 checkpoint)
-  python probe_runner.py --stage1_ckpt checkpoints/best.pt --run_name probe_B
+  python diag_probe/probe_runner.py --stage1_ckpt checkpoints/best.pt --run_name probe_B
 
   # Mode A — probe Run 2 checkpoint
-  python probe_runner.py --stage1_ckpt checkpoints/best.pt \\
+  python diag_probe/probe_runner.py --stage1_ckpt checkpoints/best.pt \\
       --stage2_ckpt checkpoints/sid1_weakgrl/stage2_best.pt --run_name probe_A
 
   # Mode C — probe Run 3 checkpoint
-  python probe_runner.py --stage1_ckpt checkpoints/best.pt \\
+  python diag_probe/probe_runner.py --stage1_ckpt checkpoints/best.pt \\
       --stage2_ckpt checkpoints/sid1_nogrl/stage2_best.pt --run_name probe_C
 """
 
@@ -52,7 +52,7 @@ try:
 except ImportError:
     jiwer = None
 
-DIS_DIR = Path(__file__).resolve().parent
+DIS_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = DIS_DIR.parent
 sys.path.insert(0, str(DIS_DIR))
 sys.path.insert(0, str(REPO_ROOT / "Probing" / "pr"))

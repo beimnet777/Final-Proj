@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -26,25 +25,13 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-import numpy as np
-import torch
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from pr_config import PRConfig
 from pr_data   import make_pr_dataloaders
 from pr_model  import build_pr_model
 from pr_train  import fit_pr, evaluate_pr
+from reproducibility import set_seed
 from tb_logger import TBLogger
-
-
-# ---------------------------------------------------------------- Seed ---
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
 
 
 # --------------------------------------------------------------- CLI ----
@@ -114,6 +101,7 @@ def main() -> None:
     print(f"=== checkpoint   : {cfg.checkpoint_dir}")
     print(f"=== runs         : {cfg.runs_dir}")
     print(f"=== epochs       : {cfg.num_epochs}  lr={cfg.learning_rate}")
+    print(f"=== seed         : {cfg.seed}")
 
     tokenizer, train_dl, val_dl, test_dl = make_pr_dataloaders(cfg)
     encoder, probe = build_pr_model(cfg)
@@ -146,6 +134,9 @@ def main() -> None:
         "probe_type":    cfg.probe_type,
         "model_id":      cfg.model_id,
         "model_family":  cfg.model_family,
+        "seed":          cfg.seed,
+        "deterministic": True,
+        "num_workers":   cfg.num_workers,
         "vocab_size":    cfg.vocab_size,
         "best_val_per":  best_val_per,
         "test_per":      test_metrics["per"],

@@ -6,7 +6,7 @@ Tests:
   - stage 1: forward shapes, fixed target, TopK sparsity, backward, LR schedule, checkpoint
   - stage 2: routing masks, task head shapes, per-loss backward, grad norms
 
-Usage:  python smoke_test.py
+Usage:  python tools/smoke/smoke_test.py
 """
 
 from __future__ import annotations
@@ -20,7 +20,8 @@ from unittest.mock import MagicMock, patch
 import torch
 import torch.nn as nn
 
-sys.path.insert(0, str(Path(__file__).parent))
+DIS_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(DIS_DIR))
 
 
 # ---------------------------------------------------------------- fake SPEAR
@@ -472,7 +473,7 @@ def _test():
     # PROBE RUNNER: lightweight check
     # ================================================================
     print("\n--- Probe runner (lightweight) ---")
-    from probe_runner import _SIDProbe, _PRProbe, _mean_pool as _probe_mean_pool
+    from diag_probe.probe_runner import _SIDProbe, _PRProbe, _mean_pool as _probe_mean_pool
 
     sid_probe = _SIDProbe(in_dim=cfg.K, num_speakers=cfg.num_speakers)
     pr_probe  = _PRProbe(in_dim=cfg.K, vocab_size=cfg.vocab_size)

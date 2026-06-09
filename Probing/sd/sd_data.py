@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import io
+import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -25,7 +26,9 @@ import torch
 import torchaudio
 from torch.utils.data import DataLoader, Dataset
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from sd_config import SDConfig
+from reproducibility import dataloader_seed_kwargs
 
 Record = Tuple[Path, int]   # (audio_path, label)  label: 1=bonafide 0=spoof
 
@@ -258,8 +261,14 @@ def make_sd_train_dataloaders(cfg: SDConfig):
 
     pin = torch.cuda.is_available()
     kw  = dict(collate_fn=_collate, num_workers=cfg.num_workers, pin_memory=pin)
-    train_dl = DataLoader(train_ds, batch_size=cfg.batch_size,      shuffle=True,  **kw)
-    val_dl   = DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, **kw)
+    train_dl = DataLoader(
+        train_ds, batch_size=cfg.batch_size, shuffle=True, **kw,
+        **dataloader_seed_kwargs(cfg.seed, stream=0),
+    )
+    val_dl = DataLoader(
+        val_ds, batch_size=cfg.eval_batch_size, shuffle=False, **kw,
+        **dataloader_seed_kwargs(cfg.seed, stream=1),
+    )
     return train_dl, val_dl
 
 
@@ -274,6 +283,7 @@ def _make_test_dl(records: List[Record], cfg: SDConfig) -> DataLoader:
         num_workers=cfg.num_workers,
         collate_fn=_collate,
         pin_memory=torch.cuda.is_available(),
+        **dataloader_seed_kwargs(cfg.seed, stream=2),
     )
 
 

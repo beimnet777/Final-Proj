@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=dis_stage2
-#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/stage2_%j.out
-#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/stage2_%j.err
+#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/main/stage2_%j.out
+#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/main/stage2_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -11,8 +11,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
 
-# Stage 2: full disentanglement — calibrated weights from calib_29865795
-#   α=0.02  β=0.05  grl=0.04  ρ=0.001  — 8000 steps (~4.5 epochs)
+# Stage 2: full disentanglement
+#   α=0.02  β=0.003  grl=0.04  ρ=0.001  — 8000 steps (~4.5 epochs)
 
 . /etc/profile.d/modules.sh
 module purge 2>/dev/null
@@ -22,7 +22,7 @@ PYTHON=/home/bbg25/.conda/envs/mlmi4/bin/python
 DIS_DIR=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement
 export PYTHONUNBUFFERED=1
 
-mkdir -p "${DIS_DIR}/logs"
+mkdir -p "${DIS_DIR}/logs/train/stage2/main"
 cd "${DIS_DIR}"
 
 echo "=== Stage 2: full disentanglement ==="

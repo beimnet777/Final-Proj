@@ -12,7 +12,8 @@ import matplotlib.ticker as ticker
 import matplotlib.gridspec as gridspec
 import numpy as np
 
-OUT_DIR = Path("analysis/combined")
+DIS_DIR = Path(__file__).resolve().parents[2]
+OUT_DIR = DIS_DIR / "analysis" / "combined"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ──────────────────────────────────────────── parse logs
@@ -49,9 +50,9 @@ def _parse_stage2(path):
             np.array(ents), np.array(cL), np.array(cP), np.array(cU))
 
 s1_steps, s1_recon, s1_ent, s1_cL, s1_cP, s1_cU = _parse_stage1(
-    "logs/stage1_29706973.out")
+    DIS_DIR / "logs" / "train" / "stage1" / "sae_29858328.out")
 s2_steps, s2_recon, s2_pr, s2_sid, s2_ent, s2_cL, s2_cP, s2_cU = _parse_stage2(
-    "logs/stage2_29716973.out")
+    DIS_DIR / "logs" / "train" / "stage2" / "sweep" / "baseline_29880935.out")
 
 K = 5120
 
@@ -72,23 +73,26 @@ def _tb(run_dir, tag):
     return np.array([e.step for e in evts]), np.array([e.value for e in evts])
 
 # stage 1 TB
-s1_dec_s, s1_dec_v   = _tb("runs/tb/stage1_20260525_203848", "train/decorr")
-s1_tot_s, s1_tot_v   = _tb("runs/tb/stage1_20260525_203848", "train/total")
-s1_den_s, s1_den_v   = _tb("runs/tb/stage1_20260525_203848", "sae/z_dense_density")
+S1_TB_DIR = DIS_DIR / "runs" / "tb" / "stage1_20260525_203848"
+S2_TB_DIR = DIS_DIR / "runs" / "tb" / "stage2_20260528_011238"
+
+s1_dec_s, s1_dec_v   = _tb(S1_TB_DIR, "train/decorr")
+s1_tot_s, s1_tot_v   = _tb(S1_TB_DIR, "train/total")
+s1_den_s, s1_den_v   = _tb(S1_TB_DIR, "sae/z_dense_density")
 
 s1_lw = []
 for i in range(13):
-    _, v = _tb("runs/tb/stage1_20260525_203848", f"layer_weights/layer_{i:02d}")
+    _, v = _tb(S1_TB_DIR, f"layer_weights/layer_{i:02d}")
     s1_lw.append(v)
 
 # stage 2 TB
-s2_dec_s, s2_dec_v   = _tb("runs/tb/stage2_20260528_011238", "train/decorr")
-s2_grl_s, s2_grl_v   = _tb("runs/tb/stage2_20260528_011238", "train/grl")
-s2_den_s, s2_den_v   = _tb("runs/tb/stage2_20260528_011238", "sae/z_dense_density")
+s2_dec_s, s2_dec_v   = _tb(S2_TB_DIR, "train/decorr")
+s2_grl_s, s2_grl_v   = _tb(S2_TB_DIR, "train/grl")
+s2_den_s, s2_den_v   = _tb(S2_TB_DIR, "sae/z_dense_density")
 
 s2_lw = []
 for i in range(13):
-    _, v = _tb("runs/tb/stage2_20260528_011238", f"layer_weights/layer_{i:02d}")
+    _, v = _tb(S2_TB_DIR, f"layer_weights/layer_{i:02d}")
     s2_lw.append(v)
 
 # ──────────────────────────────────────────── FIGURE 1: recon full trajectory

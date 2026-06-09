@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import io
 import itertools
+import sys
+from pathlib import Path
 from typing import Iterable, List, Tuple
 
 import numpy as np
@@ -21,7 +23,9 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from datasets import load_dataset, Audio
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import Config
+from reproducibility import dataloader_seed_kwargs
 from typing import Optional
 
 
@@ -180,9 +184,18 @@ def make_dataloaders(cfg: Config):
     # Eval uses a bigger batch (no grad → less memory) to cut the number of
     # SPEAR forwards. shuffle=False on val/test preserves the length-sorted
     # order on test so padding stays minimal.
-    train_dl = DataLoader(train_ds, batch_size=cfg.batch_size,      shuffle=True,  **common)
-    val_dl   = DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, **common)
-    test_dl  = DataLoader(test_ds,  batch_size=cfg.eval_batch_size, shuffle=False, **common)
+    train_dl = DataLoader(
+        train_ds, batch_size=cfg.batch_size, shuffle=True, **common,
+        **dataloader_seed_kwargs(cfg.seed, stream=0),
+    )
+    val_dl = DataLoader(
+        val_ds, batch_size=cfg.eval_batch_size, shuffle=False, **common,
+        **dataloader_seed_kwargs(cfg.seed, stream=1),
+    )
+    test_dl = DataLoader(
+        test_ds, batch_size=cfg.eval_batch_size, shuffle=False, **common,
+        **dataloader_seed_kwargs(cfg.seed, stream=2),
+    )
 
     return tokenizer, train_dl, val_dl, test_dl
 
@@ -256,9 +269,18 @@ def make_cached_dataloaders(cfg: "Config", cache_dir):
     pin = torch.cuda.is_available()
     common = dict(collate_fn=_cached_collate_fn, num_workers=cfg.num_workers,
                   pin_memory=pin)
-    train_dl = DataLoader(train_ds, batch_size=cfg.batch_size,      shuffle=True,  **common)
-    val_dl   = DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, **common)
-    test_dl  = DataLoader(test_ds,  batch_size=cfg.eval_batch_size, shuffle=False, **common)
+    train_dl = DataLoader(
+        train_ds, batch_size=cfg.batch_size, shuffle=True, **common,
+        **dataloader_seed_kwargs(cfg.seed, stream=10),
+    )
+    val_dl = DataLoader(
+        val_ds, batch_size=cfg.eval_batch_size, shuffle=False, **common,
+        **dataloader_seed_kwargs(cfg.seed, stream=11),
+    )
+    test_dl = DataLoader(
+        test_ds, batch_size=cfg.eval_batch_size, shuffle=False, **common,
+        **dataloader_seed_kwargs(cfg.seed, stream=12),
+    )
     return tokenizer, train_dl, val_dl, test_dl
 
 

@@ -32,6 +32,7 @@ This matches the 5-fold leave-one-session-out convention used in SUPERB.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from typing import List, Tuple
 
@@ -39,7 +40,9 @@ import torch
 import torchaudio
 from torch.utils.data import DataLoader, Dataset, random_split
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from er_config import EMOTION_MAP, ERConfig
+from reproducibility import dataloader_seed_kwargs
 
 # A record is (path_to_wav, integer_class_label).
 Record = Tuple[Path, int]
@@ -141,12 +144,15 @@ def make_er_dataloaders(cfg: ERConfig):
         else:
             train_records.extend(records)
 
-    # Random 20 % val split — matches SUPERB (torch.manual_seed(0) + random_split).
+    # Random 20 % val split — matches SUPERB's seed-0 random_split without
+    # resetting the global RNG used by model init and shuffling.
     train_ds_full = IEMOCAPDataset(train_records, cfg.sample_rate)
     val_size   = max(1, int(len(train_ds_full) * 0.20))
     train_size = len(train_ds_full) - val_size
-    torch.manual_seed(0)
-    train_ds, val_ds = random_split(train_ds_full, [train_size, val_size])
+    split_generator = torch.Generator().manual_seed(0)
+    train_ds, val_ds = random_split(
+        train_ds_full, [train_size, val_size], generator=split_generator
+    )
 
     test_ds = IEMOCAPDataset(test_records, cfg.sample_rate)
 
@@ -155,12 +161,20 @@ def make_er_dataloaders(cfg: ERConfig):
         f"train={len(train_ds)}  val={len(val_ds)}  test={len(test_ds)}"
     )
 
-    _loader = lambda ds, bs, shuffle: DataLoader(
-        ds, batch_size=bs, shuffle=shuffle,
-        num_workers=cfg.num_workers, collate_fn=_collate,
-        pin_memory=torch.cuda.is_available() and cfg.num_workers > 0,
+    pin = torch.cuda.is_available() and cfg.num_workers > 0
+    train_dl = DataLoader(
+        train_ds, batch_size=cfg.batch_size, shuffle=True,
+        num_workers=cfg.num_workers, collate_fn=_collate, pin_memory=pin,
+        **dataloader_seed_kwargs(cfg.seed, stream=cfg.test_fold * 10),
     )
-    train_dl = _loader(train_ds, cfg.batch_size,       True)
-    val_dl   = _loader(val_ds,   cfg.eval_batch_size,  False)
-    test_dl  = _loader(test_ds,  cfg.eval_batch_size,  False)
+    val_dl = DataLoader(
+        val_ds, batch_size=cfg.eval_batch_size, shuffle=False,
+        num_workers=cfg.num_workers, collate_fn=_collate, pin_memory=pin,
+        **dataloader_seed_kwargs(cfg.seed, stream=cfg.test_fold * 10 + 1),
+    )
+    test_dl = DataLoader(
+        test_ds, batch_size=cfg.eval_batch_size, shuffle=False,
+        num_workers=cfg.num_workers, collate_fn=_collate, pin_memory=pin,
+        **dataloader_seed_kwargs(cfg.seed, stream=cfg.test_fold * 10 + 2),
+    )
     return train_dl, val_dl, test_dl

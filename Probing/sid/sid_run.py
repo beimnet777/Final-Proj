@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -26,25 +25,13 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-import numpy as np
-import torch
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from sid_config import SIDConfig
 from sid_data   import make_sid_dataloaders
 from sid_model  import build_sid_model
 from sid_train  import fit_sid, evaluate_sid
+from reproducibility import set_seed
 from tb_logger  import TBLogger
-
-
-# ---------------------------------------------------------------- Seed ---
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
 
 
 # --------------------------------------------------------------- CLI ----
@@ -126,6 +113,7 @@ def main() -> None:
     print(f"=== runs          : {cfg.runs_dir}")
     print(f"=== logs          : {cfg.log_dir}")
     print(f"=== epochs        : {cfg.num_epochs}  lr={cfg.learning_rate}")
+    print(f"=== seed          : {cfg.seed}")
 
     train_dl, val_dl, test_dl = make_sid_dataloaders(cfg)
     encoder, probe = build_sid_model(cfg)
@@ -158,6 +146,9 @@ def main() -> None:
         "probe_type":     cfg.probe_type,
         "model_id":       cfg.model_id,
         "model_family":   cfg.model_family,
+        "seed":           cfg.seed,
+        "deterministic":  True,
+        "num_workers":    cfg.num_workers,
         "num_speakers":   cfg.num_classes,
         "best_val_acc":   best_val_acc,
         "test_acc":       test_metrics["acc"],

@@ -30,11 +30,13 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from sid_config import SIDConfig
 from sid_data   import make_sid_dataloaders
 from sid_model  import build_sid_model
 from sid_train  import evaluate_sid
+from reproducibility import set_seed
 
 
 def parse_args() -> SIDConfig:
@@ -54,6 +56,7 @@ def parse_args() -> SIDConfig:
     p.add_argument("--runs_dir",         default=None)
     p.add_argument("--num_workers",      type=int,   default=cfg.num_workers)
     p.add_argument("--max_duration_s",   type=float, default=cfg.max_duration_s)
+    p.add_argument("--seed",             type=int,   default=cfg.seed)
     args = p.parse_args()
 
     cfg.probe_type      = args.probe
@@ -65,6 +68,7 @@ def parse_args() -> SIDConfig:
     cfg.eval_batch_size = args.eval_batch_size
     cfg.num_workers     = args.num_workers
     cfg.max_duration_s  = args.max_duration_s
+    cfg.seed            = args.seed
     cfg.checkpoint_dir  = Path(args.checkpoint_dir) if args.checkpoint_dir else cfg.checkpoint_dir
     cfg.runs_dir        = Path(args.runs_dir)        if args.runs_dir        else cfg.runs_dir
 
@@ -75,12 +79,14 @@ def parse_args() -> SIDConfig:
 
 def main() -> None:
     cfg = parse_args()
+    set_seed(cfg.seed)
     cfg.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     cfg.runs_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"=== SID fine-tune ({'final' if cfg.probe_type == 'final' else 'weighted'} probe)")
     print(f"=== resume from   : {cfg._resume_path}")
     print(f"=== extra epochs  : {cfg.num_epochs}  lr={cfg._finetune_lr}")
+    print(f"=== seed          : {cfg.seed}")
 
     # ------------------------------------------------------------------ data
     train_dl, val_dl, test_dl = make_sid_dataloaders(cfg)
@@ -162,6 +168,9 @@ def main() -> None:
             "probe_type":     cfg.probe_type,
             "model_id":       cfg.model_id,
             "resumed_from":   str(cfg._resume_path),
+            "seed":           cfg.seed,
+            "deterministic":  True,
+            "num_workers":    cfg.num_workers,
             "prior_val_acc":  prior_val_acc,
             "best_val_acc":   best_acc,
             "test_acc":       test_metrics["acc"],

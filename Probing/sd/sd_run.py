@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -29,21 +28,12 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-import numpy as np
-import torch
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from sd_config import SDConfig
 from sd_data   import make_sd_train_dataloaders, make_test_dataloaders
 from sd_model  import build_sd_model
+from reproducibility import set_seed
 from sd_train  import fit_sd, evaluate_sd
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
 
 
 def parse_args() -> SDConfig:
@@ -134,6 +124,7 @@ def main() -> None:
     print(f"=== model_family : {cfg.model_family}")
     print(f"=== asv19_la_root: {cfg.asv19_la_root}")
     print(f"=== epochs       : {cfg.num_epochs}  lr={cfg.learning_rate}")
+    print(f"=== seed         : {cfg.seed}")
 
     # ── Data ────────────────────────────────────────────────────────────────
     train_dl, val_dl = make_sd_train_dataloaders(cfg)
@@ -170,6 +161,9 @@ def main() -> None:
         "probe_type":    cfg.probe_type,
         "model_id":      cfg.model_id,
         "model_family":  cfg.model_family,
+        "seed":          cfg.seed,
+        "deterministic": True,
+        "num_workers":   cfg.num_workers,
         "best_val_eer":  best_val_eer,
         "test_eer":      test_results,
         "layer_weights": layer_weights,

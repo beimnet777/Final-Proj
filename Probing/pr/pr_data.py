@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import io
 import itertools
+import sys
+from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -37,7 +39,9 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 from datasets import load_dataset, Audio
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from pr_config import PRConfig, SUPERB_PHONES
+from reproducibility import dataloader_seed_kwargs
 
 
 # ====================================================================
@@ -295,7 +299,16 @@ def make_pr_dataloaders(cfg: PRConfig):
 
     pin = torch.cuda.is_available()
     kw  = dict(collate_fn=collate_fn, num_workers=cfg.num_workers, pin_memory=pin)
-    train_dl = DataLoader(train_ds, batch_size=cfg.batch_size,      shuffle=True,  **kw)
-    val_dl   = DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, **kw)
-    test_dl  = DataLoader(test_ds,  batch_size=cfg.eval_batch_size, shuffle=False, **kw)
+    train_dl = DataLoader(
+        train_ds, batch_size=cfg.batch_size, shuffle=True, **kw,
+        **dataloader_seed_kwargs(cfg.seed, stream=0),
+    )
+    val_dl = DataLoader(
+        val_ds, batch_size=cfg.eval_batch_size, shuffle=False, **kw,
+        **dataloader_seed_kwargs(cfg.seed, stream=1),
+    )
+    test_dl = DataLoader(
+        test_ds, batch_size=cfg.eval_batch_size, shuffle=False, **kw,
+        **dataloader_seed_kwargs(cfg.seed, stream=2),
+    )
     return tokenizer, train_dl, val_dl, test_dl

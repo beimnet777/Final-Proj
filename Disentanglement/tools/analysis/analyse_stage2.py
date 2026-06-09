@@ -14,9 +14,10 @@ import numpy as np
 
 # ---------------------------------------------------------------- config
 
-LOG_FILE = Path("logs/stage2_29716973.out")
-TB_DIR   = Path("runs/tb/stage2_20260528_011238")
-OUT_DIR  = Path("analysis/stage2")
+DIS_DIR = Path(__file__).resolve().parents[2]
+LOG_FILE = DIS_DIR / "logs" / "train" / "stage2" / "sweep" / "baseline_29880935.out"
+TB_DIR   = DIS_DIR / "runs" / "tb" / "stage2_20260528_011238"
+OUT_DIR  = DIS_DIR / "analysis" / "stage2"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------- parse log

@@ -21,13 +21,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
 from datetime import datetime
 from pathlib import Path
-
-import numpy as np
-import torch
 
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -37,17 +33,8 @@ from er_config import ERConfig, EMOTION_NAMES
 from er_data import make_er_dataloaders
 from er_model import build_er_model
 from er_train import fit_er, evaluate_er
+from reproducibility import set_seed
 from tb_logger import TBLogger
-
-
-# ---------------------------------------------------------------- Seed ---
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
 
 
 # --------------------------------------------------------------- CLI ----
@@ -127,6 +114,7 @@ def main() -> None:
     print(f"=== emotions     : {EMOTION_NAMES}")
     print(f"=== epochs       : {cfg.num_epochs}")
     print(f"=== lr           : {cfg.learning_rate}")
+    print(f"=== seed         : {cfg.seed}")
 
     fold_results: dict[int, float] = {}
     fold_layer_weights: dict[int, list] = {}
@@ -181,6 +169,10 @@ def main() -> None:
         "probe_type":   cfg.probe_type,
         "model_id":     cfg.model_id,
         "model_family": cfg.model_family,
+        "seed":         cfg.seed,
+        "deterministic": True,
+        "num_workers":  cfg.num_workers,
+        "superb_split_seed": 0,
         "folds_run":    folds,
         "fold_test_acc": fold_results,
         "mean_acc":     mean_acc,

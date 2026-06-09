@@ -9,8 +9,8 @@
 #SBATCH --account=MLMI-bbg25-SL2-GPU
 #SBATCH --job-name=s2_one_stage_wg
 #SBATCH --array=0-1
-#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/stage2/one_stage/%x_%A_%a.out
-#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/stage2/one_stage/%x_%A_%a.err
+#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/one_stage/%x_%A_%a.out
+#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/one_stage/%x_%A_%a.err
 #
 # Direct submission:
 #   sbatch slurm/stage2_one_stage_weakgrl_both.sh
@@ -30,7 +30,7 @@ PYTHON=/home/bbg25/.conda/envs/mlmi4/bin/python
 DIS_DIR=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement
 export PYTHONUNBUFFERED=1
 
-mkdir -p "${DIS_DIR}/logs/stage2/one_stage" "${DIS_DIR}/logs/probes"
+mkdir -p "${DIS_DIR}/logs/train/stage2/one_stage" "${DIS_DIR}/logs/probes/diagnostic_historical"
 cd "${DIS_DIR}"
 
 case "${SLURM_ARRAY_TASK_ID}" in
