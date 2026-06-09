@@ -12,6 +12,11 @@
 #SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/probes/diag_best5_seeded/%x_%A_%a.out
 #SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/probes/diag_best5_seeded/%x_%A_%a.err
 
+# Corrected top-5 diagnostic rerun:
+# - includes h_t only on array task 0 as a sanity baseline,
+# - uses SID LR 1e-3 instead of the failed/underfit 1e-4,
+# - remains diagnostic, not official SUPERB evaluation.
+
 set -euo pipefail
 
 . /etc/profile.d/modules.sh
@@ -50,7 +55,13 @@ RUN_NAME="diag_probe_${MODEL_NAME}"
 PROBE_STEPS="${PROBE_STEPS:-2000}"
 PR_MAX_EXAMPLES="${PR_MAX_EXAMPLES:-0}"
 SEED="${SEED:-42}"
-SOURCES="${SOURCES:-z_t,z_L,z_P}"
+if [[ -z "${SOURCES:-}" ]]; then
+    if [[ "${SLURM_ARRAY_TASK_ID}" == "0" ]]; then
+        SOURCES="h_t,z_t,z_L,z_P"
+    else
+        SOURCES="z_t,z_L,z_P"
+    fi
+fi
 TASKS="${TASKS:-pr,sid}"
 PR_PROBE_LR="${PR_PROBE_LR:-5e-4}"
 SID_PROBE_LR="${SID_PROBE_LR:-1e-3}"
