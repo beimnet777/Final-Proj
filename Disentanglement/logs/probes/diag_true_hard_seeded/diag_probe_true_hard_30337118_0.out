@@ -1,0 +1,71 @@
+=== Disentanglement diagnostic true_hard probe ===
+Job ID            : 30337142
+Array task        : 0
+Node              : gpu-q-34
+GPU               : NVIDIA A100-SXM4-80GB
+Started           : Wed Jun 10 10:13:28 BST 2026
+run_name          : diag_probe_true_hard_sid1_weakgrl
+model             : true_hard_sid1_weakgrl
+stage2_ckpt       : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/true_hard_sid1_weakgrl/stage2_best.pt
+sources           : h_t,z_t,z_L,z_P
+tasks             : pr,sid
+seed              : 42
+probe_steps       : 2000
+pr_probe_lr       : 5e-4
+sid_probe_lr      : 1e-3
+warmup_steps      : 0
+pr_max_examples   : 0
+[diag_probe] run=diag_probe_true_hard_sid1_weakgrl  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/true_hard_sid1_weakgrl/stage2_best.pt
+[diag_probe] sources=['h_t', 'z_t', 'z_L', 'z_P']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=2000  pr_lr=0.0005  sid_lr=0.001  warmup=0
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=28039  val=500  vocab=41  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['pr_grl_head.fc.weight', 'pr_grl_head.fc.bias']
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/best.pt  (step=6000  val=0.0049)
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/true_hard_sid1_weakgrl/stage2_best.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB phone data/head, dev-clean diagnostic eval
+[diag_probe] SID: LibriSpeech diagnostic split, SUPERB-style SID head
+
+  training probe: h_t -> PR ...
+[pr_data] g2p_en loaded for OOV words
+    h_t -> PR               PER=0.068
+  training probe: h_t -> SID ...
+[dis_data] g2p_en loaded for OOV words
+    h_t -> SID              acc=1.000
+  training probe: z_t -> PR ...
+    z_t -> PR               PER=0.060
+  training probe: z_t -> SID ...
+    z_t -> SID              acc=1.000
+  training probe: z_L -> PR ...
+    z_L -> PR               PER=0.062
+  training probe: z_L -> SID ...
+    z_L -> SID              acc=1.000
+  training probe: z_P -> PR ...
+    z_P -> PR               PER=0.409
+  training probe: z_P -> SID ...
+    z_P -> SID              acc=0.940
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_probe_true_hard_sid1_weakgrl
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  h_t              0.068         1.000
+  z_t              0.060         1.000
+  z_L              0.062         1.000
+  z_P              0.409         0.940
+==================================================================
+
+Finished          : Wed Jun 10 11:39:30 BST 2026

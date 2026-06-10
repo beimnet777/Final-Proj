@@ -1,0 +1,66 @@
+=== Disentanglement diagnostic best-5 probe ===
+Job ID            : 30342585
+Array task        : 3
+Node              : gpu-q-25
+GPU               : NVIDIA A100-SXM4-80GB
+Started           : Wed Jun 10 13:15:17 BST 2026
+run_name          : diag_probe_ub
+model             : ub
+stage2_ckpt       : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ub/stage2_best.pt
+sources           : z_t,z_L,z_P
+tasks             : pr,sid
+seed              : 42
+probe_steps       : 2000
+pr_probe_lr       : 5e-4
+sid_probe_lr      : 1e-3
+warmup_steps      : 0
+pr_max_examples   : 0
+[diag_probe] run=diag_probe_ub  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ub/stage2_best.pt
+[diag_probe] sources=['z_t', 'z_L', 'z_P']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=2000  pr_lr=0.0005  sid_lr=0.001  warmup=0
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=28039  val=500  vocab=41  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['pr_grl_head.fc.weight', 'pr_grl_head.fc.bias']
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/best.pt  (step=6000  val=0.0049)
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ub/stage2_best.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB phone data/head, dev-clean diagnostic eval
+[diag_probe] SID: LibriSpeech diagnostic split, SUPERB-style SID head
+
+  training probe: z_t -> PR ...
+[pr_data] g2p_en loaded for OOV words
+    z_t -> PR               PER=0.060
+  training probe: z_t -> SID ...
+[dis_data] g2p_en loaded for OOV words
+    z_t -> SID              acc=1.000
+  training probe: z_L -> PR ...
+    z_L -> PR               PER=0.063
+  training probe: z_L -> SID ...
+    z_L -> SID              acc=1.000
+  training probe: z_P -> PR ...
+    z_P -> PR               PER=0.285
+  training probe: z_P -> SID ...
+    z_P -> SID              acc=0.966
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_probe_ub
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_t              0.060         1.000
+  z_L              0.063         1.000
+  z_P              0.285         0.966
+==================================================================
+
+Finished          : Wed Jun 10 14:19:23 BST 2026
