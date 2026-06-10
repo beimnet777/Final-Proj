@@ -86,7 +86,7 @@ def _load_stage1_checkpoint(path: Path, model: DISModel, cfg: DISConfig) -> None
     sae_state = {k: v for k, v in ckpt["model_state"].items() if k.startswith("sae.")}
     missing, unexpected = model.load_state_dict(sae_state, strict=False)
     non_sae_missing = [k for k in missing if not k.startswith(
-        ("routing.", "pr_head.", "sid_head.", "grl_head.", "encoder._spear."))]
+        ("routing.", "proj_L.", "proj_P.", "pr_head.", "sid_head.", "grl_head.", "encoder._spear."))]
     if non_sae_missing:
         print(f"[train] WARNING: unexpected missing SAE keys: {non_sae_missing}")
     print(f"[train] loaded {len(sae_state)} SAE tensors from {path}  (step={ckpt['step']}  val={ckpt['best_metric']:.4f})")
@@ -236,7 +236,9 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam, eff_g
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
     with ctx:
         _no_routing     = getattr(cfg, 'no_routing', False)
-        _routing_active = not _no_routing and any(p.requires_grad for p in model.routing.parameters())
+        _projection     = getattr(cfg, 'projection_disentanglement', False)
+        _routing_active = (not _no_routing and not _projection and
+                           any(p.requires_grad for p in model.routing.parameters()))
 
         out     = model(audios, audio_lengths, stage=2, grl_lambda=grl_lam)
         l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
@@ -422,21 +424,34 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += "  ste=True"
     if getattr(cfg, 'hard_gumbel_routing', False):
         extra_str += "  hard_gumbel=True"
+    if getattr(cfg, 'projection_disentanglement', False):
+        extra_str += f"  projection=True dim={cfg.projection_dim}"
     print(f"[stage 2] α={cfg.alpha}  β={cfg.beta}  grl={cfg.grl_weight}  ρ={cfg.rho}{delay_str}{extra_str}")
     print(f"[stage 2] steps={cfg.stage2_steps}  batch={cfg.batch_size}")
 
     model.train()
 
+    projection_mode = getattr(cfg, 'projection_disentanglement', False)
+
     # routing logits may be frozen (fixed_routing); filter to avoid optimizer warnings
-    routing_params = [p for p in model.routing.parameters() if p.requires_grad]
-    optimizer = AdamW([
+    routing_params = ([] if projection_mode
+                      else [p for p in model.routing.parameters() if p.requires_grad])
+    projection_params = []
+    if hasattr(model, "proj_L"):
+        projection_params.extend(model.proj_L.parameters())
+    if hasattr(model, "proj_P"):
+        projection_params.extend(model.proj_P.parameters())
+    param_groups = [
         {"params": list(model.sae.parameters()),         "lr": cfg.lr},
         {"params": routing_params,                       "lr": cfg.lr_routing},
         {"params": (list(model.pr_head.parameters()) +
                     list(model.sid_head.parameters()) +
                     list(model.grl_head.parameters()) +
                     list(model.pr_grl_head.parameters())), "lr": cfg.lr_heads},
-    ], weight_decay=cfg.weight_decay)
+    ]
+    if projection_params:
+        param_groups.insert(2, {"params": projection_params, "lr": cfg.lr_heads})
+    optimizer = AdamW(param_groups, weight_decay=cfg.weight_decay)
     scheduler = _make_scheduler(optimizer, cfg.warmup_steps, cfg.stage2_steps, cfg.lr, cfg.lr_min)
 
     use_bf16 = cfg.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
@@ -451,10 +466,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     train_iter     = iter(train_dl)
     no_routing     = getattr(cfg, 'no_routing', False)
     n_routes       = getattr(cfg, 'n_routes', 3)
-    routing_active = not no_routing and bool(routing_params)
+    routing_active = not no_routing and not projection_mode and bool(routing_params)
     grl_p_weight   = getattr(cfg, 'grl_phoneme_weight', 0.0)
     ub_w           = getattr(cfg, 'ub_weight', 0.0)
-    all_params     = (list(model.sae.parameters()) + list(model.routing.parameters()) +
+    routing_clip_params = [] if projection_mode else list(model.routing.parameters())
+    all_params     = (list(model.sae.parameters()) + routing_clip_params + projection_params +
                       list(model.pr_head.parameters()) + list(model.sid_head.parameters()) +
                       list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters()))
 
@@ -498,7 +514,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           else l_recon.new_zeros(()))
             # Exp 4: U-bucket information bottleneck
             l_ub       = (ub_loss(out["m_L"], out["m_P"])
-                          if (ub_w > 0 and not no_routing and n_routes == 3 and "m_L" in out)
+                          if (ub_w > 0 and not no_routing and not projection_mode and n_routes == 3 and "m_L" in out)
                           else l_recon.new_zeros(()))
             total      = (l_recon
                           + cfg.alpha      * l_pr
@@ -523,12 +539,12 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
 
         if step % cfg.log_every == 0 or step == 1:
             lr_now = optimizer.param_groups[0]["lr"]
-            if not no_routing:
+            if not no_routing and not projection_mode:
                 n_L, n_P, n_U = model.routing.hard_counts
                 routing_diag = model.routing.routing_diagnostics
                 entropy = routing_diag["balance_entropy"]
             else:
-                n_L, n_P, n_U = cfg.K, 0, 0
+                n_L, n_P, n_U = (cfg.K, 0, 0) if no_routing else (0, 0, 0)
                 routing_diag = {}
                 entropy = float('nan')
             density = (out["z_pre"] > 0).float().mean().item()
@@ -538,15 +554,18 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                        "route": l_route.item(), "total": total.item()}
 
             with torch.no_grad():
-                hard_idx = model.routing.logits.argmax(dim=-1)       # (K,)
                 z_active = (out["z_t"] != 0).float()                 # (B, T, K)
                 B_, T_   = z_active.shape[:2]
                 fmask    = (torch.arange(T_, device=z_active.device).unsqueeze(0)
                             < out["out_lengths"].unsqueeze(1)).float()
                 n_valid  = fmask.sum().clamp(min=1)
-                act_L = ((z_active * (hard_idx == 0).float()).sum(-1) * fmask).sum() / n_valid
-                act_P = ((z_active * (hard_idx == 1).float()).sum(-1) * fmask).sum() / n_valid
-                act_U = ((z_active * (hard_idx == 2).float()).sum(-1) * fmask).sum() / n_valid
+                if not no_routing and not projection_mode:
+                    hard_idx = model.routing.logits.argmax(dim=-1)       # (K,)
+                    act_L = ((z_active * (hard_idx == 0).float()).sum(-1) * fmask).sum() / n_valid
+                    act_P = ((z_active * (hard_idx == 1).float()).sum(-1) * fmask).sum() / n_valid
+                    act_U = ((z_active * (hard_idx == 2).float()).sum(-1) * fmask).sum() / n_valid
+                else:
+                    act_L = act_P = act_U = z_active.new_tensor(float('nan'))
 
             grl_p_str = f"  grl_p={l_grl_p.item():.4f}" if grl_p_weight > 0 else ""
             ub_str    = f"  ub={l_ub.item():.4f}"        if ub_w > 0        else ""

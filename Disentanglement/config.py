@@ -53,6 +53,10 @@ class DISConfig:
     # Forward: z_L = m_L × z_t (sparse, unchanged).  Backward: gradient flows through m_L × z_pre.
     ste_routing:         bool  = False
 
+    # Projection disentanglement — learned compressed views z_t -> z_L and z_t -> z_P.
+    projection_disentanglement: bool = False
+    projection_dim: int = 128
+
     # ---------------------------------------------------------------- Optimizer
     lr:          float = 1e-4   # SAE lr (stage 1);  also base lr for SAE in stage 2
     lr_min:      float = 1e-6   # cosine decay floor

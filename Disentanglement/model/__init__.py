@@ -12,6 +12,7 @@ Experiment flags (all via cfg):
   grl_phoneme_weight>0  (1) — dual GRL: phoneme adversary on z_P
   ste_routing=True      (5) — straight-through estimator on routing mask mult:
                               forward = m × z_t (sparse), backward = m × z_pre (dense)
+  projection_disentanglement=True — learned compressed views z_t → z_L/z_P
 """
 
 from __future__ import annotations
@@ -40,6 +41,19 @@ def _mean_pool(z: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
 
 # ---------------------------------------------------------------- model
 
+class ProjectionView(nn.Module):
+    """True learned projection view: z_t (K) -> z_view (projection_dim)."""
+
+    def __init__(self, K: int, dim: int) -> None:
+        super().__init__()
+        dim = max(1, min(dim, K))
+        self.proj = nn.Linear(K, dim, bias=False)
+        nn.init.kaiming_uniform_(self.proj.weight, a=5 ** 0.5)
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return self.proj(z)
+
+
 class DISModel(nn.Module):
     def __init__(self, cfg) -> None:
         super().__init__()
@@ -51,6 +65,10 @@ class DISModel(nn.Module):
         self.sid_head   = SIDHead(cfg)
         self.grl_head   = GRLHead(cfg)
         self.pr_grl_head = PR_GRL_Head(cfg)   # Exp 1: phoneme GRL on z_P
+        if getattr(cfg, 'projection_disentanglement', False):
+            dim = getattr(cfg, 'projection_dim', 128)
+            self.proj_L = ProjectionView(cfg.K, dim)
+            self.proj_P = ProjectionView(cfg.K, dim)
 
     def forward(
         self,
@@ -72,6 +90,7 @@ class DISModel(nn.Module):
         n_routes   = getattr(self.cfg, 'n_routes', 3)
         ste        = getattr(self.cfg, 'ste_routing', False)
         grl_p      = getattr(self.cfg, 'grl_phoneme_weight', 0.0)
+        projection = getattr(self.cfg, 'projection_disentanglement', False)
 
         # ---- Experiment D: bypass routing entirely ----
         if no_routing:
@@ -85,6 +104,29 @@ class DISModel(nn.Module):
                 "sid_logits":  self.sid_head(z_t_pool),
                 "grl_logits":  self.grl_head(z_t, out_lengths, grl_lambda),
             }
+
+        # ---- Projection disentanglement: learned views instead of unit routing ----
+        if projection:
+            h_hat = self.sae.decode(z_t)
+            z_L = self.proj_L(z_t)
+            z_P = self.proj_P(z_t)
+            z_P_bar = _mean_pool(z_P, out_lengths)
+            out = {
+                "h_t":         h_t,
+                "h_hat":       h_hat,
+                "z_t":         z_t,
+                "z_pre":       z_pre,
+                "out_lengths": out_lengths,
+                "z_L":         z_L,
+                "z_P":         z_P,
+                "z_P_bar":     z_P_bar,
+                "pr_logits":   self.pr_head(z_L),
+                "sid_logits":  self.sid_head(z_P_bar),
+                "grl_logits":  self.grl_head(z_L, out_lengths, grl_lambda),
+            }
+            if grl_p > 0.0:
+                out["pr_grl_logits"] = self.pr_grl_head(z_P, grl_lambda)
+            return out
 
         # ---- Normal stage 2: get routing masks ----
         if n_routes == 2:

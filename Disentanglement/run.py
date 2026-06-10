@@ -84,6 +84,11 @@ def _parse_args():
     p.add_argument("--decor_weight",        type=float, default=cfg.decor_weight)
     p.add_argument("--ub_weight",           type=float, default=cfg.ub_weight)
     p.add_argument("--ste_routing",         action="store_true", default=cfg.ste_routing)
+    p.add_argument("--projection_disentanglement", action="store_true",
+                   default=cfg.projection_disentanglement,
+                   help="Use learned compressed z_t->z_L/z_P projections instead of routing masks.")
+    p.add_argument("--projection_dim", type=int, default=cfg.projection_dim,
+                   help="Output dimension for projection_disentanglement.")
 
     # schedule
     p.add_argument("--total_steps",   type=int,   default=cfg.total_steps)
@@ -130,6 +135,8 @@ def _parse_args():
     cfg.decor_weight          = args.decor_weight
     cfg.ub_weight             = args.ub_weight
     cfg.ste_routing           = args.ste_routing
+    cfg.projection_disentanglement = args.projection_disentanglement
+    cfg.projection_dim        = args.projection_dim
     cfg.total_steps           = args.total_steps
     cfg.stage2_steps          = args.stage2_steps
     cfg.warmup_steps          = args.warmup_steps

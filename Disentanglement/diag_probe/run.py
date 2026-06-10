@@ -25,8 +25,20 @@ import torch
 DIAG_DIR = Path(__file__).resolve().parent
 DIS_DIR = DIAG_DIR.parent
 REPO_ROOT = DIS_DIR.parent
-sys.path.insert(0, str(DIS_DIR))
-sys.path.insert(0, str(REPO_ROOT / "Probing" / "pr"))
+
+
+def _prioritize_import_paths() -> None:
+    """Keep Disentanglement imports ahead of Probing's top-level model.py."""
+    dis_path = str(DIS_DIR)
+    pr_path = str(REPO_ROOT / "Probing" / "pr")
+    for path in (dis_path, pr_path):
+        while path in sys.path:
+            sys.path.remove(path)
+    sys.path.insert(0, dis_path)
+    sys.path.insert(1, pr_path)
+
+
+_prioritize_import_paths()
 
 from diag_probe import probe_runner as base_probe
 from config import DISConfig
@@ -94,6 +106,7 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     global_pr_data = __import__("pr_data")
+    _prioritize_import_paths()  # pr_data prepends Probing/; restore Disentanglement first.
     base_probe._pr_data = global_pr_data
     from model import build_dis_model
     from train import _load_stage1_checkpoint
@@ -144,6 +157,13 @@ def main() -> None:
             if ckpt_routes != cfg.n_routes:
                 print(f"[diag_probe] n_routes overridden: {cfg.n_routes} -> {ckpt_routes}")
                 cfg.n_routes = ckpt_routes
+        if "proj_L.proj.weight" in state:
+            cfg.projection_disentanglement = True
+            ckpt_dim = state["proj_L.proj.weight"].shape[0]
+            if ckpt_dim != cfg.projection_dim:
+                print(f"[diag_probe] projection_dim overridden: {cfg.projection_dim} -> {ckpt_dim}")
+                cfg.projection_dim = ckpt_dim
+            print("[diag_probe] projection_disentanglement enabled from checkpoint")
         del tmp
 
     if args.topk > 0:
@@ -169,7 +189,8 @@ def main() -> None:
     for p in model.parameters():
         p.requires_grad_(False)
 
-    dims: Dict[str, int] = {"h_t": cfg.D, "z_t": cfg.K, "z_L": cfg.K, "z_P": cfg.K}
+    view_dim = cfg.projection_dim if cfg.projection_disentanglement else cfg.K
+    dims: Dict[str, int] = {"h_t": cfg.D, "z_t": cfg.K, "z_L": view_dim, "z_P": view_dim}
     results: Dict[str, Dict[str, float]] = {}
 
     print(f"\n[diag_probe] speakers={cfg.num_speakers}  pr_vocab={pr_cfg.vocab_size}  D={cfg.D}  K={cfg.K}")

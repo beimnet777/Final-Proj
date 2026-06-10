@@ -54,8 +54,20 @@ except ImportError:
 
 DIS_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = DIS_DIR.parent
-sys.path.insert(0, str(DIS_DIR))
-sys.path.insert(0, str(REPO_ROOT / "Probing" / "pr"))
+
+
+def _prioritize_import_paths() -> None:
+    """Keep Disentanglement imports ahead of Probing's top-level model.py."""
+    dis_path = str(DIS_DIR)
+    pr_path = str(REPO_ROOT / "Probing" / "pr")
+    for path in (dis_path, pr_path):
+        while path in sys.path:
+            sys.path.remove(path)
+    sys.path.insert(0, dis_path)
+    sys.path.insert(1, pr_path)
+
+
+_prioritize_import_paths()
 
 from config import DISConfig
 from pr_config import PRConfig
@@ -354,6 +366,7 @@ def main():
 
     global _pr_data
     import pr_data as _pr_data_module
+    _prioritize_import_paths()  # pr_data prepends Probing/; restore Disentanglement first.
     from model import build_dis_model
     from train import _load_stage1_checkpoint
     from data.dataset import make_stage2_dataloaders
@@ -405,6 +418,13 @@ def main():
             if ckpt_routes != cfg.n_routes:
                 print(f"[probe] n_routes overridden from checkpoint: {cfg.n_routes} → {ckpt_routes}")
                 cfg.n_routes = ckpt_routes
+        if "proj_L.proj.weight" in _state:
+            cfg.projection_disentanglement = True
+            ckpt_dim = _state["proj_L.proj.weight"].shape[0]
+            if ckpt_dim != cfg.projection_dim:
+                print(f"[probe] projection_dim overridden from checkpoint: {cfg.projection_dim} -> {ckpt_dim}")
+                cfg.projection_dim = ckpt_dim
+            print("[probe] projection_disentanglement enabled from checkpoint")
         del _tmp
         print(f"[probe] num_speakers overridden from checkpoint → {cfg.num_speakers}")
 
@@ -433,7 +453,8 @@ def main():
 
     # Sources and their input dimensions
     sources: List[str] = ["h_t", "z_t"]
-    dims: Dict[str, int] = {"h_t": D, "z_t": K, "z_L": K, "z_P": K}
+    view_dim = cfg.projection_dim if cfg.projection_disentanglement else K
+    dims: Dict[str, int] = {"h_t": D, "z_t": K, "z_L": view_dim, "z_P": view_dim}
     if has_routing:
         sources += ["z_L", "z_P"]
 

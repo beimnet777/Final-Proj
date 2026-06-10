@@ -32,12 +32,18 @@ def gradient_reversal(x: torch.Tensor, lam: float) -> torch.Tensor:
 
 # ---------------------------------------------------------------- PR head
 
+def _head_input_dim(cfg) -> int:
+    if getattr(cfg, "projection_disentanglement", False):
+        return getattr(cfg, "projection_dim", cfg.K)
+    return cfg.K
+
+
 class PRHead(nn.Module):
-    """Linear CTC head: z_L (B, T, K) → logits (B, T, vocab_size)."""
+    """Linear CTC head: z_L (B, T, input_dim) -> logits."""
 
     def __init__(self, cfg) -> None:
         super().__init__()
-        self.fc = nn.Linear(cfg.K, cfg.vocab_size)
+        self.fc = nn.Linear(_head_input_dim(cfg), cfg.vocab_size)
 
     def forward(self, z_L: torch.Tensor) -> torch.Tensor:
         return self.fc(z_L)
@@ -46,7 +52,7 @@ class PRHead(nn.Module):
 # ---------------------------------------------------------------- SID head
 
 class SIDHead(nn.Module):
-    """Speaker CE head: mean(z_P) (B, K) → 256 → logits (B, num_speakers).
+    """Speaker CE head: mean(z_P) (B, input_dim) -> 256 -> logits.
 
     Two-layer MLP matching probing head style — single linear was too weak
     for 247-way classification on sparse features.
@@ -55,7 +61,7 @@ class SIDHead(nn.Module):
     def __init__(self, cfg) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(cfg.K, 256),
+            nn.Linear(_head_input_dim(cfg), 256),
             nn.ReLU(),
             nn.Linear(256, cfg.num_speakers),
         )
@@ -76,7 +82,7 @@ class PR_GRL_Head(nn.Module):
 
     def __init__(self, cfg) -> None:
         super().__init__()
-        self.fc = nn.Linear(cfg.K, cfg.vocab_size)
+        self.fc = nn.Linear(_head_input_dim(cfg), cfg.vocab_size)
 
     def forward(self, z_P: torch.Tensor, lam: float) -> torch.Tensor:
         # z_P : (B, T, K) — frame-level paralinguistic features
@@ -94,7 +100,7 @@ class GRLHead(nn.Module):
 
     def __init__(self, cfg) -> None:
         super().__init__()
-        self.fc = nn.Linear(cfg.K, cfg.num_speakers)
+        self.fc = nn.Linear(_head_input_dim(cfg), cfg.num_speakers)
 
     def forward(
         self,
