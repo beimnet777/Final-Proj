@@ -189,8 +189,22 @@ def main() -> None:
     has_routing = False
     if args.stage2_ckpt:
         ckpt = torch.load(args.stage2_ckpt, map_location=device, weights_only=False)
-        missing, _ = model.load_state_dict(ckpt["model_state"], strict=False)
+        # Tolerate head-architecture drift across commits.  The probe never uses
+        # the adversarial heads (grl_head / pr_grl_head) for evaluation, so skip
+        # any checkpoint tensor whose shape no longer matches the current model
+        # (e.g. old single-Linear GRL heads vs new projector+classifier heads).
+        # strict=False does NOT suppress shape mismatches — it raises — so filter
+        # by shape first, otherwise re-probing any pre-merge checkpoint crashes.
+        model_sd = model.state_dict()
+        ckpt_state = ckpt["model_state"]
+        filtered = {k: v for k, v in ckpt_state.items()
+                    if k in model_sd and model_sd[k].shape == v.shape}
+        skipped = [k for k in ckpt_state if k not in filtered]
+        missing, _ = model.load_state_dict(filtered, strict=False)
         non_spear = [k for k in missing if not k.startswith("encoder._spear.")]
+        if skipped:
+            print(f"[diag_probe] skipped {len(skipped)} shape-mismatched/stale keys "
+                  f"(e.g. {skipped[:3]}) — fine, probe does not use adversarial heads")
         if non_spear:
             print(f"[diag_probe] WARNING missing keys: {non_spear[:5]}")
         print(f"[diag_probe] loaded stage2 weights from {args.stage2_ckpt}")
