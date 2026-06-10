@@ -13,6 +13,7 @@ class DISConfig:
     # ---------------------------------------------------------------- SPEAR
     spear_model_id: str = "marcoyang/spear-xlarge-speech-audio"
     D: int = 1280       # SPEAR-Large hidden size
+    spear_layernorm: bool = False  # LayerNorm each SPEAR layer (no affine) before averaging → SUPERB-comparable h_t
 
     # ---------------------------------------------------------------- SAE
     K: int = 5120       # latent size  (4 × D)
@@ -56,6 +57,13 @@ class DISConfig:
     # Projection disentanglement — learned compressed views z_t -> z_L and z_t -> z_P.
     projection_disentanglement: bool = False
     projection_dim: int = 128
+
+    # Reconstructive projection — reconstruct h_t SOLELY through z_L/z_P (and an
+    # optional penalized residual z_U), instead of decode(z_t).  Forces the views
+    # to be a complete factorization of the signal (separate experiment family).
+    projection_reconstruct: bool = False
+    projection_u_dim:       int   = 0     # >0 adds residual view z_U of this dim (0 = 2-way, no z_U)
+    projection_u_l2:        float = 0.0   # L2 activity penalty on z_U — the residual bottleneck
 
     # ---------------------------------------------------------------- Optimizer
     lr:          float = 1e-4   # SAE lr (stage 1);  also base lr for SAE in stage 2

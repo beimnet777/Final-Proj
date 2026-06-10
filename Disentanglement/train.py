@@ -86,8 +86,8 @@ def _load_stage1_checkpoint(path: Path, model: DISModel, cfg: DISConfig) -> None
     sae_state = {k: v for k, v in ckpt["model_state"].items() if k.startswith("sae.")}
     missing, unexpected = model.load_state_dict(sae_state, strict=False)
     non_sae_missing = [k for k in missing if not k.startswith(
-        ("routing.", "proj_L.", "proj_P.", "pr_head.", "sid_head.", "grl_head.",
-         "pr_grl_head.", "encoder._spear."))]
+        ("routing.", "proj_L.", "proj_P.", "up_L.", "up_P.", "proj_U.", "up_U.",
+         "pr_head.", "sid_head.", "grl_head.", "pr_grl_head.", "encoder._spear."))]
     if non_sae_missing:
         print(f"[train] WARNING: unexpected missing SAE keys: {non_sae_missing}")
     print(f"[train] loaded {len(sae_state)} SAE tensors from {path}  (step={ckpt['step']}  val={ckpt['best_metric']:.4f})")
@@ -427,6 +427,13 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += "  hard_gumbel=True"
     if getattr(cfg, 'projection_disentanglement', False):
         extra_str += f"  projection=True dim={cfg.projection_dim}"
+    if getattr(cfg, 'projection_reconstruct', False):
+        extra_str += "  recon_via_views=True"
+        u_dim = int(getattr(cfg, 'projection_u_dim', 0))
+        if u_dim > 0:
+            extra_str += f"  z_U(dim={u_dim} l2={cfg.projection_u_l2})"
+    if getattr(cfg, 'spear_layernorm', False):
+        extra_str += "  spear_ln=True"
     print(f"[stage 2] α={cfg.alpha}  β={cfg.beta}  grl={cfg.grl_weight}  ρ={cfg.rho}{delay_str}{extra_str}")
     print(f"[stage 2] steps={cfg.stage2_steps}  batch={cfg.batch_size}")
 
@@ -438,10 +445,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     routing_params = ([] if projection_mode
                       else [p for p in model.routing.parameters() if p.requires_grad])
     projection_params = []
-    if hasattr(model, "proj_L"):
-        projection_params.extend(model.proj_L.parameters())
-    if hasattr(model, "proj_P"):
-        projection_params.extend(model.proj_P.parameters())
+    for _m in ("proj_L", "proj_P", "up_L", "up_P", "proj_U", "up_U"):
+        if hasattr(model, _m):
+            projection_params.extend(getattr(model, _m).parameters())
     param_groups = [
         {"params": list(model.sae.parameters()),         "lr": cfg.lr},
         {"params": routing_params,                       "lr": cfg.lr_routing},
@@ -470,6 +476,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     routing_active = not no_routing and not projection_mode and bool(routing_params)
     grl_p_weight   = getattr(cfg, 'grl_phoneme_weight', 0.0)
     ub_w           = getattr(cfg, 'ub_weight', 0.0)
+    u_l2_w         = getattr(cfg, 'projection_u_l2', 0.0)   # L2 penalty on residual z_U
     routing_clip_params = [] if projection_mode else list(model.routing.parameters())
     all_params     = (list(model.sae.parameters()) + routing_clip_params + projection_params +
                       list(model.pr_head.parameters()) + list(model.sid_head.parameters()) +
@@ -517,13 +524,19 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             l_ub       = (ub_loss(out["m_L"], out["m_P"])
                           if (ub_w > 0 and not no_routing and not projection_mode and n_routes == 3 and "m_L" in out)
                           else l_recon.new_zeros(()))
+            # Reconstructive projection: L2 activity penalty on the residual z_U
+            # (the bottleneck that stops z_U becoming a reconstruction shortcut).
+            l_u        = (out["z_U"].pow(2).mean()
+                          if (u_l2_w > 0 and "z_U" in out)
+                          else l_recon.new_zeros(()))
             total      = (l_recon
                           + cfg.alpha      * l_pr
                           + cfg.beta       * l_sid
                           + eff_grl_weight * l_grl
                           + grl_p_weight   * l_grl_p
                           + cfg.rho        * l_route
-                          + ub_w           * l_ub)
+                          + ub_w           * l_ub
+                          + u_l2_w         * l_u)
 
         if use_bf16:
             total.backward()

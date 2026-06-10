@@ -10,6 +10,7 @@ from typing import Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers import AutoModel
 
 
@@ -21,6 +22,8 @@ class SpearEncoder(nn.Module):
 
     def __init__(self, cfg) -> None:
         super().__init__()
+        self.cfg = cfg
+        self._layernorm = bool(getattr(cfg, "spear_layernorm", False))
         self._spear = AutoModel.from_pretrained(
             cfg.spear_model_id, trust_remote_code=True
         )
@@ -52,6 +55,9 @@ class SpearEncoder(nn.Module):
             out = self._spear(audio, audio_lengths)
             # hidden_states: list of L tensors each (B, T, D)
             stacked = torch.stack(out["hidden_states"], dim=0)  # (L, B, T, D)
+            if self._layernorm:
+                # SUPERB-style: layer-norm each layer (no affine) before averaging.
+                stacked = F.layer_norm(stacked, (stacked.size(-1),))
             h_t = stacked.mean(dim=0)                           # (B, T, D)
             self._last_input_T  = audio.size(1)
             self._last_output_T = h_t.size(1)

@@ -89,6 +89,15 @@ def _parse_args():
                    help="Use learned compressed z_t->z_L/z_P projections instead of routing masks.")
     p.add_argument("--projection_dim", type=int, default=cfg.projection_dim,
                    help="Output dimension for projection_disentanglement.")
+    p.add_argument("--projection_reconstruct", action="store_true",
+                   default=cfg.projection_reconstruct,
+                   help="Reconstruct h_t solely through z_L/z_P (up-project + decode), no decode(z_t).")
+    p.add_argument("--projection_u_dim", type=int, default=cfg.projection_u_dim,
+                   help="Dim of residual view z_U for reconstructive projection (0 = 2-way, no z_U).")
+    p.add_argument("--projection_u_l2", type=float, default=cfg.projection_u_l2,
+                   help="L2 activity penalty on z_U (the residual bottleneck).")
+    p.add_argument("--spear_layernorm", action="store_true", default=cfg.spear_layernorm,
+                   help="LayerNorm each SPEAR layer before averaging (SUPERB-comparable h_t).")
 
     # schedule
     p.add_argument("--total_steps",   type=int,   default=cfg.total_steps)
@@ -137,6 +146,10 @@ def _parse_args():
     cfg.ste_routing           = args.ste_routing
     cfg.projection_disentanglement = args.projection_disentanglement
     cfg.projection_dim        = args.projection_dim
+    cfg.projection_reconstruct = args.projection_reconstruct
+    cfg.projection_u_dim      = args.projection_u_dim
+    cfg.projection_u_l2       = args.projection_u_l2
+    cfg.spear_layernorm       = args.spear_layernorm
     cfg.total_steps           = args.total_steps
     cfg.stage2_steps          = args.stage2_steps
     cfg.warmup_steps          = args.warmup_steps

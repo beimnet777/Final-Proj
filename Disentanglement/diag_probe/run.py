@@ -95,6 +95,9 @@ def _parse_args():
     p.add_argument("--probe_grad_clip", type=float, default=1.0)
     p.add_argument("--standardize_sources", action="store_true",
                    help="Per-dim z-score z_L/z_P before probing (diagnoses feature-scale artifacts).")
+    p.add_argument("--spear_layernorm", action="store_true",
+                   help="LayerNorm each SPEAR layer before averaging — MUST match how the checkpoint "
+                        "was trained, else h_t (and z_t/z_L/z_P) won't match.")
     return p.parse_args()
 
 
@@ -121,6 +124,7 @@ def main() -> None:
 
     cfg = DISConfig()
     cfg.device = str(device)
+    cfg.spear_layernorm = bool(args.spear_layernorm)
     cfg.librispeech_cache_dir = Path(args.librispeech_cache_dir)
     cfg.lexicon_path = Path(args.lexicon_path)
     cfg.max_train_examples = args.max_train_examples

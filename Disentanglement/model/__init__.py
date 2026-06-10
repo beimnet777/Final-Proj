@@ -54,6 +54,18 @@ class ProjectionView(nn.Module):
         return self.proj(z)
 
 
+class ProjectionUp(nn.Module):
+    """Up-projection: a view (dim) -> SAE code space (K), for reconstructive projection."""
+
+    def __init__(self, dim: int, K: int) -> None:
+        super().__init__()
+        self.proj = nn.Linear(dim, K, bias=False)
+        nn.init.kaiming_uniform_(self.proj.weight, a=5 ** 0.5)
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return self.proj(z)
+
+
 class DISModel(nn.Module):
     def __init__(self, cfg) -> None:
         super().__init__()
@@ -69,6 +81,15 @@ class DISModel(nn.Module):
             dim = getattr(cfg, 'projection_dim', 128)
             self.proj_L = ProjectionView(cfg.K, dim)
             self.proj_P = ProjectionView(cfg.K, dim)
+            if getattr(cfg, 'projection_reconstruct', False):
+                # Reconstruct h_t solely through the views: up-project each back
+                # to code space, sum, then decode.  Optional penalized residual z_U.
+                self.up_L = ProjectionUp(dim, cfg.K)
+                self.up_P = ProjectionUp(dim, cfg.K)
+                u_dim = int(getattr(cfg, 'projection_u_dim', 0))
+                if u_dim > 0:
+                    self.proj_U = ProjectionView(cfg.K, u_dim)
+                    self.up_U   = ProjectionUp(u_dim, cfg.K)
 
     def forward(
         self,
@@ -107,10 +128,20 @@ class DISModel(nn.Module):
 
         # ---- Projection disentanglement: learned views instead of unit routing ----
         if projection:
-            h_hat = self.sae.decode(z_t)
+            reconstruct = getattr(self.cfg, 'projection_reconstruct', False)
             z_L = self.proj_L(z_t)
             z_P = self.proj_P(z_t)
             z_P_bar = _mean_pool(z_P, out_lengths)
+            z_U = None
+            if reconstruct:
+                # Reconstruct SOLELY through the views (no decode(z_t) path).
+                z_hat = self.up_L(z_L) + self.up_P(z_P)
+                if hasattr(self, 'proj_U'):
+                    z_U = self.proj_U(z_t)
+                    z_hat = z_hat + self.up_U(z_U)
+                h_hat = self.sae.decode(z_hat)
+            else:
+                h_hat = self.sae.decode(z_t)
             out = {
                 "h_t":         h_t,
                 "h_hat":       h_hat,
@@ -124,6 +155,8 @@ class DISModel(nn.Module):
                 "sid_logits":  self.sid_head(z_P_bar),
                 "grl_logits":  self.grl_head(z_L, out_lengths, grl_lambda),
             }
+            if z_U is not None:
+                out["z_U"] = z_U
             if grl_p > 0.0:
                 out["pr_grl_logits"] = self.pr_grl_head(z_P, grl_lambda)
             return out
