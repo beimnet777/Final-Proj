@@ -86,7 +86,8 @@ def _load_stage1_checkpoint(path: Path, model: DISModel, cfg: DISConfig) -> None
     sae_state = {k: v for k, v in ckpt["model_state"].items() if k.startswith("sae.")}
     missing, unexpected = model.load_state_dict(sae_state, strict=False)
     non_sae_missing = [k for k in missing if not k.startswith(
-        ("routing.", "proj_L.", "proj_P.", "pr_head.", "sid_head.", "grl_head.", "encoder._spear."))]
+        ("routing.", "proj_L.", "proj_P.", "pr_head.", "sid_head.", "grl_head.",
+         "pr_grl_head.", "encoder._spear."))]
     if non_sae_missing:
         print(f"[train] WARNING: unexpected missing SAE keys: {non_sae_missing}")
     print(f"[train] loaded {len(sae_state)} SAE tensors from {path}  (step={ckpt['step']}  val={ckpt['best_metric']:.4f})")
