@@ -75,18 +75,20 @@ class SIDHead(nn.Module):
 class PR_GRL_Head(nn.Module):
     """Adversarial phoneme head on z_P with gradient reversal.
 
-    Frame-level linear CTC on z_P with reversed gradient.  When z_P encodes
-    phonemes, the reversed gradient penalises the SAE for putting phoneme
-    information into the paralinguistic bucket.
+    Mirrors the diagnostic PR probe style: frame projection followed by a
+    frame classifier.  When z_P encodes phonemes, the reversed gradient
+    penalises the model for putting phone information into the paralinguistic
+    bucket.
     """
 
     def __init__(self, cfg) -> None:
         super().__init__()
-        self.fc = nn.Linear(_head_input_dim(cfg), cfg.vocab_size)
+        self.projector = nn.Linear(_head_input_dim(cfg), 256)
+        self.fc = nn.Linear(256, cfg.vocab_size)
 
     def forward(self, z_P: torch.Tensor, lam: float) -> torch.Tensor:
-        # z_P : (B, T, K) — frame-level paralinguistic features
-        return self.fc(gradient_reversal(z_P, lam))
+        z_P = gradient_reversal(z_P, lam)
+        return self.fc(self.projector(z_P))
 
 
 # ---------------------------------------------------------------- GRL head
@@ -94,13 +96,15 @@ class PR_GRL_Head(nn.Module):
 class GRLHead(nn.Module):
     """Adversarial speaker head on z_L with gradient reversal.
 
-    Mean-pools z_L over valid frames, applies GRL, then classifies speaker.
-    GRL reverses gradients so the SAE is penalised for encoding speaker in L features.
+    Mirrors the diagnostic SID probe style: frame projection, masked mean pool,
+    then speaker classifier.  GRL reverses gradients so the model is penalised
+    for encoding speaker in L features.
     """
 
     def __init__(self, cfg) -> None:
         super().__init__()
-        self.fc = nn.Linear(_head_input_dim(cfg), cfg.num_speakers)
+        self.projector = nn.Linear(_head_input_dim(cfg), 256)
+        self.fc = nn.Linear(256, cfg.num_speakers)
 
     def forward(
         self,
@@ -113,8 +117,10 @@ class GRLHead(nn.Module):
         lengths : (B,)  valid frame counts
         lam     : GRL reversal strength
         """
+        z_L = gradient_reversal(z_L, lam)
         B, T, K = z_L.shape
         mask   = (torch.arange(T, device=z_L.device).unsqueeze(0) < lengths.unsqueeze(1)
                   ).float().unsqueeze(-1)                          # (B, T, 1)
-        z_mean = (z_L * mask).sum(1) / lengths.float().unsqueeze(1).clamp(min=1)  # (B, K)
-        return self.fc(gradient_reversal(z_mean, lam))
+        z_proj = self.projector(z_L)
+        z_mean = (z_proj * mask).sum(1) / lengths.float().unsqueeze(1).clamp(min=1)
+        return self.fc(z_mean)

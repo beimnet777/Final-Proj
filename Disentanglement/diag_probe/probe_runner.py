@@ -297,6 +297,43 @@ def _eval_pr_probe(
 
 
 @torch.no_grad()
+def _eval_pr_probe_ids(
+    probe: nn.Module,
+    src_key: str,
+    val_dl,
+    model,
+    device,
+    use_bf16: bool,
+    has_routing: bool,
+) -> float:
+    """PER on Disentanglement's internal 41-phone integer labels."""
+    probe.eval()
+    model.eval()
+    edits = total = 0
+    for audios, audio_lens, targets, target_lens, _speaker_ids in val_dl:
+        feats = _extract_representations(
+            model, audios, audio_lens, device, use_bf16, has_routing
+        )
+        log_probs = probe(feats[src_key])
+        preds = log_probs.argmax(dim=-1).cpu()
+        lengths = feats["out_lengths"].cpu()
+        targets = targets.cpu()
+        target_lens = target_lens.cpu()
+
+        for pred_row, n, tgt_row, tgt_n in zip(preds, lengths, targets, target_lens):
+            collapsed, prev = [], -1
+            for idx in pred_row[: int(n)].tolist():
+                if idx != prev:
+                    collapsed.append(idx)
+                    prev = idx
+            hyp = [idx for idx in collapsed if idx != 0]
+            ref = tgt_row[: int(tgt_n)].tolist()
+            edits += _edit_distance(hyp, ref)
+            total += len(ref)
+    return edits / max(total, 1)
+
+
+@torch.no_grad()
 def _eval_sid_probe(
     probe: nn.Module,
     src_key: str,

@@ -86,6 +86,8 @@ def _parse_args():
     p.add_argument("--max_train_examples", type=int, default=0)
     p.add_argument("--max_val_examples", type=int, default=500)
     p.add_argument("--pr_max_examples", type=int, default=0)
+    p.add_argument("--pr_label_set", choices=("superb", "dis"), default="superb",
+                   help="PR probe labels: 'superb'=74-phone dev-clean, 'dis'=internal 41-phone stage2 val.")
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--pr_probe_lr", type=float, default=5e-4)
     p.add_argument("--sid_probe_lr", type=float, default=1e-3)
@@ -133,16 +135,23 @@ def main() -> None:
 
     use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 
-    pr_cfg = PRConfig()
-    pr_cfg.data_cache_dir = cfg.librispeech_cache_dir
-    pr_cfg.librispeech_lexicon = cfg.lexicon_path
-    pr_cfg.batch_size = cfg.batch_size
-    pr_cfg.eval_batch_size = cfg.eval_batch_size
-    pr_cfg.num_workers = cfg.num_workers
-    pr_cfg.max_examples = args.pr_max_examples
-    pr_tokenizer, pr_train_dl, pr_val_dl, _ = global_pr_data.make_pr_dataloaders(pr_cfg)
-
-    _, sid_train_dl, sid_val_dl = make_stage2_dataloaders(cfg)
+    if args.pr_label_set == "superb":
+        pr_cfg = PRConfig()
+        pr_cfg.data_cache_dir = cfg.librispeech_cache_dir
+        pr_cfg.librispeech_lexicon = cfg.lexicon_path
+        pr_cfg.batch_size = cfg.batch_size
+        pr_cfg.eval_batch_size = cfg.eval_batch_size
+        pr_cfg.num_workers = cfg.num_workers
+        pr_cfg.max_examples = args.pr_max_examples
+        pr_tokenizer, pr_train_dl, pr_val_dl, _ = global_pr_data.make_pr_dataloaders(pr_cfg)
+        _, sid_train_dl, sid_val_dl = make_stage2_dataloaders(cfg)
+        pr_vocab_size = pr_cfg.vocab_size
+    else:
+        _stage2_tokenizer, sid_train_dl, sid_val_dl = make_stage2_dataloaders(cfg)
+        pr_tokenizer = None
+        pr_train_dl = sid_train_dl
+        pr_val_dl = sid_val_dl
+        pr_vocab_size = cfg.vocab_size
 
     if args.stage2_ckpt:
         tmp = torch.load(args.stage2_ckpt, map_location="cpu", weights_only=False)
@@ -193,8 +202,11 @@ def main() -> None:
     dims: Dict[str, int] = {"h_t": cfg.D, "z_t": cfg.K, "z_L": view_dim, "z_P": view_dim}
     results: Dict[str, Dict[str, float]] = {}
 
-    print(f"\n[diag_probe] speakers={cfg.num_speakers}  pr_vocab={pr_cfg.vocab_size}  D={cfg.D}  K={cfg.K}")
-    print("[diag_probe] PR: SUPERB phone data/head, dev-clean diagnostic eval")
+    print(f"\n[diag_probe] speakers={cfg.num_speakers}  pr_vocab={pr_vocab_size}  D={cfg.D}  K={cfg.K}")
+    if args.pr_label_set == "superb":
+        print("[diag_probe] PR: SUPERB phone data/head, dev-clean diagnostic eval")
+    else:
+        print("[diag_probe] PR: Disentanglement 41-phone labels, stage2 val diagnostic eval")
     print("[diag_probe] SID: LibriSpeech diagnostic split, SUPERB-style SID head\n")
 
     for src in sources:
@@ -214,16 +226,21 @@ def main() -> None:
                     probe, src, sid_val_dl, model, device, use_bf16, has_routing
                 )
             else:
-                probe = base_probe._PRProbe(dims[src], pr_cfg.vocab_size).to(device)
+                probe = base_probe._PRProbe(dims[src], pr_vocab_size).to(device)
                 base_probe._train_pr_probe(
                     probe, src, pr_train_dl, model, device, use_bf16, has_routing,
                     steps=args.probe_steps, lr=args.pr_probe_lr,
                     warmup_steps=args.probe_warmup_steps,
                     grad_clip=args.probe_grad_clip,
                 )
-                score = base_probe._eval_pr_probe(
-                    probe, src, pr_val_dl, model, pr_tokenizer, device, use_bf16, has_routing
-                )
+                if args.pr_label_set == "superb":
+                    score = base_probe._eval_pr_probe(
+                        probe, src, pr_val_dl, model, pr_tokenizer, device, use_bf16, has_routing
+                    )
+                else:
+                    score = base_probe._eval_pr_probe_ids(
+                        probe, src, pr_val_dl, model, device, use_bf16, has_routing
+                    )
             results[src][task] = score
             metric = f"PER={score:.3f}" if task == "pr" else f"acc={score:.3f}"
             print(f"    {label:<22s}  {metric}", flush=True)

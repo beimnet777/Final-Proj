@@ -43,6 +43,7 @@ PR_PROBE_LR="${PR_PROBE_LR:-5e-4}"
 SID_PROBE_LR="${SID_PROBE_LR:-1e-3}"
 PROBE_WARMUP_STEPS="${PROBE_WARMUP_STEPS:-0}"
 PR_MAX_EXAMPLES="${PR_MAX_EXAMPLES:-0}"
+PR_LABEL_SET="${PR_LABEL_SET:-superb}"
 SEED="${SEED:-42}"
 
 echo "=== Projection final-checkpoint diagnostic probe ==="
@@ -62,6 +63,7 @@ echo "pr_probe_lr       : ${PR_PROBE_LR}"
 echo "sid_probe_lr      : ${SID_PROBE_LR}"
 echo "warmup_steps      : ${PROBE_WARMUP_STEPS}"
 echo "pr_max_examples   : ${PR_MAX_EXAMPLES}"
+echo "pr_label_set      : ${PR_LABEL_SET}"
 
 if [[ ! -f "${STAGE1_CKPT}" ]]; then
     echo "ERROR: missing stage1 checkpoint: ${STAGE1_CKPT}" >&2
@@ -84,6 +86,7 @@ fi
     --pr_max_examples "${PR_MAX_EXAMPLES}" \
     --pr_probe_lr "${PR_PROBE_LR}" \
     --sid_probe_lr "${SID_PROBE_LR}" \
+    --pr_label_set "${PR_LABEL_SET}" \
     --probe_warmup_steps "${PROBE_WARMUP_STEPS}"
 
 echo "Finished          : $(date)"
