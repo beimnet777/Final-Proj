@@ -599,14 +599,26 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 f"  sid_acc={val_metrics['sid_acc']:.3f}"
             )
             tb.log_val(step, val_metrics)
-            if val_metrics["recon"] < best_metric:
-                best_metric = val_metrics["recon"]
+            # Stage 2 optimizes disentanglement, not reconstruction.  recon is
+            # *lowest* early — before the task/adversary losses reshape z_t — so
+            # selecting "best" by recon returns an undertrained checkpoint (for
+            # projection runs it picks step ~1000, where the views are near init
+            # and only *look* disentangled because nothing is encoded yet).
+            # Select by a disentanglement score instead: low phoneme error in
+            # z_L + high speaker accuracy in z_P (both lower-is-better).  These
+            # are in-training head metrics — a coarse proxy, but monotone enough
+            # within a run to avoid the recon trap.  Per-step checkpoints are
+            # still saved, so the recon-best is recoverable if ever needed.
+            disent_score = val_metrics["per"] + (1.0 - val_metrics["sid_acc"])
+            if disent_score < best_metric:
+                best_metric = disent_score
                 _save_checkpoint(best_ckpt, model, optimizer, scheduler, step, best_metric)
-                print(f"  ✓ best checkpoint (val_recon={best_metric:.4f}) → {best_ckpt}")
+                print(f"  ✓ best checkpoint (disent={best_metric:.4f}  "
+                      f"PER={val_metrics['per']:.3f} sid={val_metrics['sid_acc']:.3f}) → {best_ckpt}")
             _save_checkpoint(cfg.checkpoint_dir / f"stage2_step{step}.pt",
                              model, optimizer, scheduler, step, best_metric)
             tb.flush()
 
     tb.close()
-    print(f"\n[stage 2] done.  Best val_recon={best_metric:.4f}  → {best_ckpt}")
+    print(f"\n[stage 2] done.  Best disent_score={best_metric:.4f}  → {best_ckpt}")
     return best_ckpt

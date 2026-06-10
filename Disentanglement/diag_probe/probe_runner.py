@@ -122,6 +122,26 @@ def _make_linear_schedule(optimizer, warmup_steps: int, total_steps: int):
     return LambdaLR(optimizer, lr_lambda)
 
 
+# Diagnostic switch: per-dim standardize the learned projection views before
+# probing.  Projection runs can grow large proj weights (||W_P|| ~ 50), giving
+# z_L/z_P large magnitude -> saturated probe softmax -> CTC collapses to blank
+# (PER ~ 1.0).  Standardizing isolates whether a poor probe result reflects the
+# representation or just feature scale.  Off by default -> existing probes are
+# byte-for-byte unchanged.
+_STANDARDIZE_SOURCES = False
+
+
+def _standardize_frames(z: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    """Per-dim z-score over valid frames in the batch (zero out padding)."""
+    B, T, dim = z.shape
+    mask = (torch.arange(T, device=z.device).unsqueeze(0) < lengths.unsqueeze(1)).float().unsqueeze(-1)
+    n    = mask.sum().clamp(min=1.0)
+    mean = (z * mask).sum((0, 1)) / n
+    var  = (((z - mean) ** 2) * mask).sum((0, 1)) / n
+    std  = var.sqrt().clamp(min=1e-5)
+    return (z - mean) / std
+
+
 @torch.no_grad()
 def _extract_representations(model, audios, audio_lengths, device, use_bf16, has_routing: bool):
     audios         = audios.to(device)
@@ -134,12 +154,19 @@ def _extract_representations(model, audios, audio_lengths, device, use_bf16, has
         else:
             out = model(audios, audio_lengths, stage=1)
 
+    lengths = out["out_lengths"]
+    z_L = out.get("z_L", out["z_t"]).float()
+    z_P = out.get("z_P", out["z_t"]).float()
+    if _STANDARDIZE_SOURCES:
+        z_L = _standardize_frames(z_L, lengths)
+        z_P = _standardize_frames(z_P, lengths)
+
     return {
         "h_t":            out["h_t"].float(),
         "z_t":            out["z_t"].float(),
-        "z_L":            out.get("z_L", out["z_t"]).float(),
-        "z_P":            out.get("z_P", out["z_t"]).float(),
-        "out_lengths":    out["out_lengths"],
+        "z_L":            z_L,
+        "z_P":            z_P,
+        "out_lengths":    lengths,
     }
 
 
@@ -357,12 +384,17 @@ def _parse_args():
     p.add_argument("--sid_probe_lr",          type=float, default=1e-4)
     p.add_argument("--probe_warmup_steps",    type=int, default=500)
     p.add_argument("--probe_grad_clip",       type=float, default=1.0)
+    p.add_argument("--standardize_sources",   action="store_true",
+                   help="Per-dim z-score z_L/z_P before probing (diagnoses feature-scale artifacts).")
     return p.parse_args()
 
 
 def main():
     args   = _parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    global _STANDARDIZE_SOURCES
+    _STANDARDIZE_SOURCES = bool(getattr(args, "standardize_sources", False))
 
     global _pr_data
     import pr_data as _pr_data_module

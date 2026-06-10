@@ -91,6 +91,8 @@ def _parse_args():
     p.add_argument("--sid_probe_lr", type=float, default=1e-3)
     p.add_argument("--probe_warmup_steps", type=int, default=0)
     p.add_argument("--probe_grad_clip", type=float, default=1.0)
+    p.add_argument("--standardize_sources", action="store_true",
+                   help="Per-dim z-score z_L/z_P before probing (diagnoses feature-scale artifacts).")
     return p.parse_args()
 
 
@@ -108,6 +110,9 @@ def main() -> None:
     global_pr_data = __import__("pr_data")
     _prioritize_import_paths()  # pr_data prepends Probing/; restore Disentanglement first.
     base_probe._pr_data = global_pr_data
+    base_probe._STANDARDIZE_SOURCES = bool(args.standardize_sources)
+    if args.standardize_sources:
+        print("[diag_probe] standardize_sources=True — z-scoring z_L/z_P before probing")
     from model import build_dis_model
     from train import _load_stage1_checkpoint
     from data.dataset import make_stage2_dataloaders
