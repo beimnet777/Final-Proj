@@ -98,6 +98,9 @@ def _parse_args():
     p.add_argument("--spear_layernorm", action="store_true",
                    help="LayerNorm each SPEAR layer before averaging — MUST match how the checkpoint "
                         "was trained, else h_t (and z_t/z_L/z_P) won't match.")
+    p.add_argument("--instance_norm_zL", action="store_true",
+                   help="Instance-normalize z_L over time — MUST match training (IN has no params, "
+                        "so it is not stored in the checkpoint).")
     return p.parse_args()
 
 
@@ -125,6 +128,7 @@ def main() -> None:
     cfg = DISConfig()
     cfg.device = str(device)
     cfg.spear_layernorm = bool(args.spear_layernorm)
+    cfg.instance_norm_zL = bool(args.instance_norm_zL)
     cfg.librispeech_cache_dir = Path(args.librispeech_cache_dir)
     cfg.lexicon_path = Path(args.lexicon_path)
     cfg.max_train_examples = args.max_train_examples

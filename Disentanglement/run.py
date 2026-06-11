@@ -100,6 +100,8 @@ def _parse_args():
                    help="L2 activity penalty on z_U (the residual bottleneck).")
     p.add_argument("--spear_layernorm", action="store_true", default=cfg.spear_layernorm,
                    help="LayerNorm each SPEAR layer before averaging (SUPERB-comparable h_t).")
+    p.add_argument("--instance_norm_zL", action="store_true", default=cfg.instance_norm_zL,
+                   help="Instance-normalize z_L over time (strip per-utterance speaker stats).")
 
     # schedule
     p.add_argument("--total_steps",   type=int,   default=cfg.total_steps)
@@ -153,6 +155,7 @@ def _parse_args():
     cfg.projection_u_dim      = args.projection_u_dim
     cfg.projection_u_l2       = args.projection_u_l2
     cfg.spear_layernorm       = args.spear_layernorm
+    cfg.instance_norm_zL      = args.instance_norm_zL
     cfg.total_steps           = args.total_steps
     cfg.stage2_steps          = args.stage2_steps
     cfg.warmup_steps          = args.warmup_steps

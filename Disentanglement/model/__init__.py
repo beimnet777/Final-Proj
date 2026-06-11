@@ -39,6 +39,24 @@ def _mean_pool(z: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
     return (z * mask).sum(1) / count.squeeze(-1)
 
 
+def _instance_norm_time(z: torch.Tensor, lengths: torch.Tensor, eps: float = 1e-5) -> torch.Tensor:
+    """Per-utterance, per-channel normalization over valid time frames (no affine).
+
+    Removes each channel's per-utterance mean/scale — where speaker identity
+    largely lives — while keeping frame-to-frame (content) variation.  Padding
+    frames are masked out of the statistics and zeroed in the output.
+    z : (B, T, C)  ->  (B, T, C)
+    """
+    B, T, C = z.shape
+    mask = (torch.arange(T, device=z.device).unsqueeze(0) < lengths.unsqueeze(1)
+            ).float().unsqueeze(-1)                              # (B, T, 1)
+    n    = mask.sum(1).clamp(min=1.0)                            # (B, 1)
+    mean = (z * mask).sum(1) / n                                # (B, C)
+    var  = (((z - mean.unsqueeze(1)) ** 2) * mask).sum(1) / n   # (B, C)
+    z_norm = (z - mean.unsqueeze(1)) / (var.unsqueeze(1) + eps).sqrt()
+    return z_norm * mask                                        # zero padding
+
+
 # ---------------------------------------------------------------- model
 
 class ProjectionView(nn.Module):
@@ -131,6 +149,10 @@ class DISModel(nn.Module):
             reconstruct = getattr(self.cfg, 'projection_reconstruct', False)
             z_L = self.proj_L(z_t)
             z_P = self.proj_P(z_t)
+            if getattr(self.cfg, 'instance_norm_zL', False):
+                # Strip per-utterance speaker statistics from z_L; reconstruction
+                # must then source speaker from z_P (up_P).
+                z_L = _instance_norm_time(z_L, out_lengths)
             z_P_bar = _mean_pool(z_P, out_lengths)
             z_U = None
             if reconstruct:

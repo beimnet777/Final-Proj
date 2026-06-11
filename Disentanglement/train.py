@@ -438,6 +438,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += "  spear_ln=True"
     if getattr(cfg, 'grl_frame_level', False):
         extra_str += "  grl_frame_level=True"
+    if getattr(cfg, 'instance_norm_zL', False):
+        extra_str += "  instance_norm_zL=True"
     print(f"[stage 2] α={cfg.alpha}  β={cfg.beta}  grl={cfg.grl_weight}  ρ={cfg.rho}{delay_str}{extra_str}")
     print(f"[stage 2] steps={cfg.stage2_steps}  batch={cfg.batch_size}")
 

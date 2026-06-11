@@ -49,11 +49,15 @@ BETA="${BETA:-0.03}"
 GRL_P_WEIGHT="${GRL_P_WEIGHT:-0.01}"
 PROBE_STEPS="${PROBE_STEPS:-2000}"
 
+INSTANCE_NORM="${INSTANCE_NORM:-0}"
 GRL_TAG="grl$(echo "${GRL_WEIGHT}" | tr '.' 'p')"
 FRAME_ARGS=()
 FRAME_TAG=""
 if [[ "${GRL_FRAME_LEVEL}" == "1" ]]; then FRAME_ARGS=(--grl_frame_level); FRAME_TAG="_frame"; fi
-RUN_NAME="${RUN_NAME:-proj_recon_ln_d${PROJECTION_DIM}_${GRL_TAG}${FRAME_TAG}}"
+IN_ARGS=()
+IN_TAG=""
+if [[ "${INSTANCE_NORM}" == "1" ]]; then IN_ARGS=(--instance_norm_zL); IN_TAG="_in"; fi
+RUN_NAME="${RUN_NAME:-proj_recon_ln_d${PROJECTION_DIM}_${GRL_TAG}${FRAME_TAG}${IN_TAG}}"
 
 STAGE1_CKPT="${DIS_DIR}/checkpoints/ln_sae/stage1_best.pt"
 CKPT_DIR="${DIS_DIR}/checkpoints/${RUN_NAME}"
@@ -89,6 +93,7 @@ ${PYTHON} -u run.py \
     --grl_delay_steps        0 \
     --grl_phoneme_weight     "${GRL_P_WEIGHT}" \
     "${FRAME_ARGS[@]}" \
+    "${IN_ARGS[@]}" \
     --rho                    0 \
     --lr                     3e-5 \
     --lr_min                 1e-6 \
@@ -111,6 +116,7 @@ for LABELS in dis superb; do
         --stage2_ckpt        "${STAGE2_CKPT}" \
         --run_name           "diag_probe_${RUN_NAME}_${LABELS}" \
         --spear_layernorm \
+        "${IN_ARGS[@]}" \
         --pr_label_set       "${LABELS}" \
         --sources            "z_t,z_L,z_P" \
         --tasks              "pr,sid" \

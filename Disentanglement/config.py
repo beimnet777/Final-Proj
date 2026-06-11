@@ -65,6 +65,7 @@ class DISConfig:
     projection_reconstruct: bool = False
     projection_u_dim:       int   = 0     # >0 adds residual view z_U of this dim (0 = 2-way, no z_U)
     projection_u_l2:        float = 0.0   # L2 activity penalty on z_U — the residual bottleneck
+    instance_norm_zL:       bool  = False # instance-normalize z_L over time (strip per-utterance speaker stats)
 
     # ---------------------------------------------------------------- Optimizer
     lr:          float = 1e-4   # SAE lr (stage 1);  also base lr for SAE in stage 2
