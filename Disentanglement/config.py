@@ -30,6 +30,11 @@ class DISConfig:
     grl_weight:          float = 1.0    # adversarial speaker weight — calibrated from grad norms
     grl_delay_steps:     int   = 0     # steps before GRL is switched on (0 = no delay)
     grl_frame_level:     bool  = False  # speaker adversary predicts per-frame (dense gradient) vs utterance mean-pool
+    # Canonical DANN: discriminator heads train at FULL strength; grl_weight /
+    # grl_phoneme_weight act only as reversal strengths (folded into lambda).
+    # Default False preserves the legacy behaviour, where the weight also scaled
+    # the discriminator's own learning signal (starving it at small weights).
+    dann_full_discriminator: bool = False
     rho:                 float = 0.001 # routing anti-collapse weight
 
     # ---------------------------------------------------------------- Ablation flags (D / E / F)

@@ -70,6 +70,9 @@ def _parse_args():
     p.add_argument("--grl_delay_steps", type=int,   default=cfg.grl_delay_steps)
     p.add_argument("--grl_frame_level", action="store_true", default=cfg.grl_frame_level,
                    help="Speaker GRL predicts per-frame (dense gradient) instead of utterance mean-pool.")
+    p.add_argument("--dann_full_discriminator", action="store_true", default=cfg.dann_full_discriminator,
+                   help="Canonical DANN: adversary heads train at full strength; grl weights only scale "
+                        "the reversed (encoder-side) gradient via lambda.")
     p.add_argument("--rho",             type=float, default=cfg.rho)
 
     # ablation flags (D / E / F)
@@ -138,6 +141,7 @@ def _parse_args():
     cfg.grl_weight            = args.grl_weight
     cfg.grl_delay_steps       = args.grl_delay_steps
     cfg.grl_frame_level       = args.grl_frame_level
+    cfg.dann_full_discriminator = args.dann_full_discriminator
     cfg.rho                   = args.rho
     cfg.no_routing            = args.no_routing
     cfg.fixed_routing         = args.fixed_routing

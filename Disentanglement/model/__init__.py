@@ -115,7 +115,13 @@ class DISModel(nn.Module):
         audio_lengths: torch.Tensor,
         stage: int = 1,
         grl_lambda: float = 0.0,
+        grl_p_lambda: float | None = None,
     ) -> Dict[str, torch.Tensor]:
+        # grl_p_lambda: separate reversal strength for the phoneme adversary on
+        # z_P (canonical DANN folds per-adversary weights into the lambda).
+        # None -> fall back to grl_lambda (legacy shared-lambda behaviour).
+        if grl_p_lambda is None:
+            grl_p_lambda = grl_lambda
 
         h_t, out_lengths = self.encoder(audio, audio_lengths)    # (B, T, D)
         z_t, z_pre       = self.sae.encode(h_t)                  # (B, T, K)
@@ -180,7 +186,7 @@ class DISModel(nn.Module):
             if z_U is not None:
                 out["z_U"] = z_U
             if grl_p > 0.0:
-                out["pr_grl_logits"] = self.pr_grl_head(z_P, grl_lambda)
+                out["pr_grl_logits"] = self.pr_grl_head(z_P, grl_p_lambda)
             return out
 
         # ---- Normal stage 2: get routing masks ----
@@ -227,7 +233,7 @@ class DISModel(nn.Module):
 
         # Exp 1: phoneme GRL on z_P (only when weight > 0)
         if grl_p > 0.0:
-            out["pr_grl_logits"] = self.pr_grl_head(z_P, grl_lambda)
+            out["pr_grl_logits"] = self.pr_grl_head(z_P, grl_p_lambda)
 
         return out
 

@@ -217,7 +217,8 @@ def _log_grad_norms_stage1(model, batch, cfg, step, tb, use_bf16) -> None:
     tb.log_grad_norms(step, norms)
 
 
-def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam, eff_grl_weight: float = -1.0) -> None:
+def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
+                           eff_grl_weight: float = -1.0, grl_p_lam=None) -> None:
     """Per-loss gradient norms on SAE params — used for weight calibration."""
     device = torch.device(cfg.device)
     audios, audio_lengths, targets, target_lengths, speaker_ids = batch
@@ -241,7 +242,8 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam, eff_g
         _routing_active = (not _no_routing and not _projection and
                            any(p.requires_grad for p in model.routing.parameters()))
 
-        out     = model(audios, audio_lengths, stage=2, grl_lambda=grl_lam)
+        out     = model(audios, audio_lengths, stage=2, grl_lambda=grl_lam,
+                        grl_p_lambda=grl_p_lam)
         l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
         l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
         l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
@@ -265,7 +267,9 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam, eff_g
             ("grl",      l_grl,                True),
         ]
         if _grl_p_w > 0:
-            loss_terms.append(("grl_p", _grl_p_w * l_grl_p_gn, True))
+            # With dann_full_discriminator the weight already lives in the lambda.
+            _dann_fix = getattr(cfg, 'dann_full_discriminator', False)
+            loss_terms.append(("grl_p", l_grl_p_gn if _dann_fix else _grl_p_w * l_grl_p_gn, True))
         if _routing_active:
             loss_terms.append(("route", cfg.rho * l_route, False))
 
@@ -440,6 +444,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += "  grl_frame_level=True"
     if getattr(cfg, 'instance_norm_zL', False):
         extra_str += "  instance_norm_zL=True"
+    if getattr(cfg, 'dann_full_discriminator', False):
+        extra_str += "  dann_full_disc=True"
     print(f"[stage 2] α={cfg.alpha}  β={cfg.beta}  grl={cfg.grl_weight}  ρ={cfg.rho}{delay_str}{extra_str}")
     print(f"[stage 2] steps={cfg.stage2_steps}  batch={cfg.batch_size}")
 
@@ -481,6 +487,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     n_routes       = getattr(cfg, 'n_routes', 3)
     routing_active = not no_routing and not projection_mode and bool(routing_params)
     grl_p_weight   = getattr(cfg, 'grl_phoneme_weight', 0.0)
+    dann_fix       = getattr(cfg, 'dann_full_discriminator', False)
     ub_w           = getattr(cfg, 'ub_weight', 0.0)
     u_l2_w         = getattr(cfg, 'projection_u_l2', 0.0)   # L2 penalty on residual z_U
     routing_clip_params = [] if projection_mode else list(model.routing.parameters())
@@ -499,11 +506,23 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         model.routing.tau = _gumbel_tau(step, cfg.stage2_steps,
                                         cfg.gumbel_tau_start, cfg.gumbel_tau_end)
         grl_active        = (cfg.grl_delay_steps == 0 or step >= cfg.grl_delay_steps)
-        grl_lam           = _dann_lambda(step, cfg.stage2_steps) if grl_active else 0.0
-        eff_grl_weight    = cfg.grl_weight if grl_active else 0.0
+        ramp              = _dann_lambda(step, cfg.stage2_steps) if grl_active else 0.0
+        if dann_fix:
+            # Canonical DANN: heads train at full strength; the per-adversary
+            # weights act only on the reversed (encoder-side) gradient via lambda.
+            grl_lam          = cfg.grl_weight * ramp
+            grl_p_lam        = grl_p_weight * ramp
+            eff_grl_weight   = 1.0
+            eff_grl_p_weight = 1.0 if grl_p_weight > 0 else 0.0
+        else:
+            grl_lam          = ramp
+            grl_p_lam        = None
+            eff_grl_weight   = cfg.grl_weight if grl_active else 0.0
+            eff_grl_p_weight = grl_p_weight
 
         if step % cfg.grad_log_every == 0:
-            _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam, eff_grl_weight)
+            _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
+                                   eff_grl_weight, grl_p_lam)
 
         audios, audio_lengths, targets, target_lengths, speaker_ids = batch
         audios         = audios.to(device, non_blocking=True)
@@ -515,7 +534,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         optimizer.zero_grad(set_to_none=True)
         ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
         with ctx:
-            out     = model(audios, audio_lengths, stage=2, grl_lambda=grl_lam)
+            out     = model(audios, audio_lengths, stage=2, grl_lambda=grl_lam,
+                            grl_p_lambda=grl_p_lam)
             l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
             l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
             l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
@@ -538,13 +558,13 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           if (u_l2_w > 0 and "z_U" in out)
                           else l_recon.new_zeros(()))
             total      = (l_recon
-                          + cfg.alpha      * l_pr
-                          + cfg.beta       * l_sid
-                          + eff_grl_weight * l_grl
-                          + grl_p_weight   * l_grl_p
-                          + cfg.rho        * l_route
-                          + ub_w           * l_ub
-                          + u_l2_w         * l_u)
+                          + cfg.alpha        * l_pr
+                          + cfg.beta         * l_sid
+                          + eff_grl_weight   * l_grl
+                          + eff_grl_p_weight * l_grl_p
+                          + cfg.rho          * l_route
+                          + ub_w             * l_ub
+                          + u_l2_w           * l_u)
 
         if use_bf16:
             total.backward()

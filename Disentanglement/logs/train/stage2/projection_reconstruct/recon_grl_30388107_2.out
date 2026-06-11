@@ -293,3 +293,76 @@ Thu Jun 11 10:13:54 BST 2026
   training probe: z_t -> SID ...
     z_t -> SID              acc=0.998
   training probe: z_L -> PR ...
+    z_L -> PR               PER=0.082
+  training probe: z_L -> SID ...
+    z_L -> SID              acc=0.956
+  training probe: z_P -> PR ...
+    z_P -> PR               PER=0.119
+  training probe: z_P -> SID ...
+    z_P -> SID              acc=0.998
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_probe_proj_recon_ln_d256_grl0p1_dis
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_t              0.055         0.998
+  z_L              0.082         0.956
+  z_P              0.119         0.998
+==================================================================
+
+
+----- probe (superb) -----
+Thu Jun 11 11:12:20 BST 2026
+[diag_probe] run=diag_probe_proj_recon_ln_d256_grl0p1_superb  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ln_sae/stage1_best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/proj_recon_ln_d256_grl0p1/stage2_best.pt
+[diag_probe] sources=['z_t', 'z_L', 'z_P']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=2000  pr_lr=0.0005  sid_lr=0.001  warmup=0
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=28039  val=500  vocab=41  speakers=251
+[diag_probe] projection_dim overridden: 128 -> 256
+[diag_probe] projection_disentanglement enabled from checkpoint
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ln_sae/stage1_best.pt  (step=6000  val=0.0737)
+[diag_probe] skipped 2 shape-mismatched/stale keys (e.g. ['up_L.proj.weight', 'up_P.proj.weight']) — fine, probe does not use adversarial heads
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/proj_recon_ln_d256_grl0p1/stage2_best.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB phone data/head, dev-clean diagnostic eval
+[diag_probe] SID: LibriSpeech diagnostic split, SUPERB-style SID head
+
+  training probe: z_t -> PR ...
+[pr_data] g2p_en loaded for OOV words
+    z_t -> PR               PER=0.060
+  training probe: z_t -> SID ...
+[dis_data] g2p_en loaded for OOV words
+    z_t -> SID              acc=1.000
+  training probe: z_L -> PR ...
+    z_L -> PR               PER=0.098
+  training probe: z_L -> SID ...
+    z_L -> SID              acc=0.948
+  training probe: z_P -> PR ...
+    z_P -> PR               PER=0.132
+  training probe: z_P -> SID ...
+    z_P -> SID              acc=0.990
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_probe_proj_recon_ln_d256_grl0p1_superb
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_t              0.060         1.000
+  z_L              0.098         0.948
+  z_P              0.132         0.990
+==================================================================
+
+
+Finished          : Thu Jun 11 12:18:12 BST 2026

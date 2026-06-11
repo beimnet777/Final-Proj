@@ -29,6 +29,16 @@ export PYTHONUNBUFFERED=1
 export HF_HOME="${DIS_DIR}/../Probing/data/hf_home"
 export HF_DATASETS_CACHE="${DIS_DIR}/../Probing/data/datasets_cache"
 export HF_HUB_CACHE="${DIS_DIR}/../Probing/data/hub_cache"
+# NOTE: the dataloaders use streaming=True — librispeech is NOT materialized
+# locally, so offline mode cannot work (verified: OfflineModeIsEnabled error).
+# Concurrent jobs streaming from the cluster's shared IP can hit HF 429 rate
+# limits (probes stall in retry loops but recover).  Prefer running ONE job at
+# a time, or set HF_TOKEN for authenticated (higher) rate limits.
+HF_OFFLINE="${HF_OFFLINE:-0}"
+if [[ "${HF_OFFLINE}" == "1" ]]; then
+    export HF_HUB_OFFLINE=1
+    export HF_DATASETS_OFFLINE=1
+fi
 
 mkdir -p "${DIS_DIR}/logs/train/stage2/projection_reconstruct"
 cd "${DIS_DIR}"
@@ -57,7 +67,11 @@ if [[ "${GRL_FRAME_LEVEL}" == "1" ]]; then FRAME_ARGS=(--grl_frame_level); FRAME
 IN_ARGS=()
 IN_TAG=""
 if [[ "${INSTANCE_NORM}" == "1" ]]; then IN_ARGS=(--instance_norm_zL); IN_TAG="_in"; fi
-RUN_NAME="${RUN_NAME:-proj_recon_ln_d${PROJECTION_DIM}_${GRL_TAG}${FRAME_TAG}${IN_TAG}}"
+DANN_FIX="${DANN_FIX:-0}"
+DANN_ARGS=()
+DANN_TAG=""
+if [[ "${DANN_FIX}" == "1" ]]; then DANN_ARGS=(--dann_full_discriminator); DANN_TAG="_dann"; fi
+RUN_NAME="${RUN_NAME:-proj_recon_ln_d${PROJECTION_DIM}_${GRL_TAG}${FRAME_TAG}${IN_TAG}${DANN_TAG}}"
 
 STAGE1_CKPT="${DIS_DIR}/checkpoints/ln_sae/stage1_best.pt"
 CKPT_DIR="${DIS_DIR}/checkpoints/${RUN_NAME}"
@@ -69,7 +83,8 @@ echo "Node / GPU        : $(hostname) / $(nvidia-smi --query-gpu=name --format=c
 echo "Started           : $(date)"
 echo "run_name          : ${RUN_NAME}"
 echo "grl_weight (SID)  : ${GRL_WEIGHT}    frame_level=${GRL_FRAME_LEVEL}"
-echo "grl_p (phoneme)   : ${GRL_P_WEIGHT}  (frozen)"
+echo "grl_p (phoneme)   : ${GRL_P_WEIGHT}"
+echo "dann_full_disc    : ${DANN_FIX}    hf_offline=${HF_OFFLINE}"
 echo "stage1_ckpt       : ${STAGE1_CKPT}"
 
 if [[ ! -f "${STAGE1_CKPT}" ]]; then
@@ -94,6 +109,7 @@ ${PYTHON} -u run.py \
     --grl_phoneme_weight     "${GRL_P_WEIGHT}" \
     "${FRAME_ARGS[@]}" \
     "${IN_ARGS[@]}" \
+    "${DANN_ARGS[@]}" \
     --rho                    0 \
     --lr                     3e-5 \
     --lr_min                 1e-6 \
