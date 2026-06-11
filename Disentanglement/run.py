@@ -68,6 +68,8 @@ def _parse_args():
     p.add_argument("--beta",            type=float, default=cfg.beta)
     p.add_argument("--grl_weight",      type=float, default=cfg.grl_weight)
     p.add_argument("--grl_delay_steps", type=int,   default=cfg.grl_delay_steps)
+    p.add_argument("--grl_frame_level", action="store_true", default=cfg.grl_frame_level,
+                   help="Speaker GRL predicts per-frame (dense gradient) instead of utterance mean-pool.")
     p.add_argument("--rho",             type=float, default=cfg.rho)
 
     # ablation flags (D / E / F)
@@ -133,6 +135,7 @@ def _parse_args():
     cfg.beta                  = args.beta
     cfg.grl_weight            = args.grl_weight
     cfg.grl_delay_steps       = args.grl_delay_steps
+    cfg.grl_frame_level       = args.grl_frame_level
     cfg.rho                   = args.rho
     cfg.no_routing            = args.no_routing
     cfg.fixed_routing         = args.fixed_routing

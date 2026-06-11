@@ -54,6 +54,24 @@ def sid_ce_loss(
     return F.cross_entropy(logits, speaker_ids)
 
 
+def sid_ce_loss_frames(
+    logits: torch.Tensor,
+    speaker_ids: torch.Tensor,
+    lengths: torch.Tensor,
+) -> torch.Tensor:
+    """Frame-level speaker CE (for the frame-level GRL adversary).
+
+    logits      : (B, T, num_speakers)  — a speaker prediction per frame
+    speaker_ids : (B,)                  — one label per utterance, broadcast to frames
+    lengths     : (B,)                  — valid frame counts (padding masked out)
+    """
+    B, T, S = logits.shape
+    mask = (torch.arange(T, device=logits.device).unsqueeze(0) < lengths.unsqueeze(1)).float()
+    tgt  = speaker_ids.unsqueeze(1).expand(B, T).reshape(B * T)
+    ce   = F.cross_entropy(logits.reshape(B * T, S), tgt, reduction="none").reshape(B, T)
+    return (ce * mask).sum() / mask.sum().clamp(min=1)
+
+
 def route_loss(routing_logits: torch.Tensor) -> torch.Tensor:
     """Negative entropy of mean soft-routing distribution — minimise to prevent collapse.
 

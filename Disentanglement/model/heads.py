@@ -105,6 +105,10 @@ class GRLHead(nn.Module):
         super().__init__()
         self.projector = nn.Linear(_head_input_dim(cfg), 256)
         self.fc = nn.Linear(256, cfg.num_speakers)
+        # frame_level=True: predict speaker at every frame (dense gradient to z_L,
+        # like the frame-level PR-GRL).  False: utterance mean-pool then classify
+        # (gradient diluted ~1/T per frame).
+        self.frame_level = bool(getattr(cfg, "grl_frame_level", False))
 
     def forward(
         self,
@@ -116,8 +120,12 @@ class GRLHead(nn.Module):
         z_L     : (B, T, K)
         lengths : (B,)  valid frame counts
         lam     : GRL reversal strength
+
+        Returns (B, T, num_speakers) if frame_level, else (B, num_speakers).
         """
         z_L = gradient_reversal(z_L, lam)
+        if self.frame_level:
+            return self.fc(self.projector(z_L))                   # (B, T, num_speakers)
         B, T, K = z_L.shape
         mask   = (torch.arange(T, device=z_L.device).unsqueeze(0) < lengths.unsqueeze(1)
                   ).float().unsqueeze(-1)                          # (B, T, 1)

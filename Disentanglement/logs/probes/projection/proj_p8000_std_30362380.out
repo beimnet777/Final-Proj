@@ -1,0 +1,70 @@
+=== Projection step-8000 probe (STANDARDIZED z_L/z_P) ===
+Job ID            : 30362380
+Node              : gpu-q-44
+GPU               : NVIDIA A100-SXM4-80GB
+Started           : Thu Jun 11 00:17:32 BST 2026
+model             : projection_dual_grl_gp002_d128
+run_name          : diag_probe_projection_dual_grl_gp002_d128_step8000_std
+stage1_ckpt       : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/best.pt
+stage2_ckpt       : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/projection_dual_grl_gp002_d128/stage2_step8000.pt
+sources           : z_t,z_L,z_P
+tasks             : pr,sid
+seed              : 42
+probe_steps       : 2000
+pr_probe_lr       : 5e-4
+sid_probe_lr      : 1e-3
+warmup_steps      : 0
+pr_max_examples   : 0
+standardize       : true (z_L,z_P only)
+[diag_probe] standardize_sources=True — z-scoring z_L/z_P before probing
+[diag_probe] run=diag_probe_projection_dual_grl_gp002_d128_step8000_std  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/projection_dual_grl_gp002_d128/stage2_step8000.pt
+[diag_probe] sources=['z_t', 'z_L', 'z_P']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=2000  pr_lr=0.0005  sid_lr=0.001  warmup=0
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=28039  val=500  vocab=41  speakers=251
+[diag_probe] projection_disentanglement enabled from checkpoint
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/best.pt  (step=6000  val=0.0049)
+[diag_probe] skipped 2 shape-mismatched/stale keys (e.g. ['grl_head.fc.weight', 'pr_grl_head.fc.weight']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.projector.weight', 'grl_head.projector.bias', 'grl_head.fc.weight', 'pr_grl_head.projector.weight', 'pr_grl_head.projector.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/projection_dual_grl_gp002_d128/stage2_step8000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB phone data/head, dev-clean diagnostic eval
+[diag_probe] SID: LibriSpeech diagnostic split, SUPERB-style SID head
+
+  training probe: z_t -> PR ...
+[pr_data] g2p_en loaded for OOV words
+    z_t -> PR               PER=0.066
+  training probe: z_t -> SID ...
+[dis_data] g2p_en loaded for OOV words
+    z_t -> SID              acc=0.992
+  training probe: z_L -> PR ...
+    z_L -> PR               PER=0.116
+  training probe: z_L -> SID ...
+    z_L -> SID              acc=0.808
+  training probe: z_P -> PR ...
+    z_P -> PR               PER=0.417
+  training probe: z_P -> SID ...
+    z_P -> SID              acc=0.650
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_probe_projection_dual_grl_gp002_d128_step8000_std
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_t              0.066         0.992
+  z_L              0.116         0.808
+  z_P              0.417         0.650
+==================================================================
+
+Finished          : Thu Jun 11 01:34:17 BST 2026

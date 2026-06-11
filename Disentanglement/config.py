@@ -29,6 +29,7 @@ class DISConfig:
     beta:       float = 1.0     # SID (CE) weight           — calibrated from grad norms
     grl_weight:          float = 1.0    # adversarial speaker weight — calibrated from grad norms
     grl_delay_steps:     int   = 0     # steps before GRL is switched on (0 = no delay)
+    grl_frame_level:     bool  = False  # speaker adversary predicts per-frame (dense gradient) vs utterance mean-pool
     rho:                 float = 0.001 # routing anti-collapse weight
 
     # ---------------------------------------------------------------- Ablation flags (D / E / F)

@@ -21,7 +21,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from config import DISConfig
 from model import DISModel, build_dis_model
 from data.dataset import make_stage1_dataloaders, make_stage2_dataloaders
-from losses import recon_loss, ctc_pr_loss, sid_ce_loss, route_loss, decor_loss, ub_loss
+from losses import recon_loss, ctc_pr_loss, sid_ce_loss, sid_ce_loss_frames, route_loss, decor_loss, ub_loss
 from tb_logger import DISLogger
 
 
@@ -245,7 +245,9 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam, eff_g
         l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
         l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
         l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
-        l_grl   = sid_ce_loss(out["grl_logits"], speaker_ids)
+        l_grl   = (sid_ce_loss_frames(out["grl_logits"], speaker_ids, out["out_lengths"])
+                   if out["grl_logits"].dim() == 3
+                   else sid_ce_loss(out["grl_logits"], speaker_ids))
         l_route = (route_loss(model.routing.logits) if _routing_active
                    else l_recon.new_zeros(()))
 
@@ -434,6 +436,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             extra_str += f"  z_U(dim={u_dim} l2={cfg.projection_u_l2})"
     if getattr(cfg, 'spear_layernorm', False):
         extra_str += "  spear_ln=True"
+    if getattr(cfg, 'grl_frame_level', False):
+        extra_str += "  grl_frame_level=True"
     print(f"[stage 2] α={cfg.alpha}  β={cfg.beta}  grl={cfg.grl_weight}  ρ={cfg.rho}{delay_str}{extra_str}")
     print(f"[stage 2] steps={cfg.stage2_steps}  batch={cfg.batch_size}")
 
@@ -513,7 +517,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
             l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
             l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
-            l_grl   = sid_ce_loss(out["grl_logits"], speaker_ids)
+            l_grl   = (sid_ce_loss_frames(out["grl_logits"], speaker_ids, out["out_lengths"])
+                       if out["grl_logits"].dim() == 3
+                       else sid_ce_loss(out["grl_logits"], speaker_ids))
             l_route    = (route_loss(model.routing.logits)
                           if routing_active else l_recon.new_zeros(()))
             # Exp 1: phoneme GRL on z_P
