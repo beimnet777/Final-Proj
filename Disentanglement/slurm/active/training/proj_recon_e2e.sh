@@ -15,7 +15,7 @@
 # queue wait):
 #   1) Stage-1 SAE on SUPERB-comparable (LayerNorm'd) h_t   -> checkpoints/ln_sae
 #   2) Stage-2 reconstructive projection (recon SOLELY via z_L/z_P, d=256)
-#   3) Diagnostic probe of the stage-2 best checkpoint (native 41-phone labels)
+#   3) Diagnostic probe of the stage-2 best checkpoint (SUPERB 74-phone, test-clean)
 # Separate dirs throughout — does not overwrite any existing run.
 # 2-way by default; set U_DIM>0 (+U_L2) for the penalized-residual z_U variant.
 
@@ -48,7 +48,6 @@ GRL_P_WEIGHT="${GRL_P_WEIGHT:-0.01}"
 U_DIM="${U_DIM:-0}"
 U_L2="${U_L2:-0.0}"
 PROBE_STEPS="${PROBE_STEPS:-2000}"
-PR_LABEL_SET="${PR_LABEL_SET:-dis}"
 
 if [[ "${U_DIM}" -gt 0 ]]; then U_TAG="_zU${U_DIM}"; else U_TAG=""; fi
 RUN_NAME="${RUN_NAME:-proj_recon_ln_d${PROJECTION_DIM}${U_TAG}}"
@@ -68,7 +67,6 @@ echo "projection_dim    : ${PROJECTION_DIM}"
 echo "z_U dim / l2      : ${U_DIM} / ${U_L2}"
 echo "stage1/stage2 stp : ${STAGE1_STEPS} / ${STAGE2_STEPS}"
 echo "alpha/beta/grl/gp : ${ALPHA} / ${BETA} / ${GRL_WEIGHT} / ${GRL_P_WEIGHT}"
-echo "probe label set   : ${PR_LABEL_SET}"
 
 # ============================ Stage 1: LayerNorm SAE ============================
 echo; echo "----- [1/3] Stage-1 SAE on LayerNorm'd h_t -----"; date
@@ -132,7 +130,6 @@ ${PYTHON} -u diag_probe/run.py \
     --stage2_ckpt        "${STAGE2_CKPT}" \
     --run_name           "${PROBE_RUN_NAME}" \
     --spear_layernorm \
-    --pr_label_set       "${PR_LABEL_SET}" \
     --sources            "z_t,z_L,z_P" \
     --tasks              "pr,sid" \
     --probe_steps        "${PROBE_STEPS}" \

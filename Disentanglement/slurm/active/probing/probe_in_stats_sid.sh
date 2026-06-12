@@ -61,7 +61,6 @@ ${PYTHON} -u diag_probe/run.py \
     --spear_layernorm \
     --instance_norm_zL \
     --sid_probe_arch     stats \
-    --pr_label_set       dis \
     --sources            "z_t,z_L,z_P" \
     --tasks              "sid" \
     --probe_steps        "${PROBE_STEPS}" \

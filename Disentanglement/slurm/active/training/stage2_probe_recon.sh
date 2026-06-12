@@ -124,24 +124,21 @@ if [[ ! -f "${STAGE2_CKPT}" ]]; then
     echo "ERROR: stage 2 finished but checkpoint missing: ${STAGE2_CKPT}" >&2; exit 3
 fi
 
-# ----------------------- Probe: BOTH label sets -----------------------
-for LABELS in dis superb; do
-    echo; echo "----- probe (${LABELS}) -----"; date
-    ${PYTHON} -u diag_probe/run.py \
-        --stage1_ckpt        "${STAGE1_CKPT}" \
-        --stage2_ckpt        "${STAGE2_CKPT}" \
-        --run_name           "diag_probe_${RUN_NAME}_${LABELS}" \
-        --spear_layernorm \
-        "${IN_ARGS[@]}" \
-        --pr_label_set       "${LABELS}" \
-        --sources            "z_t,z_L,z_P" \
-        --tasks              "pr,sid" \
-        --probe_steps        "${PROBE_STEPS}" \
-        --seed               "${SEED}" \
-        --pr_max_examples    0 \
-        --pr_probe_lr        5e-4 \
-        --sid_probe_lr       1e-3 \
-        --probe_warmup_steps 0
-done
+# ----- Probe: unified SUPERB 74-phone (PR test=test-clean, SID test=held-out split) -----
+echo; echo "----- probe -----"; date
+${PYTHON} -u diag_probe/run.py \
+    --stage1_ckpt        "${STAGE1_CKPT}" \
+    --stage2_ckpt        "${STAGE2_CKPT}" \
+    --run_name           "diag_probe_${RUN_NAME}" \
+    --spear_layernorm \
+    "${IN_ARGS[@]}" \
+    --sources            "z_t,z_L,z_P" \
+    --tasks              "pr,sid" \
+    --probe_steps        "${PROBE_STEPS}" \
+    --seed               "${SEED}" \
+    --pr_max_examples    0 \
+    --pr_probe_lr        5e-4 \
+    --sid_probe_lr       1e-3 \
+    --probe_warmup_steps 0
 
 echo; echo "Finished          : $(date)"

@@ -5,8 +5,10 @@ This runner is intentionally separate from the training code and the historical
 probe runner.  It is a cheap, reproducible diagnostic probe, not an official
 SUPERB run:
 
-  * PR uses the SUPERB PR phone tokenizer/head/data split, evaluated on dev-clean.
-  * SID uses the LibriSpeech diagnostic speaker split, with a SUPERB-style head.
+  * PR: SUPERB 74-phone — train on train-clean-100, validate on dev-clean,
+    report on test-clean.
+  * SID: closed-set over train-clean-100 speakers, split by utterance into
+    train / val / test; reported metric is the held-out test split.
   * h_t is excluded by default because it is fixed across checkpoints.
 """
 
@@ -85,9 +87,8 @@ def _parse_args():
     p.add_argument("--lexicon_path", default=str(cfg.lexicon_path))
     p.add_argument("--max_train_examples", type=int, default=0)
     p.add_argument("--max_val_examples", type=int, default=500)
+    p.add_argument("--max_test_examples", type=int, default=500)
     p.add_argument("--pr_max_examples", type=int, default=0)
-    p.add_argument("--pr_label_set", choices=("superb", "dis"), default="superb",
-                   help="PR probe labels: 'superb'=74-phone dev-clean, 'dis'=internal 41-phone stage2 val.")
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--pr_probe_lr", type=float, default=5e-4)
     p.add_argument("--sid_probe_lr", type=float, default=1e-3)
@@ -96,8 +97,6 @@ def _parse_args():
                         "instance-normed features), 'stats'=projector->ReLU->mean+std pool->linear.")
     p.add_argument("--probe_warmup_steps", type=int, default=0)
     p.add_argument("--probe_grad_clip", type=float, default=1.0)
-    p.add_argument("--standardize_sources", action="store_true",
-                   help="Per-dim z-score z_L/z_P before probing (diagnoses feature-scale artifacts).")
     p.add_argument("--spear_layernorm", action="store_true",
                    help="LayerNorm each SPEAR layer before averaging — MUST match how the checkpoint "
                         "was trained, else h_t (and z_t/z_L/z_P) won't match.")
@@ -121,9 +120,6 @@ def main() -> None:
     global_pr_data = __import__("pr_data")
     _prioritize_import_paths()  # pr_data prepends Probing/; restore Disentanglement first.
     base_probe._pr_data = global_pr_data
-    base_probe._STANDARDIZE_SOURCES = bool(args.standardize_sources)
-    if args.standardize_sources:
-        print("[diag_probe] standardize_sources=True — z-scoring z_L/z_P before probing")
     from model import build_dis_model
     from train import _load_stage1_checkpoint
     from data.dataset import make_stage2_dataloaders
@@ -136,6 +132,7 @@ def main() -> None:
     cfg.lexicon_path = Path(args.lexicon_path)
     cfg.max_train_examples = args.max_train_examples
     cfg.max_val_examples = args.max_val_examples
+    cfg.max_test_examples = args.max_test_examples
     cfg.num_workers = args.num_workers
 
     print(f"[diag_probe] run={args.run_name}  device={device}")
@@ -151,23 +148,18 @@ def main() -> None:
 
     use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 
-    if args.pr_label_set == "superb":
-        pr_cfg = PRConfig()
-        pr_cfg.data_cache_dir = cfg.librispeech_cache_dir
-        pr_cfg.librispeech_lexicon = cfg.lexicon_path
-        pr_cfg.batch_size = cfg.batch_size
-        pr_cfg.eval_batch_size = cfg.eval_batch_size
-        pr_cfg.num_workers = cfg.num_workers
-        pr_cfg.max_examples = args.pr_max_examples
-        pr_tokenizer, pr_train_dl, pr_val_dl, _ = global_pr_data.make_pr_dataloaders(pr_cfg)
-        _, sid_train_dl, sid_val_dl, sid_test_dl = make_stage2_dataloaders(cfg)
-        pr_vocab_size = pr_cfg.vocab_size
-    else:
-        _stage2_tokenizer, sid_train_dl, sid_val_dl, sid_test_dl = make_stage2_dataloaders(cfg)
-        pr_tokenizer = None
-        pr_train_dl = sid_train_dl
-        pr_val_dl = sid_val_dl
-        pr_vocab_size = cfg.vocab_size
+    # PR: SUPERB 74-phone — train-clean-100 → train, dev-clean → val, test-clean → test.
+    pr_cfg = PRConfig()
+    pr_cfg.data_cache_dir = cfg.librispeech_cache_dir
+    pr_cfg.librispeech_lexicon = cfg.lexicon_path
+    pr_cfg.batch_size = cfg.batch_size
+    pr_cfg.eval_batch_size = cfg.eval_batch_size
+    pr_cfg.num_workers = cfg.num_workers
+    pr_cfg.max_examples = args.pr_max_examples
+    pr_tokenizer, pr_train_dl, pr_val_dl, pr_test_dl = global_pr_data.make_pr_dataloaders(pr_cfg)
+    pr_vocab_size = pr_cfg.vocab_size
+    # SID: closed-set — same speakers, split by utterance into train / val / test.
+    _, sid_train_dl, sid_val_dl, sid_test_dl = make_stage2_dataloaders(cfg)
 
     if args.stage2_ckpt:
         tmp = torch.load(args.stage2_ckpt, map_location="cpu", weights_only=False)
@@ -233,11 +225,9 @@ def main() -> None:
     results: Dict[str, Dict[str, float]] = {}
 
     print(f"\n[diag_probe] speakers={cfg.num_speakers}  pr_vocab={pr_vocab_size}  D={cfg.D}  K={cfg.K}")
-    if args.pr_label_set == "superb":
-        print("[diag_probe] PR: SUPERB phone data/head, dev-clean diagnostic eval")
-    else:
-        print("[diag_probe] PR: Disentanglement 41-phone labels, stage2 val diagnostic eval")
-    print(f"[diag_probe] SID: LibriSpeech diagnostic split, arch={args.sid_probe_arch}\n")
+    print("[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean")
+    print(f"[diag_probe] SID: closed-set utterance split (val/test held out); probe arch={args.sid_probe_arch}")
+    print("[diag_probe] reported metric = TEST (val shown in parentheses)\n")
 
     for src in sources:
         results[src] = {}
@@ -254,9 +244,8 @@ def main() -> None:
                     warmup_steps=args.probe_warmup_steps,
                     grad_clip=args.probe_grad_clip,
                 )
-                score = base_probe._eval_sid_probe(
-                    probe, src, sid_val_dl, model, device, use_bf16, has_routing
-                )
+                val_score  = base_probe._eval_sid_probe(probe, src, sid_val_dl,  model, device, use_bf16, has_routing)
+                test_score = base_probe._eval_sid_probe(probe, src, sid_test_dl, model, device, use_bf16, has_routing)
             else:
                 probe = base_probe._PRProbe(dims[src], pr_vocab_size).to(device)
                 base_probe._train_pr_probe(
@@ -265,17 +254,12 @@ def main() -> None:
                     warmup_steps=args.probe_warmup_steps,
                     grad_clip=args.probe_grad_clip,
                 )
-                if args.pr_label_set == "superb":
-                    score = base_probe._eval_pr_probe(
-                        probe, src, pr_val_dl, model, pr_tokenizer, device, use_bf16, has_routing
-                    )
-                else:
-                    score = base_probe._eval_pr_probe_ids(
-                        probe, src, pr_val_dl, model, device, use_bf16, has_routing
-                    )
-            results[src][task] = score
-            metric = f"PER={score:.3f}" if task == "pr" else f"acc={score:.3f}"
-            print(f"    {label:<22s}  {metric}", flush=True)
+                val_score  = base_probe._eval_pr_probe(probe, src, pr_val_dl,  model, pr_tokenizer, device, use_bf16, has_routing)
+                test_score = base_probe._eval_pr_probe(probe, src, pr_test_dl, model, pr_tokenizer, device, use_bf16, has_routing)
+            results[src][task] = test_score          # reported metric = TEST
+            results[src][task + "_val"] = val_score
+            unit = "PER" if task == "pr" else "acc"
+            print(f"    {label:<22s}  {unit} test={test_score:.3f}  (val {val_score:.3f})", flush=True)
 
     print(f"\n{'=' * 66}")
     print(f"  DIAGNOSTIC PROBE RESULTS - {args.run_name}")
