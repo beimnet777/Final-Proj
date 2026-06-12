@@ -33,6 +33,11 @@ class DISConfig:
     # feature decisive AND buckets globally balanced. Key tuning knob (sweep up
     # if units stay on the fence). 0 = off.
     routing_spec_weight: float = 0.01
+    # Input-dependent routing: per-utterance router (conditioned on mean h_t)
+    # produces a per-feature delta added to the static base, so the L/P/U partition
+    # adapts per utterance. False = static (one fixed partition for all inputs).
+    routing_dynamic:        bool = False
+    routing_dynamic_hidden: int  = 256   # hidden width of the dynamic router MLP
 
     # ---------------------------------------------------------------- Loss weights  (stage 2)
     alpha:      float = 1.0     # PR (CTC) weight          — calibrated from grad norms

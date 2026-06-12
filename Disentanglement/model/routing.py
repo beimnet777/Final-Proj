@@ -26,6 +26,9 @@ class RoutingModule(nn.Module):
     def __init__(self, cfg) -> None:
         super().__init__()
         self.n_routes = getattr(cfg, 'n_routes', 3)
+        self.K        = cfg.K
+        # Static base partition (input-independent). In dynamic mode it acts as a
+        # learned bias the per-utterance router deviates from.
         self.logits   = nn.Parameter(torch.zeros(cfg.K, self.n_routes))
         self.tau: float = cfg.gumbel_tau_start
         self.hard_gumbel_routing = getattr(cfg, 'hard_gumbel_routing', False)
@@ -37,6 +40,20 @@ class RoutingModule(nn.Module):
             with torch.no_grad():
                 self.logits.normal_(mean=0.0, std=init_std)
 
+        # Dynamic (input-dependent) routing: a per-utterance router conditioned on
+        # mean-pooled h_t produces a per-feature delta added to the static base, so
+        # the L/P/U partition can adapt per utterance.  Default off → static.
+        self.dynamic = bool(getattr(cfg, 'routing_dynamic', False))
+        if self.dynamic:
+            hidden = int(getattr(cfg, 'routing_dynamic_hidden', 256))
+            self.router = nn.Sequential(
+                nn.Linear(cfg.D, hidden), nn.ReLU(),
+                nn.Linear(hidden, cfg.K * self.n_routes),
+            )
+            nn.init.normal_(self.router[-1].weight, std=1e-2)  # tiny delta → start ≈ static, but trainable
+            nn.init.zeros_(self.router[-1].bias)
+        self.current_logits = None   # last forward's effective logits (grad-carrying)
+
         if getattr(cfg, 'fixed_routing', False):
             self._init_fixed(cfg.K, getattr(cfg, 'fixed_routing_split', 0.7))
             self.logits.requires_grad_(False)
@@ -47,30 +64,44 @@ class RoutingModule(nn.Module):
             self.logits[:n_L, 0] = 10.0   # first split → L
             self.logits[n_L:, 1] = 10.0   # remainder  → P
 
-    def forward(self):
-        """Returns (m_L, m_P) or (m_L, m_P, m_U) — each (K,)."""
-        if self.training:
-            soft = F.gumbel_softmax(
-                self.logits,
-                tau=self.tau,
-                hard=self.hard_gumbel_routing,
-                dim=-1,
-            )
-        else:
-            idx  = self.logits.argmax(dim=-1)
-            soft = F.one_hot(idx, num_classes=self.n_routes).float()
+    def _effective_logits(self, context):
+        """(K, n_routes) if static; (B, K, n_routes) if dynamic (per utterance)."""
+        if not self.dynamic:
+            return self.logits
+        ctx = context.mean(dim=1)                                   # (B, D)  utterance summary
+        delta = self.router(ctx).view(-1, self.K, self.n_routes)   # (B, K, n_routes)
+        return self.logits.unsqueeze(0) + delta                    # static base + dynamic delta
 
-        if self.n_routes == 2:
-            return soft[:, 0], soft[:, 1]
-        return soft[:, 0], soft[:, 1], soft[:, 2]
+    def forward(self, context=None):
+        """Returns (m_L, m_P[, m_U]).  Static → each (K,); dynamic → each (B,1,K)."""
+        logits = self._effective_logits(context)
+        if self.training:
+            soft = F.gumbel_softmax(logits, tau=self.tau, hard=self.hard_gumbel_routing, dim=-1)
+        else:
+            idx  = logits.argmax(dim=-1)
+            soft = F.one_hot(idx, num_classes=self.n_routes).float()
+        self.current_logits = logits     # grad-carrying — used for route/spec loss
+
+        if self.dynamic:
+            # (B, K, n_routes) → per-route (B, 1, K) for broadcasting over time
+            masks = [soft[:, :, r].unsqueeze(1) for r in range(self.n_routes)]
+        else:
+            masks = [soft[:, r] for r in range(self.n_routes)]     # each (K,)
+        return tuple(masks[:2]) if self.n_routes == 2 else tuple(masks)
+
+    def _diag_logits(self):
+        src = self.current_logits if (self.dynamic and self.current_logits is not None) else self.logits
+        return src.detach().reshape(-1, self.n_routes)   # (N, n_routes), N=K or B*K
 
     @property
     def hard_counts(self):
-        """(n_L, n_P, n_U) — hard feature counts; n_U=0 when n_routes=2."""
-        idx = self.logits.detach().argmax(dim=-1)
-        n_L = (idx == 0).sum().item()
-        n_P = (idx == 1).sum().item()
-        n_U = (idx == 2).sum().item() if self.n_routes == 3 else 0
+        """(n_L, n_P, n_U) — feature counts (per-utterance avg in dynamic mode)."""
+        lg  = self._diag_logits()
+        bf  = lg.shape[0] / self.K if self.dynamic else 1.0   # batch factor
+        idx = lg.argmax(dim=-1)
+        n_L = int((idx == 0).sum().item() / bf)
+        n_P = int((idx == 1).sum().item() / bf)
+        n_U = int((idx == 2).sum().item() / bf) if self.n_routes == 3 else 0
         return n_L, n_P, n_U
 
     @property
@@ -85,20 +116,20 @@ class RoutingModule(nn.Module):
     @property
     def routing_balance_entropy(self) -> float:
         """Entropy of mean soft-routing distribution (nats). Max = log(n_routes)."""
-        p = F.softmax(self.logits.detach(), dim=-1).mean(dim=0)
+        p = F.softmax(self._diag_logits(), dim=-1).mean(dim=0)
         return -(p * p.log().clamp(min=-100)).sum().item()
 
     @property
     def routing_unit_entropy(self) -> float:
         """Mean per-unit routing entropy. Lower means units are more specialised."""
-        p = F.softmax(self.logits.detach(), dim=-1)
+        p = F.softmax(self._diag_logits(), dim=-1)
         unit_H = -(p * p.log().clamp(min=-100)).sum(dim=-1)
         return unit_H.mean().item()
 
     @property
     def routing_diagnostics(self) -> dict[str, float]:
         """Detailed routing diagnostics for balance and specialisation."""
-        logits = self.logits.detach()
+        logits = self._diag_logits()
         p = F.softmax(logits, dim=-1)
         p_mean = p.mean(dim=0)
         unit_H = -(p * p.log().clamp(min=-100)).sum(dim=-1)

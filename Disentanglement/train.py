@@ -543,11 +543,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             l_grl   = (sid_ce_loss_frames(out["grl_logits"], speaker_ids, out["out_lengths"])
                        if out["grl_logits"].dim() == 3
                        else sid_ce_loss(out["grl_logits"], speaker_ids))
-            l_route    = (route_loss(model.routing.logits)
+            l_route    = (route_loss(out["routing_logits"])
                           if routing_active else l_recon.new_zeros(()))
             # Per-unit specialization: minimise mean unit routing entropy (with
             # route_loss this maximises MI(feature; route) — decisive + balanced).
-            l_spec     = (routing_spec_loss(model.routing.logits)
+            l_spec     = (routing_spec_loss(out["routing_logits"])
                           if (routing_active and spec_w > 0) else l_recon.new_zeros(()))
             # Exp 1: phoneme GRL on z_P
             l_grl_p    = (ctc_pr_loss(out["pr_grl_logits"], targets, out["out_lengths"], target_lengths)

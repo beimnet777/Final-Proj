@@ -88,6 +88,9 @@ def _parse_args():
                    help="Std of random routing-logit init (0 = zero init / symmetric saddle).")
     p.add_argument("--routing_spec_weight", type=float, default=cfg.routing_spec_weight,
                    help="Weight on per-unit specialization loss (minimise routing entropy Hu).")
+    p.add_argument("--routing_dynamic", action="store_true", default=cfg.routing_dynamic,
+                   help="Input-dependent (per-utterance) routing vs the static partition.")
+    p.add_argument("--routing_dynamic_hidden", type=int, default=cfg.routing_dynamic_hidden)
 
     # experiment flags
     p.add_argument("--grl_phoneme_weight",  type=float, default=cfg.grl_phoneme_weight)
@@ -157,6 +160,8 @@ def _parse_args():
     cfg.hard_gumbel_routing   = args.hard_gumbel_routing
     cfg.routing_init_std      = args.routing_init_std
     cfg.routing_spec_weight   = args.routing_spec_weight
+    cfg.routing_dynamic       = args.routing_dynamic
+    cfg.routing_dynamic_hidden = args.routing_dynamic_hidden
     cfg.grl_phoneme_weight    = args.grl_phoneme_weight
     cfg.decor_weight          = args.decor_weight
     cfg.ub_weight             = args.ub_weight

@@ -191,10 +191,10 @@ class DISModel(nn.Module):
 
         # ---- Normal stage 2: get routing masks ----
         if n_routes == 2:
-            m_L, m_P = self.routing()
+            m_L, m_P = self.routing(h_t)
             m_U = torch.zeros_like(m_L)
         else:
-            m_L, m_P, m_U = self.routing()   # each (K,)
+            m_L, m_P, m_U = self.routing(h_t)   # static (K,) or dynamic (B,1,K)
 
         # ---- Reconstruction: always from sparse z_t (decoder-consistent) ----
         z_L_sp = m_L * z_t
@@ -226,6 +226,7 @@ class DISModel(nn.Module):
             "z_P_bar":     z_P_bar,
             "m_L":         m_L,    # Exp 4: needed for ub_loss
             "m_P":         m_P,
+            "routing_logits": self.routing.current_logits,   # route/spec loss (static or dynamic)
             "pr_logits":   self.pr_head(z_L),
             "sid_logits":  self.sid_head(z_P_bar),
             "grl_logits":  self.grl_head(z_L, out_lengths, grl_lambda),

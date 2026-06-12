@@ -79,7 +79,7 @@ def route_loss(routing_logits: torch.Tensor) -> torch.Tensor:
     This is the H(route) (marginal/balance) half of the MI objective: minimising
     -H pushes the GLOBAL bucket usage toward balanced (no route collapses).
     """
-    p_mean  = F.softmax(routing_logits, dim=-1).mean(dim=0)
+    p_mean  = F.softmax(routing_logits, dim=-1).reshape(-1, routing_logits.shape[-1]).mean(dim=0)
     entropy = -(p_mean * p_mean.log().clamp(min=-100)).sum()
     return -entropy
 
