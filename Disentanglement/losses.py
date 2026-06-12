@@ -76,10 +76,26 @@ def route_loss(routing_logits: torch.Tensor) -> torch.Tensor:
     """Negative entropy of mean soft-routing distribution — minimise to prevent collapse.
 
     routing_logits : (K, n_routes)
+    This is the H(route) (marginal/balance) half of the MI objective: minimising
+    -H pushes the GLOBAL bucket usage toward balanced (no route collapses).
     """
     p_mean  = F.softmax(routing_logits, dim=-1).mean(dim=0)
     entropy = -(p_mean * p_mean.log().clamp(min=-100)).sum()
     return -entropy
+
+
+def routing_spec_loss(routing_logits: torch.Tensor) -> torch.Tensor:
+    """Mean per-unit routing entropy — minimise to make each feature decisive.
+
+    routing_logits : (K, n_routes)
+    This is the H(route | feature) (conditional) half of the MI objective:
+    minimising it pushes every feature off the uniform fence toward a single
+    route.  Paired with route_loss it maximises MI(feature; route) =
+    H(route) - H(route | feature): decisive units AND balanced buckets.
+    """
+    p = F.softmax(routing_logits, dim=-1)                       # (K, n_routes)
+    unit_H = -(p * p.log().clamp(min=-100)).sum(dim=-1)         # (K,)
+    return unit_H.mean()
 
 
 def decor_loss(z_t: torch.Tensor, lengths: torch.Tensor,

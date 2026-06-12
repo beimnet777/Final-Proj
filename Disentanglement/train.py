@@ -21,7 +21,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from config import DISConfig
 from model import DISModel, build_dis_model
 from data.dataset import make_stage1_dataloaders, make_stage2_dataloaders
-from losses import recon_loss, ctc_pr_loss, sid_ce_loss, sid_ce_loss_frames, route_loss, decor_loss, ub_loss
+from losses import recon_loss, ctc_pr_loss, sid_ce_loss, sid_ce_loss_frames, route_loss, routing_spec_loss, decor_loss, ub_loss
 from tb_logger import DISLogger
 
 
@@ -490,6 +490,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     dann_fix       = getattr(cfg, 'dann_full_discriminator', False)
     ub_w           = getattr(cfg, 'ub_weight', 0.0)
     u_l2_w         = getattr(cfg, 'projection_u_l2', 0.0)   # L2 penalty on residual z_U
+    spec_w         = getattr(cfg, 'routing_spec_weight', 0.0)  # per-unit routing specialization
     routing_clip_params = [] if projection_mode else list(model.routing.parameters())
     all_params     = (list(model.sae.parameters()) + routing_clip_params + projection_params +
                       list(model.pr_head.parameters()) + list(model.sid_head.parameters()) +
@@ -544,6 +545,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                        else sid_ce_loss(out["grl_logits"], speaker_ids))
             l_route    = (route_loss(model.routing.logits)
                           if routing_active else l_recon.new_zeros(()))
+            # Per-unit specialization: minimise mean unit routing entropy (with
+            # route_loss this maximises MI(feature; route) — decisive + balanced).
+            l_spec     = (routing_spec_loss(model.routing.logits)
+                          if (routing_active and spec_w > 0) else l_recon.new_zeros(()))
             # Exp 1: phoneme GRL on z_P
             l_grl_p    = (ctc_pr_loss(out["pr_grl_logits"], targets, out["out_lengths"], target_lengths)
                           if (grl_p_weight > 0 and "pr_grl_logits" in out)
@@ -563,6 +568,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + eff_grl_weight   * l_grl
                           + eff_grl_p_weight * l_grl_p
                           + cfg.rho          * l_route
+                          + spec_w           * l_spec
                           + ub_w             * l_ub
                           + u_l2_w           * l_u)
 

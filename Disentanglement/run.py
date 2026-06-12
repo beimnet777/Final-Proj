@@ -83,7 +83,11 @@ def _parse_args():
     p.add_argument("--n_routes",            type=int,            default=cfg.n_routes)
     p.add_argument("--pre_topk_routing",    action="store_true", default=cfg.pre_topk_routing)
     p.add_argument("--hard_gumbel_routing", action="store_true", default=cfg.hard_gumbel_routing,
-                   help="Use one-hot straight-through Gumbel masks during training.")
+                   help="Routing mode: hard one-hot straight-through Gumbel (vs soft fractional).")
+    p.add_argument("--routing_init_std", type=float, default=cfg.routing_init_std,
+                   help="Std of random routing-logit init (0 = zero init / symmetric saddle).")
+    p.add_argument("--routing_spec_weight", type=float, default=cfg.routing_spec_weight,
+                   help="Weight on per-unit specialization loss (minimise routing entropy Hu).")
 
     # experiment flags
     p.add_argument("--grl_phoneme_weight",  type=float, default=cfg.grl_phoneme_weight)
@@ -151,6 +155,8 @@ def _parse_args():
     cfg.n_routes              = args.n_routes
     cfg.pre_topk_routing      = args.pre_topk_routing
     cfg.hard_gumbel_routing   = args.hard_gumbel_routing
+    cfg.routing_init_std      = args.routing_init_std
+    cfg.routing_spec_weight   = args.routing_spec_weight
     cfg.grl_phoneme_weight    = args.grl_phoneme_weight
     cfg.decor_weight          = args.decor_weight
     cfg.ub_weight             = args.ub_weight

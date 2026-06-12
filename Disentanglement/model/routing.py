@@ -30,6 +30,13 @@ class RoutingModule(nn.Module):
         self.tau: float = cfg.gumbel_tau_start
         self.hard_gumbel_routing = getattr(cfg, 'hard_gumbel_routing', False)
 
+        # Symmetry-breaking init: zeros sit at a symmetric saddle the optimizer
+        # struggles to leave; a small random init gives Gumbel something to amplify.
+        init_std = getattr(cfg, 'routing_init_std', 0.0)
+        if init_std > 0:
+            with torch.no_grad():
+                self.logits.normal_(mean=0.0, std=init_std)
+
         if getattr(cfg, 'fixed_routing', False):
             self._init_fixed(cfg.K, getattr(cfg, 'fixed_routing_split', 0.7))
             self.logits.requires_grad_(False)

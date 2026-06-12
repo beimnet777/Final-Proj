@@ -22,7 +22,16 @@ class DISConfig:
     # ---------------------------------------------------------------- Routing / Gumbel
     gumbel_tau_start: float = 1.0
     gumbel_tau_end:   float = 0.1
-    hard_gumbel_routing: bool = False  # If True, stage-2 training uses one-hot ST-Gumbel masks.
+    # Routing mode switch: False = soft Gumbel-softmax (fractional masks),
+    # True = hard straight-through one-hot (matches the argmax used at eval).
+    hard_gumbel_routing: bool = False
+    # Break the zero-init symmetry: std>0 inits logits ~ N(0, std) so the routing
+    # has something to amplify (0 = legacy zero init = symmetric saddle).
+    routing_init_std:    float = 0.0
+    # Per-unit specialization loss = mean per-unit routing entropy (Hu), minimized.
+    # With route_loss (rho, balance) this maximizes MI(feature; route): each
+    # feature decisive AND buckets globally balanced. 0 = off (legacy).
+    routing_spec_weight: float = 0.0
 
     # ---------------------------------------------------------------- Loss weights  (stage 2)
     alpha:      float = 1.0     # PR (CTC) weight          — calibrated from grad norms
