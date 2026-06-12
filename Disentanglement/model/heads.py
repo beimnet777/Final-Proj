@@ -52,22 +52,20 @@ class PRHead(nn.Module):
 # ---------------------------------------------------------------- SID head
 
 class SIDHead(nn.Module):
-    """Speaker CE head: mean(z_P) (B, input_dim) -> 256 -> logits.
+    """Speaker CE head: mean(z_P) (B, input_dim) -> linear -> logits.
 
-    Two-layer MLP matching probing head style — single linear was too weak
-    for 247-way classification on sparse features.
+    Deliberately the WEAKEST head: a single linear layer on the mean-pooled z_P
+    (no projector, no nonlinearity).  Per the task<=probe<=adversary principle,
+    a weak task head forces z_P to make speaker linearly accessible rather than
+    letting the head do the work.
     """
 
     def __init__(self, cfg) -> None:
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(_head_input_dim(cfg), 256),
-            nn.ReLU(),
-            nn.Linear(256, cfg.num_speakers),
-        )
+        self.fc = nn.Linear(_head_input_dim(cfg), cfg.num_speakers)
 
     def forward(self, z_P_bar: torch.Tensor) -> torch.Tensor:
-        return self.net(z_P_bar)
+        return self.fc(z_P_bar)
 
 
 # ---------------------------------------------------------------- PR-GRL head  (Exp 1 — dual GRL)
@@ -88,7 +86,8 @@ class PR_GRL_Head(nn.Module):
 
     def forward(self, z_P: torch.Tensor, lam: float) -> torch.Tensor:
         z_P = gradient_reversal(z_P, lam)
-        return self.fc(self.projector(z_P))
+        # MLP (ReLU) — stronger than the linear PR probe it must beat.
+        return self.fc(F.relu(self.projector(z_P)))
 
 
 # ---------------------------------------------------------------- GRL head
@@ -124,11 +123,13 @@ class GRLHead(nn.Module):
         Returns (B, T, num_speakers) if frame_level, else (B, num_speakers).
         """
         z_L = gradient_reversal(z_L, lam)
+        # MLP (ReLU before pooling) — stronger than the linear SID probe it must
+        # beat, so z_L must remove speaker in a way that survives a real probe.
         if self.frame_level:
-            return self.fc(self.projector(z_L))                   # (B, T, num_speakers)
+            return self.fc(F.relu(self.projector(z_L)))           # (B, T, num_speakers)
         B, T, K = z_L.shape
         mask   = (torch.arange(T, device=z_L.device).unsqueeze(0) < lengths.unsqueeze(1)
                   ).float().unsqueeze(-1)                          # (B, T, 1)
-        z_proj = self.projector(z_L)
+        z_proj = F.relu(self.projector(z_L))
         z_mean = (z_proj * mask).sum(1) / lengths.float().unsqueeze(1).clamp(min=1)
         return self.fc(z_mean)

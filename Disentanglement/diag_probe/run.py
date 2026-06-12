@@ -172,7 +172,7 @@ def main() -> None:
     if args.stage2_ckpt:
         tmp = torch.load(args.stage2_ckpt, map_location="cpu", weights_only=False)
         state = tmp["model_state"]
-        cfg.num_speakers = state["sid_head.net.2.weight"].shape[0]
+        cfg.num_speakers = state["sid_head.fc.weight"].shape[0]
         ckpt_K = state["sae.enc_weight"].shape[0]
         if ckpt_K != cfg.K:
             print(f"[diag_probe] K overridden from checkpoint: {cfg.K} -> {ckpt_K}")

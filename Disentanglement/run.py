@@ -57,6 +57,7 @@ def _parse_args():
     p.add_argument("--lexicon_path",          default=str(cfg.lexicon_path))
     p.add_argument("--max_train_examples",    type=int,   default=cfg.max_train_examples)
     p.add_argument("--max_val_examples",      type=int,   default=cfg.max_val_examples)
+    p.add_argument("--max_test_examples",     type=int,   default=cfg.max_test_examples)
 
     # model
     p.add_argument("--spear_model_id", default=cfg.spear_model_id)
@@ -133,6 +134,7 @@ def _parse_args():
     cfg.lexicon_path          = Path(args.lexicon_path)
     cfg.max_train_examples    = args.max_train_examples
     cfg.max_val_examples      = args.max_val_examples
+    cfg.max_test_examples     = args.max_test_examples
     cfg.spear_model_id        = args.spear_model_id
     cfg.K                     = args.K
     cfg.topk                  = args.topk

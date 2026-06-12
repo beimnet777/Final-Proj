@@ -86,6 +86,7 @@ class DISConfig:
     lexicon_path: Path = _DIS_DIR.parent / "Probing" / "data" / "librispeech-lexicon.txt"
     max_train_examples: int = 0     # 0 = full train-clean-100 (~28 k)
     max_val_examples:   int = 500
+    max_test_examples:  int = 500   # stage-2 closed-set SID test split (same speakers)
     num_workers: int = 0
 
     # ---------------------------------------------------------------- Training
