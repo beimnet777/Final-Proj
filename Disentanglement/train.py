@@ -411,7 +411,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     _set_seed(cfg.seed)
     device = torch.device(cfg.device)
 
-    tokenizer, train_dl, val_dl = make_stage2_dataloaders(cfg)
+    tokenizer, train_dl, val_dl, _test_dl = make_stage2_dataloaders(cfg)
 
     model = build_dis_model(cfg)
     if stage1_ckpt is not None:

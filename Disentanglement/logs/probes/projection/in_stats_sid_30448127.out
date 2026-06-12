@@ -1,0 +1,46 @@
+=== Pooling-robust (stats) SID re-probe of the IN checkpoint ===
+Job ID            : 30448127
+Node / GPU        : gpu-q-10 / NVIDIA A100-SXM4-80GB
+Started           : Fri Jun 12 06:51:31 BST 2026
+model             : proj_recon_ln_d256_grl0_in
+stage2_ckpt       : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/proj_recon_ln_d256_grl0_in/stage2_best.pt
+sid_probe_arch    : stats (projector -> ReLU -> mean+std pool)
+[diag_probe] run=diag_probe_proj_recon_ln_d256_grl0_in_stats_sid  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ln_sae/stage1_best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/proj_recon_ln_d256_grl0_in/stage2_best.pt
+[diag_probe] sources=['z_t', 'z_L', 'z_P']  tasks=['sid']
+[diag_probe] probe_steps=2000  pr_lr=0.0005  sid_lr=0.001  warmup=0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=28039  val=500  vocab=41  speakers=251
+[diag_probe] projection_dim overridden: 128 -> 256
+[diag_probe] projection_disentanglement enabled from checkpoint
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ln_sae/stage1_best.pt  (step=6000  val=0.0737)
+[diag_probe] skipped 2 shape-mismatched/stale keys (e.g. ['up_L.proj.weight', 'up_P.proj.weight']) — fine, probe does not use adversarial heads
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/proj_recon_ln_d256_grl0_in/stage2_best.pt
+
+[diag_probe] speakers=251  pr_vocab=41  D=1280  K=5120
+[diag_probe] PR: Disentanglement 41-phone labels, stage2 val diagnostic eval
+[diag_probe] SID: LibriSpeech diagnostic split, arch=stats
+
+  training probe: z_t -> SID ...
+[dis_data] g2p_en loaded for OOV words
+    z_t -> SID              acc=0.992
+  training probe: z_L -> SID ...
+    z_L -> SID              acc=0.202
+  training probe: z_P -> SID ...
+    z_P -> SID              acc=1.000
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_probe_proj_recon_ln_d256_grl0_in_stats_sid
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_t                nan         0.992
+  z_L                nan         0.202
+  z_P                nan         1.000
+==================================================================
+
+Finished          : Fri Jun 12 07:23:52 BST 2026

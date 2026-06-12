@@ -19,25 +19,34 @@ from datasets import load_dataset, Audio
 from .collate import collate_stage1, collate_stage2
 
 
-# ---------------------------------------------------------------- ARPAbet
+# ---------------------------------------------------------------- SUPERB phones
+# 74-token CTC vocab, IDENTICAL to Probing/pr (SUPERB PR): 3 special
+# (<pad>=blank/<eos>/<unk>) + 71 stress-marked CMU phones. Training PR now uses
+# the same vocab as the SUPERB probe, so train/test phone sets always match.
 
-ARPABET_39 = [
-    "aa","ae","ah","ao","aw","ay",
-    "b","ch","d","dh",
-    "eh","er","ey",
-    "f","g","hh",
-    "ih","iy","jh",
-    "k","l","m","n","ng",
-    "ow","oy","p","r",
-    "s","sh","t","th",
-    "uh","uw","v","w","y","z","zh",
-]
-SPN_TOKEN = "spn"
-
-_CMU_REMAP = {
-    "ax":"ah","axr":"er","ix":"ih","ux":"uw",
-    "el":"l","em":"m","en":"n","nx":"ng",
-}
+SUPERB_PHONES = [
+    "SIL", "SPN",
+    "AA0", "AA1", "AA2",
+    "AE0", "AE1", "AE2",
+    "AH0", "AH1", "AH2",
+    "AO0", "AO1", "AO2",
+    "AW0", "AW1", "AW2",
+    "AY0", "AY1", "AY2",
+    "B", "CH", "D", "DH",
+    "EH0", "EH1", "EH2",
+    "ER0", "ER1", "ER2",
+    "EY0", "EY1", "EY2",
+    "F", "G", "HH",
+    "IH0", "IH1", "IH2",
+    "IY0", "IY1", "IY2",
+    "JH", "K", "L", "M", "N", "NG",
+    "OW0", "OW1", "OW2",
+    "OY0", "OY1", "OY2",
+    "P", "R", "S", "SH", "T", "TH",
+    "UH0", "UH1", "UH2",
+    "UW0", "UW1", "UW2",
+    "V", "W", "Y", "Z", "ZH",
+]  # 71 entries → indices 3..73
 
 _LEXICON: Optional[Dict] = None
 _G2P = None
@@ -77,11 +86,12 @@ def _get_g2p():
     return _G2P
 
 
-def _normalise_phone(raw: str) -> str:
-    return _CMU_REMAP.get(raw.lower().rstrip("012"), raw.lower().rstrip("012"))
+_PHONE_VOCAB = set(SUPERB_PHONES)
 
 
 def text_to_phones(text: str, lexicon: Dict) -> List[str]:
+    """Transcript → raw CMU ARPAbet phones (stress digits kept), SUPERB scheme.
+    Mirrors Probing/pr/pr_data.text_to_phones so training and probing agree."""
     phones: List[str] = []
     g2p = _get_g2p()
     for word in text.upper().split():
@@ -89,32 +99,31 @@ def text_to_phones(text: str, lexicon: Dict) -> List[str]:
         if not word:
             continue
         if word in lexicon:
-            phones.extend(_normalise_phone(p) for p in lexicon[word])
+            phones.extend(p for p in lexicon[word] if p in _PHONE_VOCAB)
         elif g2p:
-            raw = g2p(word)
-            converted = [_normalise_phone(p) for p in raw if p.strip() and not p.isspace()]
-            valid = [p for p in converted if p in set(ARPABET_39)]
-            phones.extend(valid if valid else [SPN_TOKEN])
+            converted = [p for p in g2p(word) if p in _PHONE_VOCAB]
+            phones.extend(converted if converted else ["SPN"])
         else:
-            phones.append(SPN_TOKEN)
+            phones.append("SPN")
     return phones
 
 
 # ---------------------------------------------------------------- PhoneTokenizer
 
 class PhoneTokenizer:
-    """CTC token set: 0=blank, 1-39=ARPAbet, 40=SPN."""
+    """SUPERB 74-token CTC set: 0=<pad>(blank), 1=<eos>, 2=<unk>, 3..73=phones."""
     BLANK_ID = 0
+    UNK_ID   = 2
 
     def __init__(self) -> None:
-        phones = ARPABET_39 + [SPN_TOKEN]
-        self.phone_to_id = {p: i + 1 for i, p in enumerate(phones)}
+        all_tokens = ["<pad>", "<eos>", "<unk>"] + SUPERB_PHONES   # 74 total
+        self.phone_to_id = {p: i for i, p in enumerate(all_tokens)}
         self.id_to_phone = {v: k for k, v in self.phone_to_id.items()}
-        self.vocab_size   = 1 + len(phones)   # 41
+        self.vocab_size  = len(all_tokens)   # 74
 
     def encode(self, phones: List[str]) -> torch.Tensor:
         return torch.tensor(
-            [self.phone_to_id.get(p, self.phone_to_id[SPN_TOKEN]) for p in phones],
+            [self.phone_to_id.get(p, self.UNK_ID) for p in phones],
             dtype=torch.long,
         )
 
@@ -242,18 +251,21 @@ def make_stage2_dataloaders(cfg):
     cfg.num_speakers = len(all_speakers)
     print(f"[dis_data]  {cfg.num_speakers} speakers")
 
-    # Split: first n_val → val, rest → train
-    n_val = cfg.max_val_examples if cfg.max_val_examples > 0 else 0
-    if n_val > 0 and n_val < len(all_ex):
-        val_ex, trn_ex = all_ex[:n_val], all_ex[n_val:]
-    else:
-        trn_ex, val_ex = all_ex, []
+    # Closed-set SID needs the same speakers in every split, so split by
+    # UTTERANCE: first n_test → test, next n_val → val, rest → train. (PR probing
+    # uses dev/test-clean instead — see make_pr_eval_dataloaders.)
+    n_val  = cfg.max_val_examples if cfg.max_val_examples > 0 else 0
+    n_test = getattr(cfg, "max_test_examples", n_val)
+    tst_ex = all_ex[:n_test]
+    val_ex = all_ex[n_test:n_test + n_val]
+    trn_ex = all_ex[n_test + n_val:] if (n_test + n_val) < len(all_ex) else all_ex
 
     kw_ds = dict(tokenizer=tokenizer, speaker_to_idx=speaker_to_idx,
                  lexicon=lexicon, sample_rate=cfg.sample_rate)
     train_ds = Stage2Dataset(trn_ex, **kw_ds)
     val_ds   = Stage2Dataset(val_ex, **kw_ds)
-    print(f"[dis_data]  train={len(train_ds)}  val={len(val_ds)}  "
+    test_ds  = Stage2Dataset(tst_ex, **kw_ds)
+    print(f"[dis_data]  train={len(train_ds)}  val={len(val_ds)}  test={len(test_ds)}  "
           f"vocab={cfg.vocab_size}  speakers={cfg.num_speakers}")
 
     pin = torch.cuda.is_available()
@@ -262,4 +274,5 @@ def make_stage2_dataloaders(cfg):
         tokenizer,
         DataLoader(train_ds, batch_size=cfg.batch_size,      shuffle=True,  collate_fn=collate_stage2, **kw),
         DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, collate_fn=collate_stage2, **kw),
+        DataLoader(test_ds,  batch_size=cfg.eval_batch_size, shuffle=False, collate_fn=collate_stage2, **kw),
     )

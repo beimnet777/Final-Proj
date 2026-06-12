@@ -95,7 +95,7 @@ def main():
     cfg = DISConfig()
     cfg.device = str(device)
     cfg.max_val_examples = args.max_val_examples
-    _, _, val_dl = make_stage2_dataloaders(cfg)
+    _, _, val_dl, _ = make_stage2_dataloaders(cfg)
 
     rows = []
     for spec in args.ckpt:

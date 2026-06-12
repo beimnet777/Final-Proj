@@ -499,7 +499,7 @@ def main():
 
     # SID keeps the current LibriSpeech speaker diagnostic split for now, but
     # uses the SUPERB SID probe head below.
-    _, sid_train_dl, sid_val_dl = make_stage2_dataloaders(cfg)
+    _, sid_train_dl, sid_val_dl, _sid_test_dl = make_stage2_dataloaders(cfg)
 
     # If a stage2 checkpoint is given, override num_speakers and infer K from checkpoint
     if args.stage2_ckpt:

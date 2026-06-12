@@ -160,10 +160,10 @@ def main() -> None:
         pr_cfg.num_workers = cfg.num_workers
         pr_cfg.max_examples = args.pr_max_examples
         pr_tokenizer, pr_train_dl, pr_val_dl, _ = global_pr_data.make_pr_dataloaders(pr_cfg)
-        _, sid_train_dl, sid_val_dl = make_stage2_dataloaders(cfg)
+        _, sid_train_dl, sid_val_dl, sid_test_dl = make_stage2_dataloaders(cfg)
         pr_vocab_size = pr_cfg.vocab_size
     else:
-        _stage2_tokenizer, sid_train_dl, sid_val_dl = make_stage2_dataloaders(cfg)
+        _stage2_tokenizer, sid_train_dl, sid_val_dl, sid_test_dl = make_stage2_dataloaders(cfg)
         pr_tokenizer = None
         pr_train_dl = sid_train_dl
         pr_val_dl = sid_val_dl

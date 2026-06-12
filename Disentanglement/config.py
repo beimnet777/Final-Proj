@@ -99,7 +99,7 @@ class DISConfig:
     ckpt_every:      int = 1_000
 
     # ---------------------------------------------------------------- Runtime (filled by data loader)
-    vocab_size:   int = 41      # CTC: blank + 39 ARPAbet + SPN
+    vocab_size:   int = 74      # SUPERB CTC: <pad>(blank)/<eos>/<unk> + 71 phones
     num_speakers: int = 0       # filled after dataset build
 
     # ---------------------------------------------------------------- Paths
