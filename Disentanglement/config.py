@@ -85,7 +85,8 @@ class DISConfig:
     # ---------------------------------------------------------------- Optimizer
     lr:          float = 1e-4   # SAE lr (stage 1);  also base lr for SAE in stage 2
     lr_min:      float = 1e-6   # cosine decay floor
-    lr_routing:  float = 5e-6   # routing logits  (stage 2) — slow to prevent gradient-driven collapse
+    lr_routing:  float = 1e-3   # routing logits (stage 2) — raised from 5e-6 (which froze the
+                                # logits); collapse is guarded by route_loss, not a tiny lr
     lr_heads:    float = 1e-4   # task heads      (stage 2)
     weight_decay: float = 1e-4
     grad_clip:    float = 1.0
