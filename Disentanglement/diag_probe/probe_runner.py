@@ -91,6 +91,34 @@ class _SIDProbe(nn.Module):
         return self.linear(x)
 
 
+class _SIDProbeStats(nn.Module):
+    """Pooling-robust SID probe: projection -> ReLU -> masked mean+std pool -> linear.
+
+    The plain _SIDProbe (linear -> mean-pool -> linear) is structurally blind to
+    instance-normalized features: a linear map commutes with the time-mean, and
+    IN forces mean_t(z) = 0, so every utterance pools to the same constant.
+    Here the ReLU before pooling breaks that commutation, and the std half of
+    the x-vector-style statistics pooling reads second moments directly — so
+    speaker info in higher-order/temporal structure remains visible.
+    """
+
+    def __init__(self, in_dim: int, num_speakers: int, proj_dim: int = 256) -> None:
+        super().__init__()
+        self.projector = nn.Linear(in_dim, proj_dim)
+        self.linear = nn.Linear(2 * proj_dim, num_speakers)
+
+    def forward(self, x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+        x = torch.relu(self.projector(x))                       # (B, T, P)
+        B, T, _ = x.shape
+        mask = (torch.arange(T, device=x.device).unsqueeze(0) < lengths.unsqueeze(1)
+                ).float().unsqueeze(-1)                          # (B, T, 1)
+        n    = lengths.float().clamp(min=1).unsqueeze(-1)        # (B, 1)
+        mean = (x * mask).sum(1) / n                             # (B, P)
+        var  = (((x - mean.unsqueeze(1)) ** 2) * mask).sum(1) / n
+        std  = (var + 1e-5).sqrt()                               # (B, P)
+        return self.linear(torch.cat([mean, std], dim=-1))
+
+
 class _PRProbe(nn.Module):
     """SUPERB-style PR CTC probe: frame projection -> linear -> log-softmax."""
 

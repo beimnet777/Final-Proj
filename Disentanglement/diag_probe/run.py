@@ -91,6 +91,9 @@ def _parse_args():
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--pr_probe_lr", type=float, default=5e-4)
     p.add_argument("--sid_probe_lr", type=float, default=1e-3)
+    p.add_argument("--sid_probe_arch", choices=("linear", "stats"), default="linear",
+                   help="SID probe: 'linear'=projector->mean-pool->linear (SUPERB-style; blind to "
+                        "instance-normed features), 'stats'=projector->ReLU->mean+std pool->linear.")
     p.add_argument("--probe_warmup_steps", type=int, default=0)
     p.add_argument("--probe_grad_clip", type=float, default=1.0)
     p.add_argument("--standardize_sources", action="store_true",
@@ -234,7 +237,7 @@ def main() -> None:
         print("[diag_probe] PR: SUPERB phone data/head, dev-clean diagnostic eval")
     else:
         print("[diag_probe] PR: Disentanglement 41-phone labels, stage2 val diagnostic eval")
-    print("[diag_probe] SID: LibriSpeech diagnostic split, SUPERB-style SID head\n")
+    print(f"[diag_probe] SID: LibriSpeech diagnostic split, arch={args.sid_probe_arch}\n")
 
     for src in sources:
         results[src] = {}
@@ -242,7 +245,9 @@ def main() -> None:
             label = f"{src} -> {task.upper()}"
             print(f"  training probe: {label} ...", flush=True)
             if task == "sid":
-                probe = base_probe._SIDProbe(dims[src], cfg.num_speakers).to(device)
+                sid_cls = (base_probe._SIDProbeStats if args.sid_probe_arch == "stats"
+                           else base_probe._SIDProbe)
+                probe = sid_cls(dims[src], cfg.num_speakers).to(device)
                 base_probe._train_sid_probe(
                     probe, src, sid_train_dl, model, device, use_bf16, has_routing,
                     steps=args.probe_steps, lr=args.sid_probe_lr,
