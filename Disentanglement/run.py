@@ -82,8 +82,11 @@ def _parse_args():
     p.add_argument("--fixed_routing_split", type=float,          default=cfg.fixed_routing_split)
     p.add_argument("--n_routes",            type=int,            default=cfg.n_routes)
     p.add_argument("--pre_topk_routing",    action="store_true", default=cfg.pre_topk_routing)
-    p.add_argument("--hard_gumbel_routing", action="store_true", default=cfg.hard_gumbel_routing,
-                   help="Routing mode: hard one-hot straight-through Gumbel (vs soft fractional).")
+    p.add_argument("--hard_gumbel_routing", action=argparse.BooleanOptionalAction, default=cfg.hard_gumbel_routing,
+                   help="Routing mode: --hard_gumbel_routing (one-hot STE) / --no-hard_gumbel_routing (soft fractional).")
+    p.add_argument("--gumbel_tau_start", type=float, default=cfg.gumbel_tau_start)
+    p.add_argument("--gumbel_tau_end",   type=float, default=cfg.gumbel_tau_end,
+                   help="Final Gumbel temperature (hold high, e.g. 0.5, to keep soft routing soft).")
     p.add_argument("--routing_init_std", type=float, default=cfg.routing_init_std,
                    help="Std of random routing-logit init (0 = zero init / symmetric saddle).")
     p.add_argument("--routing_spec_weight", type=float, default=cfg.routing_spec_weight,
@@ -96,6 +99,9 @@ def _parse_args():
     p.add_argument("--grl_phoneme_weight",  type=float, default=cfg.grl_phoneme_weight)
     p.add_argument("--decor_weight",        type=float, default=cfg.decor_weight)
     p.add_argument("--ub_weight",           type=float, default=cfg.ub_weight)
+    p.add_argument("--ub_ramp_start",       type=int,   default=cfg.ub_ramp_start)
+    p.add_argument("--ub_ramp_end",         type=int,   default=cfg.ub_ramp_end,
+                   help="Ramp ub_weight 0->full between ub_ramp_start and ub_ramp_end (0=constant).")
     p.add_argument("--ste_routing",         action="store_true", default=cfg.ste_routing)
     p.add_argument("--projection_disentanglement", action="store_true",
                    default=cfg.projection_disentanglement,
@@ -158,6 +164,8 @@ def _parse_args():
     cfg.n_routes              = args.n_routes
     cfg.pre_topk_routing      = args.pre_topk_routing
     cfg.hard_gumbel_routing   = args.hard_gumbel_routing
+    cfg.gumbel_tau_start      = args.gumbel_tau_start
+    cfg.gumbel_tau_end        = args.gumbel_tau_end
     cfg.routing_init_std      = args.routing_init_std
     cfg.routing_spec_weight   = args.routing_spec_weight
     cfg.routing_dynamic       = args.routing_dynamic
@@ -165,6 +173,8 @@ def _parse_args():
     cfg.grl_phoneme_weight    = args.grl_phoneme_weight
     cfg.decor_weight          = args.decor_weight
     cfg.ub_weight             = args.ub_weight
+    cfg.ub_ramp_start         = args.ub_ramp_start
+    cfg.ub_ramp_end           = args.ub_ramp_end
     cfg.ste_routing           = args.ste_routing
     cfg.projection_disentanglement = args.projection_disentanglement
     cfg.projection_dim        = args.projection_dim

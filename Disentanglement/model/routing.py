@@ -31,6 +31,7 @@ class RoutingModule(nn.Module):
         # learned bias the per-utterance router deviates from.
         self.logits   = nn.Parameter(torch.zeros(cfg.K, self.n_routes))
         self.tau: float = cfg.gumbel_tau_start
+        self.tau_end: float = getattr(cfg, 'gumbel_tau_end', 0.1)  # soft-eval temperature
         self.hard_gumbel_routing = getattr(cfg, 'hard_gumbel_routing', False)
 
         # Symmetry-breaking init: zeros sit at a symmetric saddle the optimizer
@@ -77,9 +78,14 @@ class RoutingModule(nn.Module):
         logits = self._effective_logits(context)
         if self.training:
             soft = F.gumbel_softmax(logits, tau=self.tau, hard=self.hard_gumbel_routing, dim=-1)
-        else:
+        elif self.hard_gumbel_routing:
             idx  = logits.argmax(dim=-1)
             soft = F.one_hot(idx, num_classes=self.n_routes).float()
+        else:
+            # Soft mode: eval uses the deterministic soft mask (no Gumbel noise),
+            # i.e. the expectation of the soft Gumbel-softmax at the FINAL tau —
+            # so a soft-trained model is probed with soft masks, not argmax.
+            soft = F.softmax(logits / self.tau_end, dim=-1)
         self.current_logits = logits     # grad-carrying — used for route/spec loss
 
         if self.dynamic:

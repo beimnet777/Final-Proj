@@ -489,6 +489,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     grl_p_weight   = getattr(cfg, 'grl_phoneme_weight', 0.0)
     dann_fix       = getattr(cfg, 'dann_full_discriminator', False)
     ub_w           = getattr(cfg, 'ub_weight', 0.0)
+    ub_ramp_start  = getattr(cfg, 'ub_ramp_start', 0)
+    ub_ramp_end    = getattr(cfg, 'ub_ramp_end', 0)
     u_l2_w         = getattr(cfg, 'projection_u_l2', 0.0)   # L2 penalty on residual z_U
     spec_w         = getattr(cfg, 'routing_spec_weight', 0.0)  # per-unit routing specialization
     routing_clip_params = [] if projection_mode else list(model.routing.parameters())
@@ -506,6 +508,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         # ---- temperature + DANN ramp
         model.routing.tau = _gumbel_tau(step, cfg.stage2_steps,
                                         cfg.gumbel_tau_start, cfg.gumbel_tau_end)
+        # Delayed linear ramp for the IB capacity penalty (specialize first, then prune).
+        if ub_w > 0 and ub_ramp_end > ub_ramp_start:
+            eff_ub_w = ub_w * min(1.0, max(0.0, (step - ub_ramp_start) / (ub_ramp_end - ub_ramp_start)))
+        else:
+            eff_ub_w = ub_w
         grl_active        = (cfg.grl_delay_steps == 0 or step >= cfg.grl_delay_steps)
         ramp              = _dann_lambda(step, cfg.stage2_steps) if grl_active else 0.0
         if dann_fix:
@@ -569,7 +576,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + eff_grl_p_weight * l_grl_p
                           + cfg.rho          * l_route
                           + spec_w           * l_spec
-                          + ub_w             * l_ub
+                          + eff_ub_w         * l_ub
                           + u_l2_w           * l_u)
 
         if use_bf16:

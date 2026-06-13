@@ -70,6 +70,11 @@ class DISConfig:
 
     # Exp 4 — U-bucket information bottleneck
     ub_weight:           float = 0.0   # weight for (m_L + m_P).mean() bottleneck — forces U alive
+    # Delayed linear ramp for the IB: ub_weight is 0 until ub_ramp_start, then
+    # ramps to full by ub_ramp_end (lets features specialize first, then prune).
+    # ub_ramp_end=0 → no ramp (constant ub_weight).
+    ub_ramp_start:       int   = 0
+    ub_ramp_end:         int   = 0
 
     # Exp 5 — Straight-through estimator on routing mask multiplication
     # Forward: z_L = m_L × z_t (sparse, unchanged).  Backward: gradient flows through m_L × z_pre.

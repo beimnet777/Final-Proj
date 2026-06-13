@@ -103,6 +103,10 @@ def _parse_args():
     p.add_argument("--instance_norm_zL", action="store_true",
                    help="Instance-normalize z_L over time — MUST match training (IN has no params, "
                         "so it is not stored in the checkpoint).")
+    p.add_argument("--hard_gumbel_routing", action=argparse.BooleanOptionalAction, default=True,
+                   help="Routing eval mode — MUST match training (hard argmax vs soft fractional masks).")
+    p.add_argument("--gumbel_tau_end", type=float, default=0.1,
+                   help="Soft-routing eval temperature — match training's final tau.")
     return p.parse_args()
 
 
@@ -128,6 +132,8 @@ def main() -> None:
     cfg.device = str(device)
     cfg.spear_layernorm = bool(args.spear_layernorm)
     cfg.instance_norm_zL = bool(args.instance_norm_zL)
+    cfg.hard_gumbel_routing = bool(args.hard_gumbel_routing)
+    cfg.gumbel_tau_end = args.gumbel_tau_end
     cfg.librispeech_cache_dir = Path(args.librispeech_cache_dir)
     cfg.lexicon_path = Path(args.lexicon_path)
     cfg.max_train_examples = args.max_train_examples
