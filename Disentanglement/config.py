@@ -78,6 +78,10 @@ class DISConfig:
     # discriminator's confidence (counters per-frame dilution).
     grl_grad_norm:        bool  = False
     grl_grad_norm_target: float = 1.0  # per-frame target L2 norm of the (unit) reversed gradient; magnitude = grl_weight * this
+    # Negative control: train speaker adversaries against deterministic random
+    # targets resampled each batch, while the positive z_P SID task keeps true
+    # labels. A fixed class permutation would only rename speakers.
+    shuffle_grl_speaker_labels: bool = False
 
     # ---------------------------------------------------------------- Invariance (speaker removal from z_L)
     # Enforce z_L(x) ~= z_L(perturb(x)) where perturb changes the SPEAKER (pitch+

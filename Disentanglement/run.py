@@ -101,6 +101,10 @@ def _parse_args():
                         "(decouples removal strength from discriminator confidence; counters dilution).")
     p.add_argument("--grl_grad_norm_target", type=float, default=cfg.grl_grad_norm_target,
                    help="Per-frame target L2 norm for grad-normalized GRL (effective push = grl_weight * this).")
+    p.add_argument("--shuffle_grl_speaker_labels", action="store_true",
+                   default=cfg.shuffle_grl_speaker_labels,
+                   help="Negative control: train speaker adversaries with deterministic random "
+                        "targets resampled each batch; the positive z_P SID head still uses true labels.")
     p.add_argument("--grl_p_grad_norm", action="store_true", default=cfg.grl_p_grad_norm,
                    help="Per-frame normalize the reversed PHONEME gradient on z_P (constant content-removal push).")
     p.add_argument("--grl_p_grad_norm_target", type=float, default=cfg.grl_p_grad_norm_target,
@@ -254,6 +258,7 @@ def _parse_args():
     cfg.grl_context_kernel    = args.grl_context_kernel
     cfg.grl_grad_norm         = args.grl_grad_norm
     cfg.grl_grad_norm_target  = args.grl_grad_norm_target
+    cfg.shuffle_grl_speaker_labels = args.shuffle_grl_speaker_labels
     cfg.grl_p_grad_norm       = args.grl_p_grad_norm
     cfg.grl_p_grad_norm_target = args.grl_p_grad_norm_target
     cfg.invariance            = bool(args.invariance)

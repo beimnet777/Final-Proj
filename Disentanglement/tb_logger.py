@@ -33,6 +33,7 @@ _LAYOUT = {
     },
     "SAE": {
         "z_pre positive fraction": ["Multiline", ["sae/z_dense_density"]],
+        "Dead latent fraction":    ["Multiline", ["train/dead_frac"]],
     },
     "Gradient Norms": {
         "Stage-1 |g|":           ["Multiline", ["grad_norms/recon","grad_norms/decor"]],

@@ -153,6 +153,21 @@ def _speaker_correct(logits: torch.Tensor, speaker_ids: torch.Tensor,
     return int((pred == speaker_ids).sum().item()), int(speaker_ids.numel())
 
 
+def _random_speaker_targets(
+    speaker_ids: torch.Tensor,
+    num_speakers: int,
+    seed: int,
+    step: int,
+) -> torch.Tensor:
+    """Deterministic random targets for the shuffled-speaker control."""
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(int(seed) + 104729 * int(step))
+    targets = torch.randint(
+        0, num_speakers, speaker_ids.shape, generator=gen, device="cpu"
+    )
+    return targets.to(speaker_ids.device)
+
+
 @torch.no_grad()
 def _ctc_errors(logits: torch.Tensor, targets: torch.Tensor,
                 input_lengths: torch.Tensor, target_lengths: torch.Tensor):
@@ -281,7 +296,8 @@ def _log_grad_norms_stage1(model, batch, cfg, step, tb, use_bf16) -> None:
 
 
 def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
-                           eff_grl_weight: float = -1.0, grl_p_lam=None) -> None:
+                           eff_grl_weight: float = -1.0, grl_p_lam=None,
+                           shuffle_grl_labels: bool = False) -> None:
     """Per-loss gradient norms on SAE params — used for weight calibration."""
     device = torch.device(cfg.device)
     audios, audio_lengths, targets, target_lengths, speaker_ids = batch[:5]   # invariance batch has a 6th (perturbed) elem
@@ -290,6 +306,10 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
     targets       = targets.to(device)
     target_lengths = target_lengths.to(device)
     speaker_ids   = speaker_ids.to(device)
+    adversary_speaker_ids = (
+        _random_speaker_targets(speaker_ids, cfg.num_speakers, cfg.seed, step)
+        if shuffle_grl_labels else speaker_ids
+    )
 
     sae_params = [p for p in model.sae.parameters() if p.requires_grad]
 
@@ -310,9 +330,9 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
         l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
         l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
-        l_grl   = (sid_ce_loss_frames(out["grl_logits"], speaker_ids, out["out_lengths"])
+        l_grl   = (sid_ce_loss_frames(out["grl_logits"], adversary_speaker_ids, out["out_lengths"])
                    if out["grl_logits"].dim() == 3
-                   else sid_ce_loss(out["grl_logits"], speaker_ids))
+                   else sid_ce_loss(out["grl_logits"], adversary_speaker_ids))
         l_route = (route_loss(model.routing.logits) if _routing_active
                    else l_recon.new_zeros(()))
 
@@ -336,8 +356,8 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
             m  = (torch.arange(Tg, device=z.device).unsqueeze(0) < out["out_lengths"].unsqueeze(1)).float()
             return float((pf * m).sum() / m.sum().clamp(min=1))
         sp_lg  = model.grl_head(out["z_L"], out["out_lengths"], 1.0)
-        L_sp   = (sid_ce_loss_frames(sp_lg, speaker_ids, out["out_lengths"])
-                  if sp_lg.dim() == 3 else sid_ce_loss(sp_lg, speaker_ids))
+        L_sp   = (sid_ce_loss_frames(sp_lg, adversary_speaker_ids, out["out_lengths"])
+                  if sp_lg.dim() == 3 else sid_ce_loss(sp_lg, adversary_speaker_ids))
         pf_grl = _per_frame_grad(L_sp, out["z_L"])
         pf_grl_p = 0.0
         if _grl_p_w > 0 and hasattr(model, 'pr_grl_head'):
@@ -562,10 +582,11 @@ def run_stage1(cfg: DISConfig) -> Path:
             if cfg.decor_weight > 0:
                 l_decor = decor_loss(out["z_t"], audio_lengths)
                 loss    = loss + cfg.decor_weight * l_decor
+            # Track dead latents in every SAE run; AuxK is an optional intervention.
+            model.sae.update_dead(out["z_t"])
             # AuxK dead-latent revival (Gao): model the recon residual with dead latents.
             l_aux = None
             if model.sae.aux_k > 0:
-                model.sae.update_dead(out["z_t"])
                 e_hat = model.sae.aux_reconstruct(out["z_pre"])
                 if e_hat is not None:
                     resid = (out["h_t"] - out["h_hat"]).detach()         # residual target
@@ -592,20 +613,23 @@ def run_stage1(cfg: DISConfig) -> Path:
             density = (out["z_pre"] > 0).float().mean().item()
             recon_v = l_recon.item()
             log_dict = {"recon": recon_v, "total": loss.item()}
+            n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
+            dead_frac = n_dead / cfg.K
+            log_dict["dead_frac"] = dead_frac
+            dead_str = f"  dead={n_dead}/{cfg.K} ({100*dead_frac:.1f}%)"
             if l_decor is not None:
                 decor_v = l_decor.item()
                 log_dict["decor"]          = decor_v
                 log_dict["decor_weighted"] = cfg.decor_weight * decor_v
                 print(f"  step {step:>6d}/{cfg.total_steps}  recon={recon_v:.4f}  "
                       f"decor={decor_v:.4f} (w={cfg.decor_weight * decor_v:.4f})  "
-                      f"total={loss.item():.4f}  lr={lr_now:.2e}")
+                      f"total={loss.item():.4f}  lr={lr_now:.2e}{dead_str}")
             else:
-                aux_str = ""
+                aux_str = dead_str
                 if model.sae.aux_k > 0:
-                    n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
                     aux_v  = l_aux.item() if l_aux is not None else 0.0
-                    aux_str = f"  aux={aux_v:.4f}  dead={n_dead}/{cfg.K} ({100*n_dead/cfg.K:.1f}%)"
-                    log_dict["aux"] = aux_v; log_dict["dead_frac"] = n_dead / cfg.K
+                    aux_str = f"  aux={aux_v:.4f}{aux_str}"
+                    log_dict["aux"] = aux_v
                 print(f"  step {step:>6d}/{cfg.total_steps}  recon={recon_v:.4f}  lr={lr_now:.2e}{aux_str}")
             tb.log_train(step, log_dict)
             tb.log_sae(step, density)
@@ -753,6 +777,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     if invariance_on:
         print(f"[stage 2] invariance ON: inv_weight={inv_w}  ramp_end={inv_ramp_end} "
               f"(z_L speaker-invariance via perturbed-pair consistency)")
+    shuffle_grl_labels = bool(getattr(cfg, 'shuffle_grl_speaker_labels', False))
+    if shuffle_grl_labels:
+        print("[stage 2] NEGATIVE CONTROL: speaker adversaries use deterministic "
+              "random targets resampled each batch; z_P SID uses true labels")
     prosody_on     = hasattr(model, 'prosody_head')
     prosody_w      = getattr(cfg, 'prosody_weight', 0.0)            # z_P prosody task
     grl_pros_w     = getattr(cfg, 'grl_prosody_weight', 0.0)        # anti-prosody on z_L
@@ -825,7 +853,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
 
         if step % cfg.grad_log_every == 0:
             _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
-                                   eff_grl_weight, grl_p_lam)
+                                   eff_grl_weight, grl_p_lam, shuffle_grl_labels)
 
         audios, audio_lengths, targets, target_lengths, speaker_ids = batch[:5]
         pert_audios    = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
@@ -834,6 +862,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         targets        = targets.to(device, non_blocking=True)
         target_lengths = target_lengths.to(device, non_blocking=True)
         speaker_ids    = speaker_ids.to(device, non_blocking=True)
+        adversary_speaker_ids = (
+            _random_speaker_targets(speaker_ids, cfg.num_speakers, cfg.seed, step)
+            if shuffle_grl_labels else speaker_ids
+        )
 
         optimizer.zero_grad(set_to_none=True)
         ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
@@ -852,9 +884,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
             l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
             l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
-            l_grl   = (sid_ce_loss_frames(out["grl_logits"], speaker_ids, out["out_lengths"])
+            l_grl   = (sid_ce_loss_frames(out["grl_logits"], adversary_speaker_ids, out["out_lengths"])
                        if out["grl_logits"].dim() == 3
-                       else sid_ce_loss(out["grl_logits"], speaker_ids))
+                       else sid_ce_loss(out["grl_logits"], adversary_speaker_ids))
             l_route    = (route_loss(out["routing_logits"])
                           if routing_active else l_recon.new_zeros(()))
             # Per-unit specialization: minimise mean unit routing entropy (with
@@ -877,9 +909,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             # VIB KL on z_L
             l_vib      = (out["vib_kl"] if "vib_kl" in out else l_recon.new_zeros(()))
             # z_U adversaries: anti-speaker + anti-phoneme (dann → eff weight 1.0)
-            l_grl_u    = (sid_ce_loss_frames(out["grl_u_logits"], speaker_ids, out["out_lengths"])
+            l_grl_u    = (sid_ce_loss_frames(out["grl_u_logits"], adversary_speaker_ids, out["out_lengths"])
                           if (grl_u_weight > 0 and "grl_u_logits" in out and out["grl_u_logits"].dim() == 3)
-                          else (sid_ce_loss(out["grl_u_logits"], speaker_ids)
+                          else (sid_ce_loss(out["grl_u_logits"], adversary_speaker_ids)
                                 if (grl_u_weight > 0 and "grl_u_logits" in out)
                                 else l_recon.new_zeros(())))
             l_grl_p_u  = (ctc_pr_loss(out["pr_grl_u_logits"], targets, out["out_lengths"], target_lengths)
@@ -898,10 +930,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     l_pros_grl_u = _prosody_train_loss(out["prosody_grl_u_pred"], p_f0, p_v, p_e, out["out_lengths"])
             eff_grl_pros_w   = 1.0 if grl_pros_w   > 0 else 0.0
             eff_grl_pros_u_w = 1.0 if grl_pros_u_w > 0 else 0.0
+            # Track dead latents regardless of whether AuxK revival is enabled.
+            model.sae.update_dead(out["z_t"])
             # AuxK dead-latent revival (Gao): model the recon residual with dead latents
             l_aux = l_recon.new_zeros(())
             if aux_k_on:
-                model.sae.update_dead(out["z_t"])
                 e_hat = model.sae.aux_reconstruct(out["z_pre"])
                 if e_hat is not None:
                     resid = (out["h_t"] - out["h_hat"]).detach()
@@ -980,15 +1013,15 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 optimizer.zero_grad(set_to_none=True)
                 with ctx:
                     sp = model.grl_head(zL_d, lens_d, 0.0)
-                    l_d = (sid_ce_loss_frames(sp, speaker_ids, lens_d)
-                           if sp.dim() == 3 else sid_ce_loss(sp, speaker_ids))
+                    l_d = (sid_ce_loss_frames(sp, adversary_speaker_ids, lens_d)
+                           if sp.dim() == 3 else sid_ce_loss(sp, adversary_speaker_ids))
                     if grl_p_weight > 0:
                         ph = model.pr_grl_head(zP_d, 0.0)
                         l_d = l_d + ctc_pr_loss(ph, targets, lens_d, target_lengths)
                     if hasattr(model, 'grl_head_u') and zU_d is not None:
                         spu = model.grl_head_u(zU_d, lens_d, 0.0)
-                        l_d = l_d + (sid_ce_loss_frames(spu, speaker_ids, lens_d)
-                                     if spu.dim() == 3 else sid_ce_loss(spu, speaker_ids))
+                        l_d = l_d + (sid_ce_loss_frames(spu, adversary_speaker_ids, lens_d)
+                                     if spu.dim() == 3 else sid_ce_loss(spu, adversary_speaker_ids))
                         phu = model.pr_grl_head_u(zU_d, 0.0)
                         l_d = l_d + ctc_pr_loss(phu, targets, lens_d, target_lengths)
                     if pros_adv and grl_pros_w > 0:
@@ -1051,20 +1084,25 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
 
                 # Adversary readouts on this batch (loss is hard to read; accuracy/PER
                 # say directly how much each adversary still extracts).
-                gc, gt   = _speaker_correct(out["grl_logits"], speaker_ids, out["out_lengths"])
+                gc, gt   = _speaker_correct(out["grl_logits"], adversary_speaker_ids, out["out_lengths"])
                 grl_acc  = gc / max(gt, 1)
+                grl_true_acc = None
+                if shuffle_grl_labels:
+                    tc, tt = _speaker_correct(out["grl_logits"], speaker_ids, out["out_lengths"])
+                    grl_true_acc = tc / max(tt, 1)
                 grl_p_per = grl_u_acc = grl_p_u_per = None
                 if "pr_grl_logits" in out:
                     num, den  = _ctc_errors(out["pr_grl_logits"], targets, out["out_lengths"], target_lengths)
                     grl_p_per = num / max(den, 1)
                 if "grl_u_logits" in out:
-                    uc, ut    = _speaker_correct(out["grl_u_logits"], speaker_ids, out["out_lengths"])
+                    uc, ut    = _speaker_correct(out["grl_u_logits"], adversary_speaker_ids, out["out_lengths"])
                     grl_u_acc = uc / max(ut, 1)
                 if "pr_grl_u_logits" in out:
                     num, den    = _ctc_errors(out["pr_grl_u_logits"], targets, out["out_lengths"], target_lengths)
                     grl_p_u_per = num / max(den, 1)
 
             losses["grl_acc"] = grl_acc
+            if grl_true_acc is not None: losses["grl_true_acc"] = grl_true_acc
             if grl_p_per   is not None: losses["grl_p_per"]   = grl_p_per
             if grl_u_acc   is not None: losses["grl_u_acc"]   = grl_u_acc
             if grl_p_u_per is not None: losses["grl_p_u_per"] = grl_p_u_per
@@ -1088,21 +1126,25 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     pros_str += f"  grlPr={l_pros_grl.item():.3f}/{l_pros_grl_u.item():.3f}"
             inv_str   = f"  inv={l_inv.item():.4f}" if invariance_on else ""
             vib_str   = f"  vib={l_vib.item():.4f}(w={eff_vib_w:.1e})" if vib_w > 0 else ""
-            aux_str   = ""
+            n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
+            dead_frac = n_dead / cfg.K
+            aux_str = f"  dead={100*dead_frac:.1f}%"
+            losses["dead_frac"] = dead_frac
             if aux_k_on:
-                n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
-                aux_str = f"  aux={l_aux.item():.4f}  dead={100*n_dead/cfg.K:.1f}%"
+                aux_str = f"  aux={l_aux.item():.4f}{aux_str}"
             gn_str = ""
             if gradnorm_on:
                 _gw = gn_ctrl.weights()
                 gn_str = "  gn=[" + " ".join(f"{k}:{v:.2f}" for k, v in _gw.items()) + "]"
                 losses.update({f"w_{k}": v for k, v in _gw.items()})
+            grl_true_str = (f",true={grl_true_acc:.3f}"
+                            if grl_true_acc is not None else "")
             print(
                 f"  step {step:>6d}/{cfg.stage2_steps}"
                 f"  recon={l_recon.item():.4f}"
                 f"  pr={l_pr.item():.4f}"
                 f"  sid={l_sid.item():.4f}"
-                f"  grl={l_grl.item():.4f}(acc={grl_acc:.3f})"
+                f"  grl={l_grl.item():.4f}(acc={grl_acc:.3f}{grl_true_str})"
                 f"{grl_p_str}{u_str}{pros_str}{inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
                 f"  L/P/U={n_L}/{n_P}/{n_U}"
                 f"  actL/P/U={act_L.item():.0f}/{act_P.item():.0f}/{act_U.item():.0f}"
