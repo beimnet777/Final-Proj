@@ -21,16 +21,24 @@ def collate_stage1(batch: List[Tuple]) -> Tuple[torch.Tensor, torch.Tensor]:
 
 
 def collate_stage2(batch: List[Tuple]) -> Tuple:
-    """Batch item: (waveform, n_samples, phone_ids, speaker_idx)
+    """Batch item: (waveform, n_samples, phone_ids, speaker_idx[, perturbed_wav])
 
     Returns: audios (B, T_max), audio_lengths (B,),
              targets (B, P_max), target_lengths (B,), speaker_ids (B,)
+             [, perturbed_audios (B, T_max)]  when invariance perturbation is on.
     """
-    audios, lengths, phone_ids, speaker_idxs = zip(*batch)
-    return (
+    has_pert = len(batch[0]) == 5
+    if has_pert:
+        audios, lengths, phone_ids, speaker_idxs, perts = zip(*batch)
+    else:
+        audios, lengths, phone_ids, speaker_idxs = zip(*batch)
+    out = (
         pad_sequence(list(audios),    batch_first=True, padding_value=0.0),
         torch.tensor(list(lengths),       dtype=torch.long),
         pad_sequence(list(phone_ids), batch_first=True, padding_value=0),
         torch.tensor([p.size(0) for p in phone_ids], dtype=torch.long),
         torch.tensor(list(speaker_idxs),  dtype=torch.long),
     )
+    if has_pert:
+        out = out + (pad_sequence(list(perts), batch_first=True, padding_value=0.0),)
+    return out

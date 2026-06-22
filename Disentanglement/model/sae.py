@@ -36,6 +36,17 @@ def _topk_straight_through(pre: torch.Tensor, k: int) -> torch.Tensor:
     return pre + (z_sparse - pre).detach()
 
 
+def _blockwise_topk_straight_through(pre: torch.Tensor, spec) -> torch.Tensor:
+    """Per-block TopK: keep top-k within each contiguous index block, separately.
+
+    spec: list of (start, end, k).  Blocks must be contiguous and tile [0, K).
+    Guarantees each factor block a fixed active budget so none can be starved by
+    a global TopK competition (the failure mode of learned routing).
+    """
+    parts = [_topk_straight_through(pre[..., s:e], k) for s, e, k in spec]
+    return torch.cat(parts, dim=-1)
+
+
 class SparseAutoencoder(nn.Module):
     """Overcomplete SAE with TopK sparsity (Gao et al. 2024).
 
@@ -49,6 +60,19 @@ class SparseAutoencoder(nn.Module):
         self.K = K
         self.topk = cfg.topk
 
+        # Fixed-block per-block TopK (Option A): top-k chosen within each L/P/U
+        # block separately, so each factor gets a guaranteed active budget.
+        # block_spec set only for per-block TopK (Exp 1/2).  When fixed_blocks but
+        # per_block_topk=False (Exp 3), block_spec stays None → global TopK, and the
+        # per-block active counts emerge from the fixed-membership masks downstream.
+        self.block_spec = None
+        if getattr(cfg, 'fixed_blocks', False) and getattr(cfg, 'per_block_topk', True):
+            kL, kP, kU = cfg.K_L, cfg.K_P, cfg.K_U
+            assert kL + kP + kU == K, f"K_L+K_P+K_U ({kL+kP+kU}) must equal K ({K})"
+            self.block_spec = [(0, kL, cfg.topk_L),
+                               (kL, kL + kP, cfg.topk_P),
+                               (kL + kP, K, cfg.topk_U)]
+
         # Pre-bias: absorbs data mean. Shape (D,).
         # Shared between encoder (subtracted) and decoder (added back).
         self.b_pre = nn.Parameter(torch.zeros(D))
@@ -60,6 +84,39 @@ class SparseAutoencoder(nn.Module):
         self.dec_weight = nn.Parameter(torch.empty(D, K))
 
         self._init_weights()
+
+        # Dead-latent revival (Gao AuxK).  steps_since_fired is a transient training
+        # counter (not checkpointed); aux_k>0 turns the mechanism on.
+        self.aux_k          = int(getattr(cfg, 'aux_k', 0))
+        self.dead_threshold = int(getattr(cfg, 'dead_steps_threshold', 256))
+        self.register_buffer('steps_since_fired', torch.zeros(K), persistent=False)
+
+    # ---------------------------------------------------------------- dead latents / AuxK
+    @torch.no_grad()
+    def update_dead(self, z_t: torch.Tensor) -> None:
+        """Increment the not-fired counter; reset latents that fired this batch."""
+        fired = (z_t != 0).any(dim=tuple(range(z_t.dim() - 1)))   # (K,)
+        self.steps_since_fired += 1
+        self.steps_since_fired[fired] = 0
+
+    def aux_reconstruct(self, z_pre: torch.Tensor):
+        """AuxK: reconstruct the main recon's residual using the top-aux_k among
+        currently-DEAD latents — giving them gradient so they revive.
+        Returns ê (B,T,D) or None if there aren't aux_k dead latents yet."""
+        if self.aux_k <= 0:
+            return None
+        dead = self.steps_since_fired > self.dead_threshold        # (K,)
+        if int(dead.sum()) < self.aux_k:
+            return None
+        masked = z_pre.masked_fill(~dead, -1e30)                   # keep only dead latents
+        vals, idx = masked.topk(self.aux_k, dim=-1)
+        z_aux = torch.zeros_like(z_pre).scatter_(-1, idx, vals)
+        return F.linear(z_aux, self.dec_weight)                    # residual recon — no b_pre
+
+    @torch.no_grad()
+    def normalize_decoder(self) -> None:
+        """Unit-norm the decoder columns (per Gao, applied after each step)."""
+        self.dec_weight.data = F.normalize(self.dec_weight.data, dim=0)
 
     def _init_weights(self) -> None:
         # 1. Random encoder rows, normalised to unit vectors.
@@ -85,7 +142,11 @@ class SparseAutoencoder(nn.Module):
         """
         centred = h_t - self.b_pre                         # (B, T, D)
         z_pre   = F.linear(centred, self.enc_weight)       # (B, T, K)  no bias
-        return _topk_straight_through(z_pre, self.topk), z_pre
+        if self.block_spec is None:
+            z_t = _topk_straight_through(z_pre, self.topk)
+        else:
+            z_t = _blockwise_topk_straight_through(z_pre, self.block_spec)
+        return z_t, z_pre
 
     # ---------------------------------------------------------------- decode
 

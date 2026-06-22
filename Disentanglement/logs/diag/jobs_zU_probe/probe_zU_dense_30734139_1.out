@@ -1,0 +1,104 @@
+=== Probe z_U: job1_inv_dense (z_L,z_P,z_U : PR + SID-stats) ===  Thu Jun 18 20:31:13 BST 2026
+NVIDIA A100-SXM4-80GB
+[diag_probe] run=diag_zU_job1_inv_dense  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job1_inv_dense/stage2_best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job1_inv_dense/stage2_best.pt
+[diag_probe] sources=['z_U']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=8
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job1_inv_dense/stage2_best.pt  (step=12000  val=0.5811)
+[diag_probe] skipped 2 shape-mismatched/stale keys (e.g. ['grl_head.context_conv.weight', 'grl_head.context_conv.bias']) — fine, probe does not use adversarial heads
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job1_inv_dense/stage2_best.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=stats
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_U -> PR ...
+[pr_data] g2p_en loaded for OOV words
+      [pr z_U] step 250/10000  dev PER=0.263  (best 0.263, bad 0/8)
+      [pr z_U] step 500/10000  dev PER=0.247  (best 0.247, bad 0/8)
+      [pr z_U] step 750/10000  dev PER=0.237  (best 0.237, bad 0/8)
+      [pr z_U] step 1000/10000  dev PER=0.235  (best 0.235, bad 0/8)
+      [pr z_U] step 1250/10000  dev PER=0.229  (best 0.229, bad 0/8)
+      [pr z_U] step 1500/10000  dev PER=0.229  (best 0.229, bad 0/8)
+      [pr z_U] step 1750/10000  dev PER=0.233  (best 0.229, bad 1/8)
+      [pr z_U] step 2000/10000  dev PER=0.232  (best 0.229, bad 2/8)
+      [pr z_U] step 2250/10000  dev PER=0.229  (best 0.229, bad 3/8)
+      [pr z_U] step 2500/10000  dev PER=0.233  (best 0.229, bad 4/8)
+      [pr z_U] step 2750/10000  dev PER=0.236  (best 0.229, bad 5/8)
+      [pr z_U] step 3000/10000  dev PER=0.230  (best 0.229, bad 6/8)
+      [pr z_U] step 3250/10000  dev PER=0.226  (best 0.226, bad 0/8)
+      [pr z_U] step 3500/10000  dev PER=0.231  (best 0.226, bad 1/8)
+      [pr z_U] step 3750/10000  dev PER=0.228  (best 0.226, bad 2/8)
+      [pr z_U] step 4000/10000  dev PER=0.229  (best 0.226, bad 3/8)
+      [pr z_U] step 4250/10000  dev PER=0.226  (best 0.226, bad 0/8)
+      [pr z_U] step 4500/10000  dev PER=0.231  (best 0.226, bad 1/8)
+      [pr z_U] step 4750/10000  dev PER=0.230  (best 0.226, bad 2/8)
+      [pr z_U] step 5000/10000  dev PER=0.224  (best 0.224, bad 0/8)
+      [pr z_U] step 5250/10000  dev PER=0.231  (best 0.224, bad 1/8)
+      [pr z_U] step 5500/10000  dev PER=0.222  (best 0.222, bad 0/8)
+      [pr z_U] step 5750/10000  dev PER=0.226  (best 0.222, bad 1/8)
+      [pr z_U] step 6000/10000  dev PER=0.227  (best 0.222, bad 2/8)
+      [pr z_U] step 6250/10000  dev PER=0.223  (best 0.222, bad 3/8)
+      [pr z_U] step 6500/10000  dev PER=0.225  (best 0.222, bad 4/8)
+      [pr z_U] step 6750/10000  dev PER=0.222  (best 0.222, bad 5/8)
+      [pr z_U] step 7000/10000  dev PER=0.226  (best 0.222, bad 6/8)
+      [pr z_U] step 7250/10000  dev PER=0.228  (best 0.222, bad 7/8)
+      [pr z_U] step 7500/10000  dev PER=0.222  (best 0.222, bad 8/8)
+    z_U -> PR               PER test=0.225  (val 0.222)
+  training probe: z_U -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_U] step 250/10000  dev acc=0.226  (best 0.226, bad 0/8)
+      [sid z_U] step 500/10000  dev acc=0.596  (best 0.596, bad 0/8)
+      [sid z_U] step 750/10000  dev acc=0.794  (best 0.794, bad 0/8)
+      [sid z_U] step 1000/10000  dev acc=0.868  (best 0.868, bad 0/8)
+      [sid z_U] step 1250/10000  dev acc=0.910  (best 0.910, bad 0/8)
+      [sid z_U] step 1500/10000  dev acc=0.930  (best 0.930, bad 0/8)
+      [sid z_U] step 1750/10000  dev acc=0.952  (best 0.952, bad 0/8)
+      [sid z_U] step 2000/10000  dev acc=0.958  (best 0.958, bad 0/8)
+      [sid z_U] step 2250/10000  dev acc=0.972  (best 0.972, bad 0/8)
+      [sid z_U] step 2500/10000  dev acc=0.964  (best 0.972, bad 1/8)
+      [sid z_U] step 2750/10000  dev acc=0.984  (best 0.984, bad 0/8)
+      [sid z_U] step 3000/10000  dev acc=0.980  (best 0.984, bad 1/8)
+      [sid z_U] step 3250/10000  dev acc=0.974  (best 0.984, bad 2/8)
+      [sid z_U] step 3500/10000  dev acc=0.978  (best 0.984, bad 3/8)
+      [sid z_U] step 3750/10000  dev acc=0.994  (best 0.994, bad 0/8)
+      [sid z_U] step 4000/10000  dev acc=0.990  (best 0.994, bad 1/8)
+      [sid z_U] step 4250/10000  dev acc=0.998  (best 0.998, bad 0/8)
+      [sid z_U] step 4500/10000  dev acc=0.990  (best 0.998, bad 1/8)
+      [sid z_U] step 4750/10000  dev acc=0.986  (best 0.998, bad 2/8)
+      [sid z_U] step 5000/10000  dev acc=0.992  (best 0.998, bad 3/8)
+      [sid z_U] step 5250/10000  dev acc=0.996  (best 0.998, bad 4/8)
+      [sid z_U] step 5500/10000  dev acc=0.994  (best 0.998, bad 5/8)
+      [sid z_U] step 5750/10000  dev acc=1.000  (best 1.000, bad 0/8)
+      [sid z_U] step 6000/10000  dev acc=0.998  (best 1.000, bad 1/8)
+      [sid z_U] step 6250/10000  dev acc=0.998  (best 1.000, bad 2/8)
+      [sid z_U] step 6500/10000  dev acc=0.996  (best 1.000, bad 3/8)
+      [sid z_U] step 6750/10000  dev acc=0.998  (best 1.000, bad 4/8)
+      [sid z_U] step 7000/10000  dev acc=0.998  (best 1.000, bad 5/8)
+      [sid z_U] step 7250/10000  dev acc=0.998  (best 1.000, bad 6/8)
+      [sid z_U] step 7500/10000  dev acc=0.998  (best 1.000, bad 7/8)
+      [sid z_U] step 7750/10000  dev acc=0.998  (best 1.000, bad 8/8)
+    z_U -> SID              acc test=0.990  (val 1.000)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_zU_job1_inv_dense
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_U              0.225         0.990
+==================================================================
+
+Finished probe: Thu Jun 18 22:02:29 BST 2026

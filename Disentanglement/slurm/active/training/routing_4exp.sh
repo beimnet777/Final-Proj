@@ -53,7 +53,7 @@ esac
 
 SEED="${SEED:-42}"
 STAGE2_STEPS="${STAGE2_STEPS:-8000}"
-PROBE_STEPS="${PROBE_STEPS:-2000}"
+PROBE_STEPS="${PROBE_STEPS:-4000}"   # ceiling; early stopping (dev) usually ends sooner
 RUN_NAME="routing_${NAME}"
 STAGE1_CKPT="${DIS_DIR}/checkpoints/ln_sae/stage1_best.pt"
 CKPT_DIR="${DIS_DIR}/checkpoints/${RUN_NAME}"
@@ -115,6 +115,8 @@ ${PYTHON} -u diag_probe/run.py \
     --sources            "z_t,z_L,z_P" \
     --tasks              "pr,sid" \
     --probe_steps        "${PROBE_STEPS}" \
+    --probe_val_every    "${PROBE_VAL_EVERY:-250}" \
+    --probe_patience     "${PROBE_PATIENCE:-5}" \
     --seed               "${SEED}" \
     --pr_max_examples    0 \
     --pr_probe_lr        5e-4 \

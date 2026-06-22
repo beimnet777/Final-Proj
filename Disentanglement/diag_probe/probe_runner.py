@@ -41,6 +41,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -51,6 +52,11 @@ try:
     import jiwer
 except ImportError:
     jiwer = None
+
+try:
+    import librosa
+except ImportError:
+    librosa = None
 
 DIS_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = DIS_DIR.parent
@@ -133,6 +139,100 @@ class _PRProbe(nn.Module):
         return F.log_softmax(x, dim=-1)
 
 
+class _ProsodyProbe(nn.Module):
+    """Per-frame prosody regressor: projection -> ReLU -> linear -> [logF0, logE].
+
+    No pooling — prosody is a frame-level (suprasegmental) signal, so the probe
+    predicts the F0 and energy contour at every frame.  Reported metric is the
+    Pearson correlation between predicted and true contour (scale/offset-free),
+    i.e. how much of the prosody contour is linearly recoverable from the bucket.
+    """
+
+    def __init__(self, in_dim: int, proj_dim: int = 256) -> None:
+        super().__init__()
+        self.projector = nn.Linear(in_dim, proj_dim)
+        self.head = nn.Linear(proj_dim, 2)            # [log-F0, log-energy]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(torch.relu(self.projector(x)))   # (B, T, 2)
+
+
+# ---------------------------------------------------------------- prosody targets
+
+def _prosody_targets(audios, audio_lens, out_lengths, sr: int = 16_000):
+    """Per-frame prosody targets aligned to the SAE frame count (out_lengths).
+
+    Returns (f0, voiced, energy), each (B, Tmax):
+      f0     : log-F0 (raw, NOT speaker-normalized — absolute pitch is shared
+               signal that serves both SID and prosody), 0 where unvoiced.
+      voiced : 1.0 on voiced frames (pyin found a pitch), else 0.0 — the F0
+               loss/metric is masked to these.
+      energy : log frame-RMS, defined on every valid frame.
+    F0 via librosa.pyin, energy via frame RMS; both contours linearly resampled
+    to each utterance's T = out_lengths[i]."""
+    if librosa is None:
+        raise RuntimeError("librosa is required for prosody probing (pip install librosa).")
+    B = audios.shape[0]
+    Tmax = int(out_lengths.max().item()) if B else 0
+    f0o = torch.zeros(B, Tmax)
+    vo  = torch.zeros(B, Tmax)
+    eo  = torch.zeros(B, Tmax)
+    a = audios.detach().cpu().numpy().astype(np.float64)
+    hop, frame = 256, 1024
+    for i in range(B):
+        n = int(audio_lens[i].item())
+        T = int(out_lengths[i].item())
+        if T <= 0 or n < frame:
+            continue
+        wav = a[i, :n]
+        try:
+            f0, _vflag, _vprob = librosa.pyin(
+                wav, fmin=65.0, fmax=400.0, sr=sr, frame_length=frame, hop_length=hop)
+        except Exception:
+            continue
+        rms = librosa.feature.rms(y=wav, frame_length=frame, hop_length=hop)[0]
+        voiced = (~np.isnan(f0)).astype(np.float64)
+        logf0  = np.log(np.where(np.isnan(f0), 1.0, f0))
+        loge   = np.log(rms + 1e-8)
+        # linear-resample each contour to T frames
+        xt = np.linspace(0.0, 1.0, T)
+        f0_t = np.interp(xt, np.linspace(0.0, 1.0, len(logf0)), logf0)
+        v_t  = (np.interp(xt, np.linspace(0.0, 1.0, len(voiced)), voiced) > 0.5).astype(np.float64)
+        e_t  = np.interp(xt, np.linspace(0.0, 1.0, len(loge)), loge)
+        f0o[i, :T] = torch.from_numpy(f0_t * v_t)       # zero logF0 on unvoiced frames
+        vo[i, :T]  = torch.from_numpy(v_t)
+        eo[i, :T]  = torch.from_numpy(e_t)
+    return f0o, vo, eo
+
+
+def _frame_mask(lengths: torch.Tensor, T: int) -> torch.Tensor:
+    return (torch.arange(T, device=lengths.device).unsqueeze(0) < lengths.unsqueeze(1)).float()
+
+
+class _PearsonAcc:
+    """Streaming Pearson-correlation accumulator over masked frames."""
+
+    def __init__(self) -> None:
+        self.n = self.sx = self.sy = self.sxx = self.syy = self.sxy = 0.0
+
+    def update(self, x: torch.Tensor, y: torch.Tensor, mask: torch.Tensor) -> None:
+        m = mask.bool()
+        x, y = x[m].double(), y[m].double()
+        self.n   += x.numel()
+        self.sx  += x.sum().item();  self.sy  += y.sum().item()
+        self.sxx += (x * x).sum().item();  self.syy += (y * y).sum().item()
+        self.sxy += (x * y).sum().item()
+
+    def value(self) -> float:
+        if self.n < 2:
+            return float("nan")
+        cov = self.sxy - self.sx * self.sy / self.n
+        vx  = self.sxx - self.sx * self.sx / self.n
+        vy  = self.syy - self.sy * self.sy / self.n
+        denom = (vx * vy) ** 0.5
+        return float(cov / denom) if denom > 1e-12 else float("nan")
+
+
 # ---------------------------------------------------------------- helpers
 
 def _mean_pool(z: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
@@ -167,6 +267,7 @@ def _extract_representations(model, audios, audio_lengths, device, use_bf16, has
         "z_t":            out["z_t"].float(),
         "z_L":            out.get("z_L", out["z_t"]).float(),
         "z_P":            out.get("z_P", out["z_t"]).float(),
+        "z_U":            out.get("z_U", out["z_t"]).float(),
         "out_lengths":    out["out_lengths"],
     }
 
@@ -223,7 +324,15 @@ def _train_pr_probe(
     lr: float,
     warmup_steps: int,
     grad_clip: float,
-) -> None:
+    val_cache=None,
+    tokenizer=None,
+    val_every: int = 0,
+    patience: int = 0,
+):
+    """Train the PR probe. If val_cache + val_every>0, evaluate PER on the cached
+    dev set every val_every steps, keep the best-dev probe state, early-stop after
+    `patience` evals without improvement, and restore the best-dev weights.
+    Returns best dev PER (float) when validating, else None."""
     trainable = [p for p in probe.parameters() if p.requires_grad]
     opt = AdamW(trainable, lr=lr, weight_decay=1e-4)
     scheduler = _make_linear_schedule(opt, warmup_steps, steps)
@@ -232,7 +341,13 @@ def _train_pr_probe(
     step  = 0
     model.eval()
 
-    while step < steps:
+    do_val = val_cache is not None and val_every > 0
+    best_val: float = float("inf")
+    best_state = None
+    bad = 0
+    stop = False
+
+    while step < steps and not stop:
         for audios, audio_lens, targets, target_lens, _texts in train_dl:
             feats = _extract_representations(
                 model, audios, audio_lens, device, use_bf16, has_routing
@@ -250,8 +365,27 @@ def _train_pr_probe(
             opt.step()
             scheduler.step()
             step += 1
+
+            if do_val and step % val_every == 0:
+                per = _eval_pr_probe_cached(probe, val_cache, tokenizer, device)
+                probe.train()
+                if per < best_val - 1e-4:
+                    best_val, bad = per, 0
+                    best_state = {k: v.detach().cpu().clone()
+                                  for k, v in probe.state_dict().items()}
+                else:
+                    bad += 1
+                print(f"      [pr {src_key}] step {step}/{steps}  dev PER={per:.3f}  "
+                      f"(best {best_val:.3f}, bad {bad}/{patience})", flush=True)
+                if patience > 0 and bad >= patience:
+                    stop = True
+                    break
             if step >= steps:
                 break
+
+    if best_state is not None:
+        probe.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+    return best_val if do_val else None
 
 
 def _train_sid_probe(
@@ -266,7 +400,14 @@ def _train_sid_probe(
     lr: float,
     warmup_steps: int,
     grad_clip: float,
-) -> None:
+    val_cache=None,
+    val_every: int = 0,
+    patience: int = 0,
+):
+    """Train the SID probe. If val_cache + val_every>0, evaluate accuracy on the
+    cached dev set every val_every steps, keep the best-dev probe state, early-stop
+    after `patience` evals without improvement, and restore the best-dev weights.
+    Returns best dev accuracy (float) when validating, else None."""
     trainable = [p for p in probe.parameters() if p.requires_grad]
     opt = AdamW(trainable, lr=lr, weight_decay=1e-4)
     scheduler = _make_linear_schedule(opt, warmup_steps, steps)
@@ -275,7 +416,13 @@ def _train_sid_probe(
     step = 0
     model.eval()
 
-    while step < steps:
+    do_val = val_cache is not None and val_every > 0
+    best_val: float = -1.0
+    best_state = None
+    bad = 0
+    stop = False
+
+    while step < steps and not stop:
         for audios, audio_lens, _targets, _target_lens, speaker_ids in train_dl:
             feats = _extract_representations(
                 model, audios, audio_lens, device, use_bf16, has_routing
@@ -291,8 +438,156 @@ def _train_sid_probe(
             opt.step()
             scheduler.step()
             step += 1
+
+            if do_val and step % val_every == 0:
+                acc = _eval_sid_probe_cached(probe, val_cache, device)
+                probe.train()
+                if acc > best_val + 1e-4:
+                    best_val, bad = acc, 0
+                    best_state = {k: v.detach().cpu().clone()
+                                  for k, v in probe.state_dict().items()}
+                else:
+                    bad += 1
+                print(f"      [sid {src_key}] step {step}/{steps}  dev acc={acc:.3f}  "
+                      f"(best {best_val:.3f}, bad {bad}/{patience})", flush=True)
+                if patience > 0 and bad >= patience:
+                    stop = True
+                    break
             if step >= steps:
                 break
+
+    if best_state is not None:
+        probe.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+    return best_val if do_val else None
+
+
+@torch.no_grad()
+def _build_prosody_pool(dl, model, device, use_bf16, has_routing, max_examples: int):
+    """One pass over `dl`: cache audio + per-frame prosody targets on CPU so the
+    slow pyin F0 extraction runs ONCE (not every probe step).  The src feature
+    (z) is re-extracted per step from the cached audio (cheap vs. caching big z).
+    `out_lengths` is captured here so targets align to the SAE frame grid."""
+    model.eval()
+    pool, seen = [], 0
+    for audios, audio_lens, _t, _tl, _last in dl:
+        feats = _extract_representations(model, audios, audio_lens, device, use_bf16, has_routing)
+        out_lengths = feats["out_lengths"].detach().cpu()
+        f0, voiced, energy = _prosody_targets(audios.cpu(), audio_lens.cpu(), out_lengths)
+        pool.append({
+            "audios": audios.detach().cpu(), "audio_lens": audio_lens.detach().cpu(),
+            "out_lengths": out_lengths, "f0": f0, "voiced": voiced, "energy": energy,
+        })
+        seen += audios.shape[0]
+        if max_examples > 0 and seen >= max_examples:
+            break
+    return pool
+
+
+def _prosody_loss(pred, f0, voiced, energy, lens):
+    """Masked MSE: F0 on voiced frames, energy on all valid frames.
+
+    Align pred (padded frame-dim) and targets (Tmax) to the common T."""
+    T = min(pred.shape[1], f0.shape[1])
+    pred = pred[:, :T]
+    valid = _frame_mask(lens, T)                      # (B, T)
+    vmask = voiced[:, :T] * valid
+    f0_err = ((pred[..., 0] - f0[:, :T]) ** 2 * vmask).sum() / vmask.sum().clamp(min=1)
+    e_err  = ((pred[..., 1] - energy[:, :T]) ** 2 * valid).sum() / valid.sum().clamp(min=1)
+    return f0_err + e_err
+
+
+def _train_prosody_probe(
+    probe: nn.Module,
+    src_key: str,
+    pool,
+    model,
+    device,
+    use_bf16: bool,
+    has_routing: bool,
+    steps: int,
+    lr: float,
+    warmup_steps: int,
+    grad_clip: float,
+    val_cache=None,
+    val_every: int = 0,
+    patience: int = 0,
+):
+    """Train the prosody probe from the cached audio+target pool.  Validates the
+    mean(F0_corr, energy_corr) on the cached dev set; keeps best, early-stops.
+    Returns best dev (f0_corr, energy_corr) when validating, else None."""
+    trainable = [p for p in probe.parameters() if p.requires_grad]
+    opt = AdamW(trainable, lr=lr, weight_decay=1e-4)
+    scheduler = _make_linear_schedule(opt, warmup_steps, steps)
+    probe.train()
+    model.eval()
+    step = 0
+    do_val = val_cache is not None and val_every > 0
+    best_val = -2.0
+    best_pair = None
+    best_state = None
+    bad = 0
+    stop = False
+
+    while step < steps and not stop:
+        for b in pool:
+            feats = _extract_representations(model, b["audios"], b["audio_lens"],
+                                             device, use_bf16, has_routing)
+            z = feats[src_key]
+            lens = feats["out_lengths"]
+            T = z.shape[1]
+            f0     = b["f0"][:, :T].to(device)
+            voiced = b["voiced"][:, :T].to(device)
+            energy = b["energy"][:, :T].to(device)
+
+            opt.zero_grad(set_to_none=True)
+            loss = _prosody_loss(probe(z), f0, voiced, energy, lens)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable, grad_clip)
+            opt.step()
+            scheduler.step()
+            step += 1
+
+            if do_val and step % val_every == 0:
+                f0c, ec = _eval_prosody_probe_cached(probe, val_cache, device)
+                probe.train()
+                score = np.nanmean([f0c, ec])
+                if score > best_val + 1e-4:
+                    best_val, best_pair, bad = score, (f0c, ec), 0
+                    best_state = {k: v.detach().cpu().clone()
+                                  for k, v in probe.state_dict().items()}
+                else:
+                    bad += 1
+                print(f"      [pros {src_key}] step {step}/{steps}  dev F0r={f0c:.3f} Er={ec:.3f}  "
+                      f"(best mean {best_val:.3f}, bad {bad}/{patience})", flush=True)
+                if patience > 0 and bad >= patience:
+                    stop = True
+                    break
+            if step >= steps:
+                break
+
+    if best_state is not None:
+        probe.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+    return best_pair if do_val else None
+
+
+@torch.no_grad()
+def _eval_prosody_probe_cached(probe, cache, device):
+    """Pearson correlation of predicted vs true contour over the cached dev/test
+    set.  F0 correlation is over voiced frames; energy over all valid frames."""
+    probe.eval()
+    f0_acc, e_acc = _PearsonAcc(), _PearsonAcc()
+    for e in cache:
+        z = e["z"].to(device)
+        lens = e["out_lengths"].to(device)
+        T = min(z.shape[1], e["f0"].shape[1])     # align padded pred T and target Tmax
+        pred = probe(z)[:, :T]
+        valid  = _frame_mask(lens, T)
+        voiced = e["voiced"][:, :T].to(device)
+        f0     = e["f0"][:, :T].to(device)
+        energy = e["energy"][:, :T].to(device)
+        f0_acc.update(pred[..., 0], f0, voiced * valid)
+        e_acc.update(pred[..., 1], energy, valid)
+    return f0_acc.value(), e_acc.value()
 
 
 @torch.no_grad()
@@ -345,6 +640,62 @@ def _eval_sid_probe(
         pred = probe(feats[src_key], feats["out_lengths"]).argmax(-1)
         correct += (pred == speaker_ids).sum().item()
         total += speaker_ids.size(0)
+    return correct / max(total, 1)
+
+
+# ---------------------------------------------------------------- cached eval (no encoder re-run)
+@torch.no_grad()
+def _cache_features(src_key, dl, model, device, use_bf16, has_routing, task):
+    """Run the frozen model once over `dl`, caching the src feature + lengths +
+    labels on CPU so repeated probe evals skip the (expensive) encoder forward.
+    The model is frozen, so these features are invariant across probe steps."""
+    model.eval()
+    cache = []
+    for audios, audio_lens, targets, target_lens, last in dl:
+        feats = _extract_representations(
+            model, audios, audio_lens, device, use_bf16, has_routing
+        )
+        entry = {
+            "z": feats[src_key].detach().to("cpu"),
+            "out_lengths": feats["out_lengths"].detach().to("cpu"),
+        }
+        if task == "sid":
+            entry["speaker_ids"] = last.detach().to("cpu")
+        elif task == "prosody":
+            f0, voiced, energy = _prosody_targets(
+                audios.cpu(), audio_lens.cpu(), feats["out_lengths"].detach().cpu())
+            entry["f0"], entry["voiced"], entry["energy"] = f0, voiced, energy
+        else:
+            entry["texts"] = last
+        cache.append(entry)
+    return cache
+
+
+@torch.no_grad()
+def _eval_pr_probe_cached(probe, cache, tokenizer, device) -> float:
+    probe.eval()
+    all_hyps: List[str] = []
+    all_refs: List[str] = []
+    for e in cache:
+        log_probs = probe(e["z"].to(device))
+        hyps = _greedy_pr_decode(log_probs.cpu(), e["out_lengths"], tokenizer)
+        refs = [_phones_from_text(t, tokenizer) for t in e["texts"]]
+        all_hyps.extend(hyps)
+        all_refs.extend(refs)
+    return _phone_error_rate(all_refs, all_hyps)
+
+
+@torch.no_grad()
+def _eval_sid_probe_cached(probe, cache, device) -> float:
+    probe.eval()
+    correct = total = 0
+    for e in cache:
+        z = e["z"].to(device)
+        lens = e["out_lengths"].to(device)
+        sid = e["speaker_ids"].to(device)
+        pred = probe(z, lens).argmax(-1)
+        correct += (pred == sid).sum().item()
+        total += sid.size(0)
     return correct / max(total, 1)
 
 

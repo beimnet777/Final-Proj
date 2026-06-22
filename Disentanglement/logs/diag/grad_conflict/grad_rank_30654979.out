@@ -1,0 +1,41 @@
+############## POOLED (attention) speaker head -- grl_attn_w2.0 ##############
+[grad_rank] speaker head = attention_pool   ckpt = checkpoints/grl_attn_w2.0/stage2_best.pt
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from checkpoints/grl_attn_w2.0/stage2_best.pt  (step=12000  val=0.1192)
+[dis_data] g2p_en loaded for OOV words
+
+===== PER-UTTERANCE effective rank of removal gradients (T x K) =====
+  SPEAKER (z_L):  eff_rank=134.30   stable_rank=  7.99   (K_L=3072)
+  PHONEME (z_P):  eff_rank=167.66   stable_rank= 13.78   (K_P=1024)
+  ratio phoneme/speaker eff_rank = 1.2x
+
+===== GLOBAL subspace rank (all frames stacked, N x K) =====
+  SPEAKER (z_L):  eff_rank=177.07   stable_rank=  6.26
+  PHONEME (z_P):  eff_rank=225.44   stable_rank= 21.49
+  => low speaker rank vs high phoneme rank means the speaker adversary erases too few
+     directions: speaker survives in the orthogonal complement that no gradient touches.
+
+############## DENSE (per-frame, k31) speaker head -- grl_dense_k31_w2.0 ##############
+[grad_rank] speaker head = dense_context   ckpt = checkpoints/grl_dense_k31_w2.0/stage2_best.pt
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from checkpoints/grl_dense_k31_w2.0/stage2_best.pt  (step=7000  val=0.0718)
+[dis_data] g2p_en loaded for OOV words
+
+===== PER-UTTERANCE effective rank of removal gradients (T x K) =====
+  SPEAKER (z_L):  eff_rank= 26.78   stable_rank=  5.43   (K_L=3072)
+  PHONEME (z_P):  eff_rank=158.60   stable_rank= 11.58   (K_P=1024)
+  ratio phoneme/speaker eff_rank = 5.9x
+
+===== GLOBAL subspace rank (all frames stacked, N x K) =====
+  SPEAKER (z_L):  eff_rank= 34.14   stable_rank=  8.85
+  PHONEME (z_P):  eff_rank=218.15   stable_rank=  7.20
+  => low speaker rank vs high phoneme rank means the speaker adversary erases too few
+     directions: speaker survives in the orthogonal complement that no gradient touches.

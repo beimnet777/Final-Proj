@@ -1,0 +1,37 @@
+=== reconstruction-defends-speaker gradient-conflict test (grl_attn) ===  Tue Jun 16 22:37:38 BST 2026
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from checkpoints/fxblk_grlattn/stage2_best.pt  (step=12000  val=0.0926)
+[dis_data] g2p_en loaded for OOV words
+batch  0: recon=0.097 pr=0.389 disc=0.440 | z_L: recon=-0.0004 PR=+0.0001 | encW: recon=-0.0033 PR=-0.0069
+batch  1: recon=0.100 pr=0.414 disc=0.714 | z_L: recon=-0.0008 PR=+0.0021 | encW: recon=-0.0053 PR=+0.0087
+batch  2: recon=0.099 pr=0.449 disc=0.550 | z_L: recon=-0.0001 PR=-0.0001 | encW: recon=-0.0035 PR=-0.0046
+batch  3: recon=0.099 pr=0.348 disc=0.614 | z_L: recon=-0.0003 PR=+0.0006 | encW: recon=-0.0054 PR=-0.0008
+batch  4: recon=0.098 pr=0.385 disc=0.377 | z_L: recon=-0.0008 PR=-0.0003 | encW: recon=-0.0047 PR=+0.0098
+batch  5: recon=0.097 pr=0.353 disc=0.771 | z_L: recon=-0.0002 PR=-0.0004 | encW: recon=-0.0098 PR=-0.0106
+batch  6: recon=0.100 pr=0.396 disc=0.604 | z_L: recon=-0.0005 PR=-0.0002 | encW: recon=-0.0051 PR=-0.0011
+batch  7: recon=0.099 pr=0.373 disc=1.076 | z_L: recon=-0.0009 PR=+0.0011 | encW: recon=-0.0097 PR=-0.0014
+batch  8: recon=0.099 pr=0.428 disc=0.482 | z_L: recon=-0.0001 PR=+0.0030 | encW: recon=-0.0032 PR=+0.0135
+batch  9: recon=0.099 pr=0.365 disc=0.682 | z_L: recon=-0.0002 PR=-0.0008 | encW: recon=-0.0073 PR=-0.0027
+batch 10: recon=0.099 pr=0.353 disc=0.503 | z_L: recon=-0.0007 PR=+0.0040 | encW: recon=-0.0018 PR=-0.0035
+batch 11: recon=0.097 pr=0.357 disc=0.478 | z_L: recon=-0.0001 PR=-0.0002 | encW: recon=-0.0005 PR=-0.0001
+batch 12: recon=0.101 pr=0.425 disc=0.539 | z_L: recon=-0.0011 PR=+0.0008 | encW: recon=-0.0051 PR=+0.0017
+batch 13: recon=0.099 pr=0.368 disc=0.628 | z_L: recon=-0.0011 PR=-0.0007 | encW: recon=-0.0073 PR=+0.0004
+batch 14: recon=0.098 pr=0.392 disc=0.538 | z_L: recon=-0.0002 PR=+0.0001 | encW: recon=-0.0007 PR=+0.0046
+batch 15: recon=0.100 pr=0.406 disc=0.758 | z_L: recon=-0.0009 PR=-0.0001 | encW: recon=-0.0169 PR=-0.0050
+batch 16: recon=0.098 pr=0.349 disc=0.626 | z_L: recon=-0.0004 PR=+0.0016 | encW: recon=-0.0099 PR=-0.0048
+batch 17: recon=0.099 pr=0.359 disc=0.542 | z_L: recon=-0.0010 PR=+0.0021 | encW: recon=-0.0004 PR=+0.0007
+batch 18: recon=0.098 pr=0.362 disc=0.716 | z_L: recon=-0.0009 PR=-0.0013 | encW: recon=-0.0068 PR=+0.0027
+batch 19: recon=0.099 pr=0.444 disc=0.659 | z_L: recon=-0.0008 PR=+0.0012 | encW: recon=-0.0015 PR=+0.0086
+
+===== MEAN cos(task-update, speaker-removal-update) =====
+  RECON vs removal  (z_L)           : -0.0006  (sd 0.0004, n=20)
+  PR    vs removal  (z_L)           : +0.0006  (sd 0.0013, n=20)
+  RECON vs removal  (enc_W)         : -0.0054  (sd 0.0039, n=20)
+  PR    vs removal  (enc_W)         : +0.0005  (sd 0.0059, n=20)
+  cos < 0 => that task CONFLICTS with speaker-removal => it DEFENDS speaker in z_L
+  cos ~ 0 => independent;  cos > 0 => removing speaker would help that task
+Finished: Tue Jun 16 22:39:30 BST 2026

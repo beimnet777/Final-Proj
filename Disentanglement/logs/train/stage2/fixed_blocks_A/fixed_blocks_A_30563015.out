@@ -1,0 +1,521 @@
+=== Option A: fixed-block supervised SAE (from scratch) ===
+Job        : 30563015
+GPU        : NVIDIA A100-SXM4-80GB
+Started    : Sun Jun 14 10:12:06 BST 2026
+blocks     : L/P/U = 3072/1024/1024   per-block topk = 160/64/32
+tasks      : alpha=0.8 beta=0.6   adversary grl=0.5 (dann, delay 1500) grl_p=0.1
+SAE lr     : 1e-4 (full, ungated)   steps=12000
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=12000  α=0.8  β=0.6  grl=0.5  ρ=0.0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=17,478,282  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.8  β=0.6  grl=0.5  ρ=0.0  grl_delay=1500  grl_p=0.1  hard_gumbel=True  spear_ln=True  dann_full_disc=True
+[stage 2] steps=12000  batch=16
+[dis_data] g2p_en loaded for OOV words
+  step      1/12000  recon=0.3267  pr=19.4923  sid=5.5195  grl=5.5371  grl_p=19.3746  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-07
+  step    100/12000  recon=0.2941  pr=15.3577  sid=5.5195  grl=5.5449  grl_p=16.4473  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-05
+  step    200/12000  recon=0.3171  pr=8.8031  sid=5.5156  grl=5.5156  grl_p=12.1726  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.00e-05
+  step    300/12000  recon=0.3455  pr=3.7678  sid=5.5117  grl=5.5215  grl_p=3.9468  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.00e-05
+  step    400/12000  recon=0.2315  pr=1.4956  sid=5.4043  grl=5.4609  grl_p=3.5642  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.00e-05
+  [grad_norms @500]
+    recon             |g|=0.03412  ratio=1.000x recon
+    pr_raw            |g|=0.39698  ratio=11.634x recon
+    pr_weighted       |g|=0.31758  ratio=9.307x recon
+    sid_raw           |g|=0.52751  ratio=15.460x recon
+    sid_weighted      |g|=0.31650  ratio=9.276x recon
+    grl               |g|=0.00000  ratio=0.000x recon
+    grl_p             |g|=0.00000  ratio=0.000x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step    500/12000  recon=0.1784  pr=0.8269  sid=5.4570  grl=5.5879  grl_p=3.5047  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  step    600/12000  recon=0.1497  pr=0.7136  sid=5.2754  grl=5.4102  grl_p=3.3799  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  step    700/12000  recon=0.1333  pr=0.6317  sid=5.0898  grl=5.2266  grl_p=2.9652  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.99e-05
+  step    800/12000  recon=0.1240  pr=0.4480  sid=5.0469  grl=5.2949  grl_p=2.4944  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.98e-05
+  step    900/12000  recon=0.1178  pr=0.4615  sid=4.8574  grl=5.1855  grl_p=2.1828  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.97e-05
+  [grad_norms @1000]
+    recon             |g|=0.02924  ratio=1.000x recon
+    pr_raw            |g|=0.24042  ratio=8.223x recon
+    pr_weighted       |g|=0.19234  ratio=6.578x recon
+    sid_raw           |g|=0.91760  ratio=31.385x recon
+    sid_weighted      |g|=0.55056  ratio=18.831x recon
+    grl               |g|=0.00000  ratio=0.000x recon
+    grl_p             |g|=0.00000  ratio=0.000x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   1000/12000  recon=0.1166  pr=0.4068  sid=4.7051  grl=5.2891  grl_p=1.8871  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.95e-05
+  [val] step=1000  recon=0.1163  pr=0.4450  PER=0.107  sid_acc=0.444
+  ✓ best checkpoint (disent=0.6626  PER=0.107 sid=0.444) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step   1100/12000  recon=0.1136  pr=0.3848  sid=4.5332  grl=5.2266  grl_p=1.6916  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.93e-05
+  step   1200/12000  recon=0.1125  pr=0.3820  sid=4.1133  grl=4.9570  grl_p=1.6152  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.91e-05
+  step   1300/12000  recon=0.1126  pr=0.3581  sid=3.8154  grl=4.9805  grl_p=1.5520  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.88e-05
+  step   1400/12000  recon=0.1102  pr=0.3729  sid=3.7275  grl=4.9902  grl_p=1.4478  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.85e-05
+  [grad_norms @1500]
+    recon             |g|=0.03397  ratio=1.000x recon
+    pr_raw            |g|=0.45875  ratio=13.505x recon
+    pr_weighted       |g|=0.36700  ratio=10.804x recon
+    sid_raw           |g|=1.21525  ratio=35.776x recon
+    sid_weighted      |g|=0.72915  ratio=21.465x recon
+    grl               |g|=0.23415  ratio=6.893x recon
+    grl_p             |g|=0.14092  ratio=4.148x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   1500/12000  recon=0.1115  pr=0.5382  sid=3.4160  grl=4.9844  grl_p=1.5801  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.82e-05
+  step   1600/12000  recon=0.1090  pr=0.4104  sid=3.1523  grl=4.9316  grl_p=2.3202  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.78e-05
+  step   1700/12000  recon=0.1107  pr=0.3298  sid=3.1050  grl=5.3438  grl_p=3.9304  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.74e-05
+  step   1800/12000  recon=0.1106  pr=0.3023  sid=2.7759  grl=5.4023  grl_p=3.9744  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.69e-05
+  step   1900/12000  recon=0.1136  pr=0.3255  sid=2.2261  grl=5.5059  grl_p=3.9858  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.64e-05
+  [grad_norms @2000]
+    recon             |g|=0.03561  ratio=1.000x recon
+    pr_raw            |g|=0.26453  ratio=7.428x recon
+    pr_weighted       |g|=0.21162  ratio=5.942x recon
+    sid_raw           |g|=1.76537  ratio=49.569x recon
+    sid_weighted      |g|=1.05922  ratio=29.741x recon
+    grl               |g|=0.32219  ratio=9.047x recon
+    grl_p             |g|=0.11671  ratio=3.277x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   2000/12000  recon=0.1095  pr=0.2705  sid=2.3096  grl=5.5938  grl_p=3.8326  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.59e-05
+  [val] step=2000  recon=0.1110  pr=0.3181  PER=0.078  sid_acc=0.896
+  ✓ best checkpoint (disent=0.1819  PER=0.078 sid=0.896) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step   2100/12000  recon=0.1096  pr=0.4109  sid=1.8555  grl=5.4668  grl_p=3.7442  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.53e-05
+  step   2200/12000  recon=0.1077  pr=0.2928  sid=2.4390  grl=5.6230  grl_p=3.6104  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.48e-05
+  step   2300/12000  recon=0.1130  pr=0.2640  sid=1.6711  grl=5.5957  grl_p=3.5225  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.41e-05
+  step   2400/12000  recon=0.1105  pr=0.3233  sid=1.5466  grl=5.4863  grl_p=3.4002  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.35e-05
+  [grad_norms @2500]
+    recon             |g|=0.04368  ratio=1.000x recon
+    pr_raw            |g|=0.32644  ratio=7.473x recon
+    pr_weighted       |g|=0.26115  ratio=5.978x recon
+    sid_raw           |g|=1.50161  ratio=34.374x recon
+    sid_weighted      |g|=0.90096  ratio=20.624x recon
+    grl               |g|=0.22427  ratio=5.134x recon
+    grl_p             |g|=0.12480  ratio=2.857x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   2500/12000  recon=0.1115  pr=0.2683  sid=0.9390  grl=5.5645  grl_p=3.4356  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.28e-05
+  step   2600/12000  recon=0.1097  pr=0.2775  sid=1.0890  grl=5.4219  grl_p=3.3867  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.21e-05
+  step   2700/12000  recon=0.1102  pr=0.3403  sid=0.9930  grl=5.4688  grl_p=3.5055  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.13e-05
+  step   2800/12000  recon=0.1102  pr=0.3236  sid=0.8459  grl=5.4805  grl_p=3.4552  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.05e-05
+  step   2900/12000  recon=0.1092  pr=0.3024  sid=0.7688  grl=5.4980  grl_p=3.5179  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.97e-05
+  [grad_norms @3000]
+    recon             |g|=0.04464  ratio=1.000x recon
+    pr_raw            |g|=0.40963  ratio=9.176x recon
+    pr_weighted       |g|=0.32771  ratio=7.341x recon
+    sid_raw           |g|=1.42092  ratio=31.828x recon
+    sid_weighted      |g|=0.85255  ratio=19.097x recon
+    grl               |g|=0.21674  ratio=4.855x recon
+    grl_p             |g|=0.08373  ratio=1.876x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   3000/12000  recon=0.1089  pr=0.3127  sid=0.5789  grl=5.4922  grl_p=3.5199  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.89e-05
+  [val] step=3000  recon=0.1083  pr=0.2765  PER=0.066  sid_acc=0.980
+  ✓ best checkpoint (disent=0.0859  PER=0.066 sid=0.980) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step   3100/12000  recon=0.1079  pr=0.2756  sid=0.6819  grl=5.5801  grl_p=3.5241  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.80e-05
+  step   3200/12000  recon=0.1084  pr=0.3334  sid=0.4375  grl=5.4629  grl_p=3.5757  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.71e-05
+  step   3300/12000  recon=0.1080  pr=0.2954  sid=0.2546  grl=5.5410  grl_p=3.5552  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.62e-05
+  step   3400/12000  recon=0.1072  pr=0.2299  sid=0.3738  grl=5.4707  grl_p=3.5026  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.53e-05
+  [grad_norms @3500]
+    recon             |g|=0.04857  ratio=1.000x recon
+    pr_raw            |g|=0.28494  ratio=5.866x recon
+    pr_weighted       |g|=0.22795  ratio=4.693x recon
+    sid_raw           |g|=1.27925  ratio=26.336x recon
+    sid_weighted      |g|=0.76755  ratio=15.802x recon
+    grl               |g|=0.13905  ratio=2.863x recon
+    grl_p             |g|=0.10362  ratio=2.133x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   3500/12000  recon=0.1055  pr=0.2751  sid=0.4080  grl=5.4980  grl_p=3.5210  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.43e-05
+  step   3600/12000  recon=0.1074  pr=0.3766  sid=0.4034  grl=5.4668  grl_p=3.4964  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.33e-05
+  step   3700/12000  recon=0.1059  pr=0.2711  sid=0.1847  grl=5.4180  grl_p=3.5143  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.23e-05
+  step   3800/12000  recon=0.1053  pr=0.2607  sid=0.3710  grl=5.4961  grl_p=3.5666  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.12e-05
+  step   3900/12000  recon=0.1043  pr=0.2492  sid=0.2605  grl=5.4336  grl_p=3.5490  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.01e-05
+  [grad_norms @4000]
+    recon             |g|=0.04715  ratio=1.000x recon
+    pr_raw            |g|=0.26583  ratio=5.637x recon
+    pr_weighted       |g|=0.21266  ratio=4.510x recon
+    sid_raw           |g|=0.70685  ratio=14.990x recon
+    sid_weighted      |g|=0.42411  ratio=8.994x recon
+    grl               |g|=0.16321  ratio=3.461x recon
+    grl_p             |g|=0.06150  ratio=1.304x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   4000/12000  recon=0.1041  pr=0.2245  sid=0.2279  grl=5.4844  grl_p=3.5594  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.90e-05
+  [val] step=4000  recon=0.1050  pr=0.2482  PER=0.060  sid_acc=0.994
+  ✓ best checkpoint (disent=0.0664  PER=0.060 sid=0.994) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step   4100/12000  recon=0.1043  pr=0.2113  sid=0.3530  grl=5.4102  grl_p=3.5703  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.79e-05
+  step   4200/12000  recon=0.1033  pr=0.2598  sid=0.2568  grl=5.4395  grl_p=3.5615  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.68e-05
+  step   4300/12000  recon=0.1051  pr=0.2545  sid=0.5054  grl=5.6367  grl_p=3.5296  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.56e-05
+  step   4400/12000  recon=0.1039  pr=0.1720  sid=0.2325  grl=5.5215  grl_p=3.5666  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.45e-05
+  [grad_norms @4500]
+    recon             |g|=0.05136  ratio=1.000x recon
+    pr_raw            |g|=0.26109  ratio=5.084x recon
+    pr_weighted       |g|=0.20887  ratio=4.067x recon
+    sid_raw           |g|=0.83682  ratio=16.294x recon
+    sid_weighted      |g|=0.50209  ratio=9.777x recon
+    grl               |g|=0.17734  ratio=3.453x recon
+    grl_p             |g|=0.06408  ratio=1.248x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   4500/12000  recon=0.1034  pr=0.2091  sid=0.1826  grl=5.5215  grl_p=3.5444  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.33e-05
+  step   4600/12000  recon=0.1057  pr=0.2730  sid=0.1297  grl=5.5039  grl_p=3.5757  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.21e-05
+  step   4700/12000  recon=0.1039  pr=0.2562  sid=0.1954  grl=5.5391  grl_p=3.5488  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.08e-05
+  step   4800/12000  recon=0.1026  pr=0.2415  sid=0.1310  grl=5.5547  grl_p=3.5359  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.96e-05
+  step   4900/12000  recon=0.1033  pr=0.3124  sid=0.2277  grl=5.5156  grl_p=3.5377  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.83e-05
+  [grad_norms @5000]
+    recon             |g|=0.05108  ratio=1.000x recon
+    pr_raw            |g|=0.26312  ratio=5.151x recon
+    pr_weighted       |g|=0.21049  ratio=4.121x recon
+    sid_raw           |g|=0.39684  ratio=7.769x recon
+    sid_weighted      |g|=0.23811  ratio=4.662x recon
+    grl               |g|=0.21832  ratio=4.274x recon
+    grl_p             |g|=0.07101  ratio=1.390x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   5000/12000  recon=0.1029  pr=0.1734  sid=0.0843  grl=5.4961  grl_p=3.5551  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.71e-05
+  [val] step=5000  recon=0.1028  pr=0.2346  PER=0.057  sid_acc=0.998
+  ✓ best checkpoint (disent=0.0594  PER=0.057 sid=0.998) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step   5100/12000  recon=0.1022  pr=0.1747  sid=0.1014  grl=5.4688  grl_p=3.5069  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.58e-05
+  step   5200/12000  recon=0.1021  pr=0.2626  sid=0.1002  grl=5.4863  grl_p=3.5225  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.45e-05
+  step   5300/12000  recon=0.1035  pr=0.2857  sid=0.1033  grl=5.4141  grl_p=3.5389  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.32e-05
+  step   5400/12000  recon=0.1008  pr=0.1868  sid=0.1759  grl=5.4746  grl_p=3.5269  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.19e-05
+  [grad_norms @5500]
+    recon             |g|=0.05188  ratio=1.000x recon
+    pr_raw            |g|=0.30942  ratio=5.964x recon
+    pr_weighted       |g|=0.24754  ratio=4.771x recon
+    sid_raw           |g|=0.47534  ratio=9.162x recon
+    sid_weighted      |g|=0.28520  ratio=5.497x recon
+    grl               |g|=0.22470  ratio=4.331x recon
+    grl_p             |g|=0.04918  ratio=0.948x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   5500/12000  recon=0.1014  pr=0.2030  sid=0.1183  grl=5.5391  grl_p=3.5325  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.06e-05
+  step   5600/12000  recon=0.1005  pr=0.1576  sid=0.0713  grl=5.5332  grl_p=3.5410  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.92e-05
+  step   5700/12000  recon=0.1004  pr=0.2108  sid=0.1417  grl=5.3633  grl_p=3.5396  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.79e-05
+  step   5800/12000  recon=0.1022  pr=0.3343  sid=0.0895  grl=5.4902  grl_p=3.5713  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.66e-05
+  step   5900/12000  recon=0.1022  pr=0.1892  sid=0.1145  grl=5.4512  grl_p=3.5070  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.52e-05
+  [grad_norms @6000]
+    recon             |g|=0.05754  ratio=1.000x recon
+    pr_raw            |g|=0.39886  ratio=6.932x recon
+    pr_weighted       |g|=0.31909  ratio=5.545x recon
+    sid_raw           |g|=0.66579  ratio=11.570x recon
+    sid_weighted      |g|=0.39947  ratio=6.942x recon
+    grl               |g|=0.25897  ratio=4.500x recon
+    grl_p             |g|=0.05745  ratio=0.998x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   6000/12000  recon=0.1032  pr=0.2883  sid=0.0803  grl=5.5801  grl_p=3.5168  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.39e-05
+  [val] step=6000  recon=0.1021  pr=0.2295  PER=0.057  sid_acc=0.998
+  ✓ best checkpoint (disent=0.0587  PER=0.057 sid=0.998) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step   6100/12000  recon=0.1008  pr=0.2212  sid=0.0796  grl=5.5488  grl_p=3.5458  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.25e-05
+  step   6200/12000  recon=0.1025  pr=0.1875  sid=0.1762  grl=5.4805  grl_p=3.5880  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.12e-05
+  step   6300/12000  recon=0.1013  pr=0.2239  sid=0.3214  grl=5.4727  grl_p=3.6169  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.98e-05
+  step   6400/12000  recon=0.1031  pr=0.2368  sid=0.0941  grl=5.4609  grl_p=3.5723  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.85e-05
+  [grad_norms @6500]
+    recon             |g|=0.05445  ratio=1.000x recon
+    pr_raw            |g|=0.28501  ratio=5.234x recon
+    pr_weighted       |g|=0.22801  ratio=4.187x recon
+    sid_raw           |g|=0.54334  ratio=9.979x recon
+    sid_weighted      |g|=0.32601  ratio=5.987x recon
+    grl               |g|=0.19178  ratio=3.522x recon
+    grl_p             |g|=0.06354  ratio=1.167x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   6500/12000  recon=0.1014  pr=0.2088  sid=0.0813  grl=5.5098  grl_p=3.5603  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.71e-05
+  step   6600/12000  recon=0.1013  pr=0.2953  sid=0.0365  grl=5.5137  grl_p=3.5439  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.58e-05
+  step   6700/12000  recon=0.1018  pr=0.1903  sid=0.0441  grl=5.4141  grl_p=3.5195  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.44e-05
+  step   6800/12000  recon=0.1004  pr=0.1971  sid=0.1159  grl=5.4844  grl_p=3.5384  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.31e-05
+  step   6900/12000  recon=0.0999  pr=0.1579  sid=0.0512  grl=5.4902  grl_p=3.5579  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.18e-05
+  [grad_norms @7000]
+    recon             |g|=0.05667  ratio=1.000x recon
+    pr_raw            |g|=0.23977  ratio=4.231x recon
+    pr_weighted       |g|=0.19182  ratio=3.385x recon
+    sid_raw           |g|=0.31471  ratio=5.553x recon
+    sid_weighted      |g|=0.18882  ratio=3.332x recon
+    grl               |g|=0.20404  ratio=3.600x recon
+    grl_p             |g|=0.09559  ratio=1.687x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   7000/12000  recon=0.1005  pr=0.1372  sid=0.0431  grl=5.4629  grl_p=3.5692  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.04e-05
+  [val] step=7000  recon=0.1017  pr=0.2262  PER=0.056  sid_acc=0.998
+  ✓ best checkpoint (disent=0.0583  PER=0.056 sid=0.998) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step   7100/12000  recon=0.1028  pr=0.2067  sid=0.0705  grl=5.5039  grl_p=3.5505  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.91e-05
+  step   7200/12000  recon=0.1003  pr=0.1799  sid=0.0661  grl=5.4434  grl_p=3.5349  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.78e-05
+  step   7300/12000  recon=0.0989  pr=0.2487  sid=0.0431  grl=5.4375  grl_p=3.5957  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.65e-05
+  step   7400/12000  recon=0.1019  pr=0.2428  sid=0.0611  grl=5.4238  grl_p=3.5456  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.52e-05
+  [grad_norms @7500]
+    recon             |g|=0.05921  ratio=1.000x recon
+    pr_raw            |g|=0.28334  ratio=4.786x recon
+    pr_weighted       |g|=0.22667  ratio=3.828x recon
+    sid_raw           |g|=0.39371  ratio=6.650x recon
+    sid_weighted      |g|=0.23623  ratio=3.990x recon
+    grl               |g|=0.24976  ratio=4.218x recon
+    grl_p             |g|=0.12383  ratio=2.091x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   7500/12000  recon=0.1001  pr=0.2320  sid=0.0485  grl=5.4707  grl_p=3.5274  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.39e-05
+  step   7600/12000  recon=0.1024  pr=0.2001  sid=0.0369  grl=5.4180  grl_p=3.5685  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.27e-05
+  step   7700/12000  recon=0.1015  pr=0.2144  sid=0.0528  grl=5.5059  grl_p=3.5526  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.14e-05
+  step   7800/12000  recon=0.1002  pr=0.4223  sid=0.0282  grl=5.5117  grl_p=3.6144  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.02e-05
+  step   7900/12000  recon=0.1013  pr=0.1744  sid=0.0466  grl=5.5273  grl_p=3.5833  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.89e-05
+  [grad_norms @8000]
+    recon             |g|=0.05758  ratio=1.000x recon
+    pr_raw            |g|=0.35419  ratio=6.151x recon
+    pr_weighted       |g|=0.28335  ratio=4.921x recon
+    sid_raw           |g|=0.35636  ratio=6.189x recon
+    sid_weighted      |g|=0.21382  ratio=3.713x recon
+    grl               |g|=0.27484  ratio=4.773x recon
+    grl_p             |g|=0.04178  ratio=0.726x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   8000/12000  recon=0.1011  pr=0.2299  sid=0.0513  grl=5.4844  grl_p=3.5480  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.77e-05
+  [val] step=8000  recon=0.1012  pr=0.2228  PER=0.056  sid_acc=0.998
+  ✓ best checkpoint (disent=0.0575  PER=0.056 sid=0.998) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step   8100/12000  recon=0.1009  pr=0.2191  sid=0.0450  grl=5.4766  grl_p=3.5544  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.65e-05
+  step   8200/12000  recon=0.1003  pr=0.2393  sid=0.0460  grl=5.5957  grl_p=3.5524  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.54e-05
+  step   8300/12000  recon=0.1008  pr=0.1760  sid=0.0682  grl=5.5273  grl_p=3.5315  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.42e-05
+  step   8400/12000  recon=0.1026  pr=0.2279  sid=0.0440  grl=5.4863  grl_p=3.5596  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.31e-05
+  [grad_norms @8500]
+    recon             |g|=0.05633  ratio=1.000x recon
+    pr_raw            |g|=0.28460  ratio=5.052x recon
+    pr_weighted       |g|=0.22768  ratio=4.042x recon
+    sid_raw           |g|=0.31335  ratio=5.562x recon
+    sid_weighted      |g|=0.18801  ratio=3.337x recon
+    grl               |g|=0.25003  ratio=4.438x recon
+    grl_p             |g|=0.04165  ratio=0.739x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   8500/12000  recon=0.1007  pr=0.1933  sid=0.0457  grl=5.4980  grl_p=3.5468  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.20e-05
+  step   8600/12000  recon=0.1008  pr=0.1946  sid=0.0697  grl=5.5391  grl_p=3.5466  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.09e-05
+  step   8700/12000  recon=0.1012  pr=0.2199  sid=0.0370  grl=5.4941  grl_p=3.5619  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.98e-05
+  step   8800/12000  recon=0.0996  pr=0.2393  sid=0.0605  grl=5.3770  grl_p=3.5796  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.87e-05
+  step   8900/12000  recon=0.1017  pr=0.3161  sid=0.0504  grl=5.5547  grl_p=3.5810  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.77e-05
+  [grad_norms @9000]
+    recon             |g|=0.06361  ratio=1.000x recon
+    pr_raw            |g|=0.44116  ratio=6.935x recon
+    pr_weighted       |g|=0.35293  ratio=5.548x recon
+    sid_raw           |g|=1.16616  ratio=18.332x recon
+    sid_weighted      |g|=0.69970  ratio=10.999x recon
+    grl               |g|=0.46090  ratio=7.246x recon
+    grl_p             |g|=0.07920  ratio=1.245x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   9000/12000  recon=0.1038  pr=0.2283  sid=0.1034  grl=5.4668  grl_p=3.6262  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.67e-05
+  [val] step=9000  recon=0.1008  pr=0.2224  PER=0.055  sid_acc=0.998
+  ✓ best checkpoint (disent=0.0570  PER=0.055 sid=0.998) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step   9100/12000  recon=0.1013  pr=0.2031  sid=0.0459  grl=5.4473  grl_p=3.5938  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.57e-05
+  step   9200/12000  recon=0.1007  pr=0.1725  sid=0.1354  grl=5.4844  grl_p=3.5357  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.48e-05
+  step   9300/12000  recon=0.1008  pr=0.1940  sid=0.0698  grl=5.4180  grl_p=3.5436  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.39e-05
+  step   9400/12000  recon=0.0998  pr=0.1942  sid=0.0516  grl=5.5195  grl_p=3.5632  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.30e-05
+  [grad_norms @9500]
+    recon             |g|=0.05725  ratio=1.000x recon
+    pr_raw            |g|=0.32526  ratio=5.681x recon
+    pr_weighted       |g|=0.26020  ratio=4.545x recon
+    sid_raw           |g|=0.53174  ratio=9.287x recon
+    sid_weighted      |g|=0.31904  ratio=5.572x recon
+    grl               |g|=0.37118  ratio=6.483x recon
+    grl_p             |g|=0.04919  ratio=0.859x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   9500/12000  recon=0.1008  pr=0.2408  sid=0.0451  grl=5.5781  grl_p=3.5835  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.21e-05
+  step   9600/12000  recon=0.0988  pr=0.2000  sid=0.0621  grl=5.5078  grl_p=3.5625  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.13e-05
+  step   9700/12000  recon=0.1000  pr=0.2033  sid=0.0532  grl=5.5039  grl_p=3.5348  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.05e-05
+  step   9800/12000  recon=0.1003  pr=0.1799  sid=0.0403  grl=5.4902  grl_p=3.5516  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.67e-06
+  step   9900/12000  recon=0.1003  pr=0.2169  sid=0.0436  grl=5.4551  grl_p=3.5877  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.92e-06
+  [grad_norms @10000]
+    recon             |g|=0.05799  ratio=1.000x recon
+    pr_raw            |g|=0.28972  ratio=4.996x recon
+    pr_weighted       |g|=0.23178  ratio=3.997x recon
+    sid_raw           |g|=0.44311  ratio=7.641x recon
+    sid_weighted      |g|=0.26587  ratio=4.584x recon
+    grl               |g|=0.25364  ratio=4.374x recon
+    grl_p             |g|=0.11101  ratio=1.914x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  10000/12000  recon=0.1008  pr=0.2015  sid=0.0498  grl=5.4512  grl_p=3.5861  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.21e-06
+  [val] step=10000  recon=0.1006  pr=0.2212  PER=0.054  sid_acc=0.998
+  ✓ best checkpoint (disent=0.0563  PER=0.054 sid=0.998) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+  step  10100/12000  recon=0.1014  pr=0.1956  sid=0.0605  grl=5.4980  grl_p=3.5300  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.52e-06
+  step  10200/12000  recon=0.1021  pr=0.1467  sid=0.0444  grl=5.5195  grl_p=3.5359  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.86e-06
+  step  10300/12000  recon=0.1002  pr=0.1831  sid=0.0844  grl=5.5117  grl_p=3.5945  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.24e-06
+  step  10400/12000  recon=0.0996  pr=0.1841  sid=0.0368  grl=5.4375  grl_p=3.5761  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.65e-06
+  [grad_norms @10500]
+    recon             |g|=0.05363  ratio=1.000x recon
+    pr_raw            |g|=0.31223  ratio=5.822x recon
+    pr_weighted       |g|=0.24978  ratio=4.658x recon
+    sid_raw           |g|=0.36662  ratio=6.837x recon
+    sid_weighted      |g|=0.21997  ratio=4.102x recon
+    grl               |g|=0.26753  ratio=4.989x recon
+    grl_p             |g|=0.03925  ratio=0.732x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  10500/12000  recon=0.1013  pr=0.1985  sid=0.0414  grl=5.4629  grl_p=3.5392  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.10e-06
+  step  10600/12000  recon=0.1009  pr=0.2680  sid=0.0727  grl=5.4707  grl_p=3.5528  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.58e-06
+  step  10700/12000  recon=0.1025  pr=0.1838  sid=0.0354  grl=5.5117  grl_p=3.5788  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.09e-06
+  step  10800/12000  recon=0.1001  pr=0.2513  sid=0.0543  grl=5.5762  grl_p=3.5473  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.64e-06
+  step  10900/12000  recon=0.1017  pr=0.3512  sid=0.0852  grl=5.4199  grl_p=3.6003  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.22e-06
+  [grad_norms @11000]
+    recon             |g|=0.05454  ratio=1.000x recon
+    pr_raw            |g|=0.28902  ratio=5.299x recon
+    pr_weighted       |g|=0.23122  ratio=4.239x recon
+    sid_raw           |g|=0.29991  ratio=5.499x recon
+    sid_weighted      |g|=0.17995  ratio=3.299x recon
+    grl               |g|=0.29010  ratio=5.319x recon
+    grl_p             |g|=0.06787  ratio=1.244x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  11000/12000  recon=0.1002  pr=0.1939  sid=0.0397  grl=5.5098  grl_p=3.5711  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.84e-06
+  [val] step=11000  recon=0.1005  pr=0.2210  PER=0.055  sid_acc=0.998
+  step  11100/12000  recon=0.1000  pr=0.2430  sid=0.0294  grl=5.4883  grl_p=3.5961  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.49e-06
+  step  11200/12000  recon=0.0986  pr=0.2161  sid=0.0848  grl=5.4277  grl_p=3.5634  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.18e-06
+  step  11300/12000  recon=0.1004  pr=0.1716  sid=0.0538  grl=5.5059  grl_p=3.5517  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.90e-06
+  step  11400/12000  recon=0.1005  pr=0.2322  sid=0.0923  grl=5.4141  grl_p=3.5363  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.66e-06
+  [grad_norms @11500]
+    recon             |g|=0.05757  ratio=1.000x recon
+    pr_raw            |g|=0.34537  ratio=5.999x recon
+    pr_weighted       |g|=0.27629  ratio=4.799x recon
+    sid_raw           |g|=0.29812  ratio=5.178x recon
+    sid_weighted      |g|=0.17887  ratio=3.107x recon
+    grl               |g|=0.47247  ratio=8.207x recon
+    grl_p             |g|=0.13484  ratio=2.342x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  11500/12000  recon=0.0992  pr=0.1995  sid=0.0393  grl=5.5176  grl_p=3.6214  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.46e-06
+  step  11600/12000  recon=0.0994  pr=0.2071  sid=0.0386  grl=5.4355  grl_p=3.5721  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.30e-06
+  step  11700/12000  recon=0.1006  pr=0.2045  sid=0.0329  grl=5.4277  grl_p=3.5735  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.17e-06
+  step  11800/12000  recon=0.1016  pr=0.2597  sid=0.0405  grl=5.4629  grl_p=3.5528  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.07e-06
+  step  11900/12000  recon=0.0995  pr=0.2213  sid=0.0342  grl=5.4668  grl_p=3.5671  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.02e-06
+  [grad_norms @12000]
+    recon             |g|=0.05409  ratio=1.000x recon
+    pr_raw            |g|=0.29729  ratio=5.496x recon
+    pr_weighted       |g|=0.23784  ratio=4.397x recon
+    sid_raw           |g|=0.74744  ratio=13.819x recon
+    sid_weighted      |g|=0.44846  ratio=8.291x recon
+    grl               |g|=0.34080  ratio=6.301x recon
+    grl_p             |g|=0.10687  ratio=1.976x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  12000/12000  recon=0.0993  pr=0.1528  sid=0.0866  grl=5.4805  grl_p=3.5663  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-06
+  [val] step=12000  recon=0.1004  pr=0.2210  PER=0.055  sid_acc=0.998
+
+[stage 2] done.  Best disent_score=0.0563  → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+
+[done]  best checkpoint → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+
+----- probe -----
+Sun Jun 14 11:16:23 BST 2026
+[diag_probe] run=diag_probe_fixed_blocks_A  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+[diag_probe] sources=['z_t', 'z_L', 'z_P']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=4000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=5
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt  (step=10000  val=0.0563)
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/fixed_blocks_A/stage2_best.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_t -> PR ...
+[pr_data] g2p_en loaded for OOV words
+      [pr z_t] step 250/4000  dev PER=0.074  (best 0.074, bad 0/5)
+      [pr z_t] step 500/4000  dev PER=0.064  (best 0.064, bad 0/5)
+      [pr z_t] step 750/4000  dev PER=0.058  (best 0.058, bad 0/5)
+      [pr z_t] step 1000/4000  dev PER=0.057  (best 0.057, bad 0/5)
+      [pr z_t] step 1250/4000  dev PER=0.056  (best 0.056, bad 0/5)
+      [pr z_t] step 1500/4000  dev PER=0.054  (best 0.054, bad 0/5)
+      [pr z_t] step 1750/4000  dev PER=0.050  (best 0.050, bad 0/5)
+      [pr z_t] step 2000/4000  dev PER=0.051  (best 0.050, bad 1/5)
+      [pr z_t] step 2250/4000  dev PER=0.053  (best 0.050, bad 2/5)
+      [pr z_t] step 2500/4000  dev PER=0.051  (best 0.050, bad 3/5)
+      [pr z_t] step 2750/4000  dev PER=0.050  (best 0.050, bad 4/5)
+      [pr z_t] step 3000/4000  dev PER=0.049  (best 0.049, bad 0/5)
+      [pr z_t] step 3250/4000  dev PER=0.049  (best 0.049, bad 0/5)
+      [pr z_t] step 3500/4000  dev PER=0.049  (best 0.049, bad 0/5)
+      [pr z_t] step 3750/4000  dev PER=0.048  (best 0.048, bad 0/5)
+      [pr z_t] step 4000/4000  dev PER=0.048  (best 0.048, bad 0/5)
+    z_t -> PR               PER test=0.050  (val 0.048)
+  training probe: z_t -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_t] step 250/4000  dev acc=0.850  (best 0.850, bad 0/5)
+      [sid z_t] step 500/4000  dev acc=0.928  (best 0.928, bad 0/5)
+      [sid z_t] step 750/4000  dev acc=0.966  (best 0.966, bad 0/5)
+      [sid z_t] step 1000/4000  dev acc=0.980  (best 0.980, bad 0/5)
+      [sid z_t] step 1250/4000  dev acc=0.986  (best 0.986, bad 0/5)
+      [sid z_t] step 1500/4000  dev acc=0.990  (best 0.990, bad 0/5)
+      [sid z_t] step 1750/4000  dev acc=0.998  (best 0.998, bad 0/5)
+      [sid z_t] step 2000/4000  dev acc=0.996  (best 0.998, bad 1/5)
+      [sid z_t] step 2250/4000  dev acc=0.998  (best 0.998, bad 2/5)
+      [sid z_t] step 2500/4000  dev acc=1.000  (best 1.000, bad 0/5)
+      [sid z_t] step 2750/4000  dev acc=1.000  (best 1.000, bad 1/5)
+      [sid z_t] step 3000/4000  dev acc=1.000  (best 1.000, bad 2/5)
+      [sid z_t] step 3250/4000  dev acc=1.000  (best 1.000, bad 3/5)
+      [sid z_t] step 3500/4000  dev acc=1.000  (best 1.000, bad 4/5)
+      [sid z_t] step 3750/4000  dev acc=1.000  (best 1.000, bad 5/5)
+    z_t -> SID              acc test=0.996  (val 1.000)
+  training probe: z_L -> PR ...
+      [pr z_L] step 250/4000  dev PER=0.061  (best 0.061, bad 0/5)
+      [pr z_L] step 500/4000  dev PER=0.062  (best 0.061, bad 1/5)
+      [pr z_L] step 750/4000  dev PER=0.058  (best 0.058, bad 0/5)
+      [pr z_L] step 1000/4000  dev PER=0.058  (best 0.058, bad 1/5)
+      [pr z_L] step 1250/4000  dev PER=0.055  (best 0.055, bad 0/5)
+      [pr z_L] step 1500/4000  dev PER=0.053  (best 0.053, bad 0/5)
+      [pr z_L] step 1750/4000  dev PER=0.054  (best 0.053, bad 1/5)
+      [pr z_L] step 2000/4000  dev PER=0.053  (best 0.053, bad 2/5)
+      [pr z_L] step 2250/4000  dev PER=0.052  (best 0.052, bad 0/5)
+      [pr z_L] step 2500/4000  dev PER=0.052  (best 0.052, bad 0/5)
+      [pr z_L] step 2750/4000  dev PER=0.051  (best 0.051, bad 0/5)
+      [pr z_L] step 3000/4000  dev PER=0.052  (best 0.051, bad 1/5)
+      [pr z_L] step 3250/4000  dev PER=0.052  (best 0.051, bad 2/5)
+      [pr z_L] step 3500/4000  dev PER=0.052  (best 0.051, bad 3/5)
+      [pr z_L] step 3750/4000  dev PER=0.051  (best 0.051, bad 0/5)
+      [pr z_L] step 4000/4000  dev PER=0.050  (best 0.050, bad 0/5)
+    z_L -> PR               PER test=0.053  (val 0.050)
+  training probe: z_L -> SID ...
+      [sid z_L] step 250/4000  dev acc=0.132  (best 0.132, bad 0/5)
+      [sid z_L] step 500/4000  dev acc=0.572  (best 0.572, bad 0/5)
+      [sid z_L] step 750/4000  dev acc=0.906  (best 0.906, bad 0/5)
+      [sid z_L] step 1000/4000  dev acc=0.974  (best 0.974, bad 0/5)
+      [sid z_L] step 1250/4000  dev acc=0.978  (best 0.978, bad 0/5)
+      [sid z_L] step 1500/4000  dev acc=0.990  (best 0.990, bad 0/5)
+      [sid z_L] step 1750/4000  dev acc=0.996  (best 0.996, bad 0/5)
+      [sid z_L] step 2000/4000  dev acc=0.996  (best 0.996, bad 1/5)
+      [sid z_L] step 2250/4000  dev acc=0.998  (best 0.998, bad 0/5)
+      [sid z_L] step 2500/4000  dev acc=0.998  (best 0.998, bad 1/5)
+      [sid z_L] step 2750/4000  dev acc=0.996  (best 0.998, bad 2/5)
+      [sid z_L] step 3000/4000  dev acc=0.998  (best 0.998, bad 3/5)
+      [sid z_L] step 3250/4000  dev acc=0.998  (best 0.998, bad 4/5)
+      [sid z_L] step 3500/4000  dev acc=0.998  (best 0.998, bad 5/5)
+    z_L -> SID              acc test=0.996  (val 0.998)
+  training probe: z_P -> PR ...
+      [pr z_P] step 250/4000  dev PER=0.992  (best 0.992, bad 0/5)
+      [pr z_P] step 500/4000  dev PER=0.735  (best 0.735, bad 0/5)
+      [pr z_P] step 750/4000  dev PER=0.633  (best 0.633, bad 0/5)
+      [pr z_P] step 1000/4000  dev PER=0.637  (best 0.633, bad 1/5)
+      [pr z_P] step 1250/4000  dev PER=0.633  (best 0.633, bad 2/5)
+      [pr z_P] step 1500/4000  dev PER=0.641  (best 0.633, bad 3/5)
+      [pr z_P] step 1750/4000  dev PER=0.623  (best 0.623, bad 0/5)
+      [pr z_P] step 2000/4000  dev PER=0.618  (best 0.618, bad 0/5)
+      [pr z_P] step 2250/4000  dev PER=0.613  (best 0.613, bad 0/5)
+      [pr z_P] step 2500/4000  dev PER=0.618  (best 0.613, bad 1/5)
+      [pr z_P] step 2750/4000  dev PER=0.626  (best 0.613, bad 2/5)
+      [pr z_P] step 3000/4000  dev PER=0.623  (best 0.613, bad 3/5)
+      [pr z_P] step 3250/4000  dev PER=0.617  (best 0.613, bad 4/5)
+      [pr z_P] step 3500/4000  dev PER=0.622  (best 0.613, bad 5/5)
+    z_P -> PR               PER test=0.614  (val 0.613)
+  training probe: z_P -> SID ...
+      [sid z_P] step 250/4000  dev acc=0.892  (best 0.892, bad 0/5)
+      [sid z_P] step 500/4000  dev acc=0.990  (best 0.990, bad 0/5)
+      [sid z_P] step 750/4000  dev acc=0.998  (best 0.998, bad 0/5)
+      [sid z_P] step 1000/4000  dev acc=0.992  (best 0.998, bad 1/5)
+      [sid z_P] step 1250/4000  dev acc=0.994  (best 0.998, bad 2/5)
+      [sid z_P] step 1500/4000  dev acc=0.998  (best 0.998, bad 3/5)
+      [sid z_P] step 1750/4000  dev acc=0.996  (best 0.998, bad 4/5)
+      [sid z_P] step 2000/4000  dev acc=0.998  (best 0.998, bad 5/5)
+    z_P -> SID              acc test=0.994  (val 0.998)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_probe_fixed_blocks_A
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_t              0.050         0.996
+  z_L              0.053         0.996
+  z_P              0.614         0.994
+==================================================================
+
+
+Finished   : Sun Jun 14 13:09:54 BST 2026

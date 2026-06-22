@@ -1,0 +1,80 @@
+=== JOB3 SMOKE: read loss scales (nonlin proj + VIB + grad-norm GRL) ===  Wed Jun 17 14:33:50 BST 2026
+NVIDIA A100-SXM4-80GB
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=500  α=0.3  β=0.2  grl=1.0  ρ=0.0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['vib_logvar']
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ln_sae/stage1_best.pt  (step=6000  val=0.0737)
+[stage 2] frozen=596,973,362  trainable=24,445,578  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.3  β=0.2  grl=1.0  ρ=0.0  grl_p=0.5  hard_gumbel=True  projection=True dim=256  recon_via_views=True  spear_ln=True  dann_full_disc=True
+[stage 2] steps=500  batch=16
+[dis_data] g2p_en loaded for OOV words
+  step      1/500  recon=0.4157  pr=17.0180  sid=5.5352  grl=5.6172  grl_p=17.0013  vib=8.8726(w=5.0e-06)  L/P/U=0/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.00e-07
+  [grad_norms @100]
+    recon             |g|=0.04182  ratio=1.000x recon
+    pr_raw            |g|=2.81884  ratio=67.405x recon
+    pr_weighted       |g|=0.84565  ratio=20.221x recon
+    sid_raw           |g|=0.14988  ratio=3.584x recon
+    sid_weighted      |g|=0.02998  ratio=0.717x recon
+    grl               |g|=9.14760  ratio=218.739x recon
+    grl_p             |g|=0.14682  ratio=3.511x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00386   grl_p(z_P)=0.00004   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+  step    100/500  recon=0.4008  pr=5.3507  sid=5.6133  grl=5.5312  grl_p=3.6009  vib=132.5614(w=5.0e-04)  L/P/U=0/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.00e-05
+  [grad_norms @200]
+    recon             |g|=0.04869  ratio=1.000x recon
+    pr_raw            |g|=0.70340  ratio=14.447x recon
+    pr_weighted       |g|=0.21102  ratio=4.334x recon
+    sid_raw           |g|=0.09296  ratio=1.909x recon
+    sid_weighted      |g|=0.01859  ratio=0.382x recon
+    grl               |g|=1.61741  ratio=33.220x recon
+    grl_p             |g|=1.08646  ratio=22.315x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00037   grl_p(z_P)=0.00022   (grl_p/grl = 0.6x  <- pooled-vs-dense dilution)
+  step    200/500  recon=0.3721  pr=3.7086  sid=5.5664  grl=5.5137  grl_p=3.9009  vib=330.0227(w=1.0e-03)  L/P/U=0/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.58e-05
+  [grad_norms @300]
+    recon             |g|=0.04493  ratio=1.000x recon
+    pr_raw            |g|=0.40262  ratio=8.961x recon
+    pr_weighted       |g|=0.12079  ratio=2.688x recon
+    sid_raw           |g|=0.14301  ratio=3.183x recon
+    sid_weighted      |g|=0.02860  ratio=0.637x recon
+    grl               |g|=47.48989  ratio=1057.005x recon
+    grl_p             |g|=0.09371  ratio=2.086x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00531   grl_p(z_P)=0.00002   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+  step    300/500  recon=0.3618  pr=3.6956  sid=5.7168  grl=5.5215  grl_p=3.5545  vib=435.4744(w=1.0e-03)  L/P/U=0/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.55e-05
+  [grad_norms @400]
+    recon             |g|=0.04768  ratio=1.000x recon
+    pr_raw            |g|=1.41908  ratio=29.765x recon
+    pr_weighted       |g|=0.42572  ratio=8.929x recon
+    sid_raw           |g|=0.10351  ratio=2.171x recon
+    sid_weighted      |g|=0.02070  ratio=0.434x recon
+    grl               |g|=34.99714  ratio=734.050x recon
+    grl_p             |g|=0.04036  ratio=0.847x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00617   grl_p(z_P)=0.00002   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+  step    400/500  recon=0.3532  pr=4.0086  sid=5.5645  grl=5.5312  grl_p=3.5568  vib=412.2120(w=1.0e-03)  L/P/U=0/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.25e-06
+  [grad_norms @500]
+    recon             |g|=0.05134  ratio=1.000x recon
+    pr_raw            |g|=1.73625  ratio=33.819x recon
+    pr_weighted       |g|=0.52087  ratio=10.146x recon
+    sid_raw           |g|=0.10082  ratio=1.964x recon
+    sid_weighted      |g|=0.02016  ratio=0.393x recon
+    grl               |g|=54.54333  ratio=1062.417x recon
+    grl_p             |g|=0.06856  ratio=1.335x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00510   grl_p(z_P)=0.00002   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+  step    500/500  recon=0.3510  pr=4.0801  sid=5.5664  grl=5.5410  grl_p=3.5519  vib=419.2489(w=1.0e-03)  L/P/U=0/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-06
+  [val] step=500  recon=0.3470  pr=4.0274  PER=1.000  sid_acc=0.004
+  ✓ best checkpoint (disent=1.9960  PER=1.000 sid=0.004) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job3_smoke/stage2_best.pt
+
+[stage 2] done.  Best disent_score=1.9960  → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job3_smoke/stage2_best.pt
+
+[done]  best checkpoint → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job3_smoke/stage2_best.pt
+Finished SMOKE: Wed Jun 17 14:41:15 BST 2026

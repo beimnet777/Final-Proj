@@ -1,0 +1,24 @@
+=== scaled + prosody (emergent top-k, no forced budget) ===  Mon Jun 15 23:01:32 BST 2026
+GPU NVIDIA A100-SXM4-80GB
+blocks: --fixed_blocks --no-per_block_topk --K_L 5462 --K_P 5461 --K_U 5461
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=16384  topk=64  D=1280
+=== steps=26000  α=0.8  β=0.6  grl=0.7  ρ=0.0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-360 …
+[dis_data]  921 speakers
+[dis_data]  train=103014  val=500  test=500  vocab=74  speakers=921
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=88,122,287  device=cuda
+[stage 2] speakers=921  vocab=74
+[stage 2] α=0.8  β=0.6  grl=0.7  ρ=0.0  grl_p=0.7  hard_gumbel=True  spear_ln=True  dann_full_disc=True
+[stage 2] steps=26000  batch=16
+[dis_data] g2p_en loaded for OOV words
+[stage 2] b_pre ← geometric median of a data sample
+[stage 2] AuxK on: aux_k=512  coef=0.03125  dead_thresh=256  renorm_dec=True
+[stage 2] z_U adversaries on: grl_u=0.5  grl_p_u=0.5
+[stage 2] prosody on: prosody_weight=0.5  anti-prosody grl_L=0.5  grl_U=0.5
+  step      1/26000  recon=0.2996  pr=18.2224  sid=6.8301  grl=6.8281  grl_p=18.1526  grlU=6.828/18.270  pros=105.2422  grlPr=105.619/105.388  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=22/21/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-07
+  step    100/26000  recon=0.2915  pr=17.8791  sid=6.8262  grl=6.8164  grl_p=3.6728  grlU=6.814/3.790  pros=96.2662  grlPr=15.337/21.687  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=21/23/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-05
+  step    200/26000  recon=0.2931  pr=16.4068  sid=6.8164  grl=6.8633  grl_p=3.6249  grlU=6.875/3.983  pros=77.6448  grlPr=32.913/32.722  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=20/25/18  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.00e-05

@@ -19,6 +19,14 @@ class DISConfig:
     K: int = 5120       # latent size  (4 × D)
     topk: int = 256     # active features per frame  (5% of K)
 
+    # Dead-latent revival (Gao et al. 2024 "AuxK") — needed when scaling K up, where
+    # most latents otherwise die (never selected → never updated → dead forever).
+    aux_k:                int   = 0        # # dead latents the aux loss reconstructs the residual with (0 = off; ~D/2 when on)
+    aux_k_coef:           float = 0.03125  # 1/32 — weight on the aux loss
+    dead_steps_threshold: int   = 256      # a latent is "dead" if it hasn't fired in this many steps
+    geom_median_bias:     bool  = False    # init b_pre to the geometric median of a data sample
+    renorm_decoder:       bool  = False    # unit-norm decoder columns after every step (not just at init)
+
     # ---------------------------------------------------------------- Routing / Gumbel
     gumbel_tau_start: float = 1.0
     gumbel_tau_end:   float = 0.1
@@ -39,18 +47,97 @@ class DISConfig:
     routing_dynamic:        bool = False
     routing_dynamic_hidden: int  = 256   # hidden width of the dynamic router MLP
 
+    # ---------------------------------------------------------------- GradNorm (automatic loss balancing)
+    # When on, the listed task weights are LEARNED online (Chen et al. 2018): each
+    # task's gradient magnitude on the shared SAE encoder is balanced (× relative
+    # training rate), replacing the fixed weights below for those tasks.
+    gradnorm:        bool  = False
+    gradnorm_alpha:  float = 1.5     # asymmetry: >0 up-weights slow-training tasks (0 = pure magnitude balance)
+    gradnorm_lr:     float = 0.025   # lr for the weight optimizer
+    gradnorm_tasks:  str   = "recon,pr,sid"   # which loss terms GradNorm manages (comma-sep)
+    gradnorm_every:  int   = 1       # update the weights every N steps (amortize cost)
+
     # ---------------------------------------------------------------- Loss weights  (stage 2)
-    alpha:      float = 1.0     # PR (CTC) weight          — calibrated from grad norms
-    beta:       float = 1.0     # SID (CE) weight           — calibrated from grad norms
+    alpha:      float = 1.0     # PR (CTC) weight          — calibrated from grad norms (or GradNorm)
+    beta:       float = 1.0     # SID (CE) weight           — calibrated from grad norms (or GradNorm)
     grl_weight:          float = 1.0    # adversarial speaker weight — calibrated from grad norms
     grl_delay_steps:     int   = 0     # steps before GRL is switched on (0 = no delay)
     grl_frame_level:     bool  = False  # speaker adversary predicts per-frame (dense gradient) vs utterance mean-pool
+    grl_attention_pool:  bool  = False  # speaker adversary pools z_L with attentive statistics (weighted mean+std) instead of flat mean → stronger discriminator
+    # Dense speaker adversary: per-frame speaker prediction (like grl_p's per-frame
+    # phoneme head) but with a temporal conv so each frame has local context — gives
+    # z_L a DENSE per-frame removal gradient instead of one diluted pooled gradient.
+    grl_dense_context:   bool  = False
+    grl_context_kernel:  int   = 31    # conv kernel (frames) for the dense head's temporal context
+    # Per-frame gradient normalization for the PHONEME adversary on z_P (same mechanism
+    # as the speaker grad-norm): a constant per-frame content-removal push on z_P.
+    grl_p_grad_norm:        bool  = False
+    grl_p_grad_norm_target: float = 0.001
+    # grad-normalized GRL: per-frame L2-normalize the reversed gradient to a fixed
+    # magnitude, so every frame gets an equal removal push regardless of the
+    # discriminator's confidence (counters per-frame dilution).
+    grl_grad_norm:        bool  = False
+    grl_grad_norm_target: float = 1.0  # per-frame target L2 norm of the (unit) reversed gradient; magnitude = grl_weight * this
+
+    # ---------------------------------------------------------------- Invariance (speaker removal from z_L)
+    # Enforce z_L(x) ~= z_L(perturb(x)) where perturb changes the SPEAKER (pitch+
+    # formant) but keeps CONTENT and TIMING -> z_L becomes speaker-invariant.  This
+    # is a DENSE per-frame removal signal (no per-frame speaker classifier needed),
+    # which is why it works where the adversary can't.  0 = off.
+    invariance:        bool  = False
+    inv_weight:        float = 0.0
+    # Linear ramp 0 -> inv_weight over this many steps (0 = constant).  Lets z_L
+    # form CONTENT (recon+PR) before invariance strips speaker — without it, a
+    # strong normalized weight can collapse z_L to a trivial (constant) invariant.
+    inv_ramp_end:      int   = 0
+    inv_f0_low:        float = 0.7     # F0 (pitch) random scale range
+    inv_f0_high:       float = 1.5
+    inv_formant_low:   float = 0.8     # formant (vocal-tract) random warp range (widened for ~half attenuation)
+    inv_formant_high:  float = 1.45
     # Canonical DANN: discriminator heads train at FULL strength; grl_weight /
     # grl_phoneme_weight act only as reversal strengths (folded into lambda).
     # Default False preserves the legacy behaviour, where the weight also scaled
     # the discriminator's own learning signal (starving it at small weights).
     dann_full_discriminator: bool = False
     rho:                 float = 0.001 # routing anti-collapse weight
+
+    # ---------------------------------------------------------------- Option A: fixed-block supervised SAE
+    # Disable learned routing entirely: partition K into fixed L/P/U index blocks
+    # and apply per-block TopK, so disentanglement is shaped into the dictionary by
+    # supervision (PR on z_L, SID on z_P, GRL adversaries) rather than sorted by a
+    # Gumbel router.  Run as `--stage 2` from scratch (no stage1_ckpt) at full lr.
+    fixed_blocks:        bool  = False
+    K_L:                 int   = 3072   # phonetic block size   (K_L+K_P+K_U must == K)
+    K_P:                 int   = 1024   # speaker block size     (speaker is low-dim)
+    K_U:                 int   = 1024   # residual block size
+    # per_block_topk=True  : fix the ACTIVE allocation too (top-k within each block) →
+    #                        post-activation partition (Exp 1/2).
+    # per_block_topk=False : fix only MEMBERSHIP; a single global top-k decides which
+    #                        features fire → the per-block active counts EMERGE (Exp 3).
+    per_block_topk:      bool  = True
+    topk_L:              int   = 160    # per-block active budget (topk_L+topk_P+topk_U ≈ topk)
+    topk_P:              int   = 64
+    topk_U:              int   = 32
+
+    # ---------------------------------------------------------------- Prosody (paralinguistic factor)
+    # Master switch for the prosody factor.  OFF by default so any experiment runs
+    # WITHOUT prosody unless explicitly enabled.  When on, it gates the prosody
+    # probe (per-frame log-F0 + log-energy regression off the paralinguistic
+    # bucket z_P) and — once added — the prosody training head / loss / adversaries.
+    # Prosody lives in z_P alongside speaker (no separate block); F0 is raw
+    # (not speaker-normalized) so z_P can serve both SID and prosody.
+    prosody:        bool  = False
+    prosody_weight: float = 0.0    # per-frame z_P -> [log-F0, log-E] regression task weight
+    # Anti-prosody adversaries: push F0/energy OUT of the linguistic / residual
+    # blocks so prosody concentrates in z_P (0 = off).
+    grl_prosody_weight:   float = 0.0   # on z_L
+    grl_prosody_u_weight: float = 0.0   # on z_U
+
+    # Adversaries on z_U (the residual): push BOTH factors out of U so it can't hoard
+    # the phoneme/speaker info.  Unlike the z_L speaker-adv these have NO ceiling
+    # (no task on U keeps the factors), so speaker→z_P and phonemes→z_L.
+    grl_u_weight:         float = 0.0    # speaker adversary on z_U (anti-speaker)
+    grl_phoneme_u_weight: float = 0.0    # phoneme adversary on z_U (anti-phoneme)
 
     # ---------------------------------------------------------------- Ablation flags (D / E / F)
     no_routing:          bool  = False  # D: bypass routing, feed full z to all heads
@@ -83,6 +170,8 @@ class DISConfig:
     # Projection disentanglement — learned compressed views z_t -> z_L and z_t -> z_P.
     projection_disentanglement: bool = False
     projection_dim: int = 128
+    projection_nonlinear: bool = False    # views = 2-layer MLP (nonlinear demixer) instead of a single linear map
+    projection_hidden:    int  = 512      # hidden width of the nonlinear projection MLP
 
     # Reconstructive projection — reconstruct h_t SOLELY through z_L/z_P (and an
     # optional penalized residual z_U), instead of decode(z_t).  Forces the views
@@ -92,12 +181,31 @@ class DISConfig:
     projection_u_l2:        float = 0.0   # L2 activity penalty on z_U — the residual bottleneck
     instance_norm_zL:       bool  = False # instance-normalize z_L over time (strip per-utterance speaker stats)
 
+    # Variational Information Bottleneck on z_L (linguistic block): add learned
+    # per-feature noise + KL penalty so z_L keeps only what PR needs and sheds the
+    # rest (incl. separable speaker).  Attacks the cause (excess capacity) rather
+    # than fighting speaker adversarially.  0 = off.
+    vib_zL_weight:          float = 0.0
+    vib_zL_ramp_end:        int   = 0      # linear ramp 0→weight by this step (0 = constant)
+    # Param-free LayerNorm on z_L (over feature dim, per frame) BEFORE the VIB, so the
+    # projected magnitude can't run away (mu²→∞) — fixes the KL divergence in projection
+    # mode.  Normalizes scale only (per-frame), does NOT strip per-utterance speaker.
+    vib_zL_layernorm:       bool  = False
+
     # ---------------------------------------------------------------- Optimizer
     lr:          float = 1e-4   # SAE lr (stage 1);  also base lr for SAE in stage 2
     lr_min:      float = 1e-6   # cosine decay floor
     lr_routing:  float = 1e-3   # routing logits (stage 2) — raised from 5e-6 (which froze the
                                 # logits); collapse is guarded by route_loss, not a tiny lr
     lr_heads:    float = 1e-4   # task heads      (stage 2)
+    # Adversary discriminators (grl_head, pr_grl_head) get their own, higher lr so
+    # they can track the moving encoder instead of stalling at chance.  0 = fall
+    # back to lr_heads (legacy: discriminators shared the task-head group).
+    lr_disc:     float = 0.0
+    # Discriminator updates per encoder update (GAN n_critic).  >1 takes extra
+    # cheap gradient steps on the adversary heads (reusing this batch's detached
+    # z_L/z_P — no extra encoder forward) so they stay ahead of the encoder.
+    n_disc_steps: int  = 1
     weight_decay: float = 1e-4
     grad_clip:    float = 1.0
 
@@ -105,6 +213,12 @@ class DISConfig:
     sample_rate: int = 16_000
     librispeech_cache_dir: Path = _DIS_DIR.parent / "Probing" / "data"
     lexicon_path: Path = _DIS_DIR.parent / "Probing" / "data" / "librispeech-lexicon.txt"
+    # Read raw flac from local disk instead of streaming from the HF CDN (which is
+    # flaky and uncached).  librispeech_root must contain the split dirs
+    # (train-clean-100, train-clean-360, dev-clean, test-clean).
+    local_data:       bool = False
+    librispeech_root: Path = _DIS_DIR.parent / "Probing" / "data" / "LibriSpeech"
+    train_split_dir:  str  = "train-clean-100"   # set to "train-clean-360" for the scaled run
     max_train_examples: int = 0     # 0 = full train-clean-100 (~28 k)
     max_val_examples:   int = 500
     max_test_examples:  int = 500   # stage-2 closed-set SID test split (same speakers)

@@ -1,0 +1,55 @@
+=== probe scaled_postact  z_L,z_P,z_U x {pr,sid} ===  Wed Jun 17 14:42:33 BST 2026
+NVIDIA A100-SXM4-80GB
+[diag_probe] run=diag_scaled_postact  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_postact/stage2_best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_postact/stage2_best.pt
+[diag_probe] sources=['z_L', 'z_P', 'z_U']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=8000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=8
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[diag_probe] K overridden from checkpoint: 5120 -> 16384
+[diag_probe] topk overridden: 256 -> 64
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_postact/stage2_best.pt  (step=22000  val=0.3109)
+[diag_probe] skipped 8 shape-mismatched/stale keys (e.g. ['grl_head_u.projector.weight', 'grl_head_u.projector.bias', 'grl_head_u.fc.weight']) — fine, probe does not use adversarial heads
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_postact/stage2_best.pt
+
+[diag_probe] speakers=921  pr_vocab=74  D=1280  K=16384
+[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=stats
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> PR ...
+[pr_data] g2p_en loaded for OOV words
+      [pr z_L] step 250/8000  dev PER=0.257  (best 0.257, bad 0/8)
+      [pr z_L] step 500/8000  dev PER=0.218  (best 0.218, bad 0/8)
+      [pr z_L] step 750/8000  dev PER=0.203  (best 0.203, bad 0/8)
+      [pr z_L] step 1000/8000  dev PER=0.195  (best 0.195, bad 0/8)
+      [pr z_L] step 1250/8000  dev PER=0.189  (best 0.189, bad 0/8)
+      [pr z_L] step 1500/8000  dev PER=0.179  (best 0.179, bad 0/8)
+      [pr z_L] step 1750/8000  dev PER=0.179  (best 0.179, bad 1/8)
+      [pr z_L] step 2000/8000  dev PER=0.199  (best 0.179, bad 2/8)
+      [pr z_L] step 2250/8000  dev PER=0.179  (best 0.179, bad 3/8)
+      [pr z_L] step 2500/8000  dev PER=0.177  (best 0.177, bad 0/8)
+      [pr z_L] step 2750/8000  dev PER=0.176  (best 0.176, bad 0/8)
+      [pr z_L] step 3000/8000  dev PER=0.175  (best 0.175, bad 0/8)
+      [pr z_L] step 3250/8000  dev PER=0.162  (best 0.162, bad 0/8)
+      [pr z_L] step 3500/8000  dev PER=0.168  (best 0.162, bad 1/8)
+      [pr z_L] step 3750/8000  dev PER=0.169  (best 0.162, bad 2/8)
+      [pr z_L] step 4000/8000  dev PER=0.185  (best 0.162, bad 3/8)
+      [pr z_L] step 4250/8000  dev PER=0.168  (best 0.162, bad 4/8)
+      [pr z_L] step 4500/8000  dev PER=0.178  (best 0.162, bad 5/8)
+      [pr z_L] step 4750/8000  dev PER=0.187  (best 0.162, bad 6/8)
+      [pr z_L] step 5000/8000  dev PER=0.173  (best 0.162, bad 7/8)
+      [pr z_L] step 5250/8000  dev PER=0.172  (best 0.162, bad 8/8)
+    z_L -> PR               PER test=0.167  (val 0.162)
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words

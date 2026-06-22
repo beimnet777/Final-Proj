@@ -1,0 +1,535 @@
+=== scaled + prosody (emergent top-k, no forced budget) ===  Mon Jun 15 23:39:08 BST 2026
+GPU NVIDIA A100-SXM4-80GB
+blocks: --fixed_blocks --no-per_block_topk --K_L 5462 --K_P 5461 --K_U 5461
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=16384  topk=64  D=1280
+=== steps=26000  α=0.8  β=0.6  grl=0.7  ρ=0.0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-360 …
+[dis_data]  921 speakers
+[dis_data]  train=103014  val=500  test=500  vocab=74  speakers=921
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=88,122,287  device=cuda
+[stage 2] speakers=921  vocab=74
+[stage 2] α=0.8  β=0.6  grl=0.7  ρ=0.0  grl_p=0.7  hard_gumbel=True  spear_ln=True  dann_full_disc=True
+[stage 2] steps=26000  batch=16
+[dis_data] g2p_en loaded for OOV words
+[stage 2] b_pre ← geometric median of a data sample
+[stage 2] AuxK on: aux_k=512  coef=0.03125  dead_thresh=256  renorm_dec=True
+[stage 2] z_U adversaries on: grl_u=0.5  grl_p_u=0.5
+[stage 2] prosody on: prosody_weight=0.5  anti-prosody grl_L=0.5  grl_U=0.5
+  step      1/26000  recon=0.2996  pr=18.2224  sid=6.8301  grl=6.8281  grl_p=18.1526  grlU=6.828/18.270  pros=105.2422  grlPr=105.619/105.388  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=22/21/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-07
+  step    100/26000  recon=0.2915  pr=17.8791  sid=6.8262  grl=6.8164  grl_p=3.6729  grlU=6.814/3.789  pros=96.2665  grlPr=15.339/21.682  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=21/23/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-05
+  step    200/26000  recon=0.2931  pr=16.4067  sid=6.8164  grl=6.8613  grl_p=3.6260  grlU=6.877/3.983  pros=77.6444  grlPr=32.916/32.733  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=20/25/18  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.00e-05
+  step    300/26000  recon=0.3069  pr=19.2880  sid=6.7715  grl=6.7559  grl_p=1.7717  grlU=6.750/3.466  pros=48.2308  grlPr=6.113/6.410  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=19/31/13  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.00e-05
+  step    400/26000  recon=0.3268  pr=17.3592  sid=6.7520  grl=6.7715  grl_p=0.9831  grlU=6.781/1.983  pros=19.3851  grlPr=4.106/7.709  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=16/42/6  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.00e-05
+  [grad_norms @500]
+    recon             |g|=0.11428  ratio=1.000x recon
+    pr_raw            |g|=94.44694  ratio=826.487x recon
+    pr_weighted       |g|=75.55755  ratio=661.189x recon
+    sid_raw           |g|=0.67964  ratio=5.947x recon
+    sid_weighted      |g|=0.40779  ratio=3.568x recon
+    grl               |g|=0.11916  ratio=1.043x recon
+    grl_p             |g|=0.31098  ratio=2.721x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step    500/26000  recon=0.3730  pr=13.0917  sid=6.7812  grl=6.7891  grl_p=0.8335  grlU=6.807/3.090  pros=10.6143  grlPr=5.896/9.299  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=22/39/3  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  step    600/26000  recon=0.5229  pr=4.2597  sid=6.6914  grl=6.6055  grl_p=1.0435  grlU=6.762/3.523  pros=6.3860  grlPr=4.309/12.018  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=37/26/1  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  step    700/26000  recon=0.5793  pr=3.7938  sid=6.4160  grl=6.1211  grl_p=0.9551  grlU=6.541/3.473  pros=4.9900  grlPr=6.452/9.060  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=35/28/1  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  step    800/26000  recon=0.6483  pr=3.0995  sid=6.5781  grl=6.3008  grl_p=0.7566  grlU=6.770/3.527  pros=3.4588  grlPr=4.688/5.980  aux=0.0000  dead=0.0%  L/P/U=5462/5461/5461  actL/P/U=32/31/1  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  step    900/26000  recon=0.7377  pr=1.9876  sid=6.5566  grl=6.3828  grl_p=0.7258  grlU=6.510/3.546  pros=3.4764  grlPr=4.644/7.593  aux=0.0000  dead=1.5%  L/P/U=5462/5461/5461  actL/P/U=32/31/1  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.99e-05
+  [grad_norms @1000]
+    recon             |g|=0.15606  ratio=1.000x recon
+    pr_raw            |g|=4.02382  ratio=25.783x recon
+    pr_weighted       |g|=3.21906  ratio=20.627x recon
+    sid_raw           |g|=4.43484  ratio=28.417x recon
+    sid_weighted      |g|=2.66090  ratio=17.050x recon
+    grl               |g|=0.59243  ratio=3.796x recon
+    grl_p             |g|=0.36066  ratio=2.311x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   1000/26000  recon=0.8460  pr=1.4825  sid=6.3750  grl=6.5059  grl_p=0.7984  grlU=6.750/3.548  pros=4.2266  grlPr=6.447/9.693  aux=1.0546  dead=7.9%  L/P/U=5462/5461/5461  actL/P/U=32/32/0  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.99e-05
+  [val] step=1000  recon=0.8506  pr=1.4786  PER=0.625  sid_acc=0.062
+  ✓ best checkpoint (disent=1.5634  PER=0.625 sid=0.062) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_prosody/stage2_best.pt
+  step   1100/26000  recon=0.9647  pr=1.2283  sid=6.4082  grl=6.5352  grl_p=0.7615  grlU=6.725/3.584  pros=4.2736  grlPr=5.268/6.475  aux=1.5996  dead=16.8%  L/P/U=5462/5461/5461  actL/P/U=32/31/1  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.99e-05
+  step   1200/26000  recon=1.0695  pr=1.1042  sid=6.3418  grl=6.6953  grl_p=0.8167  grlU=6.645/3.566  pros=3.6103  grlPr=4.066/5.393  aux=2.0085  dead=22.7%  L/P/U=5462/5461/5461  actL/P/U=30/33/1  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.98e-05
+  step   1300/26000  recon=1.2873  pr=1.0046  sid=5.7637  grl=6.8086  grl_p=0.8906  grlU=6.469/3.604  pros=4.2819  grlPr=5.511/7.272  aux=2.6555  dead=27.2%  L/P/U=5462/5461/5461  actL/P/U=28/34/2  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.98e-05
+  step   1400/26000  recon=1.4946  pr=0.9248  sid=5.7578  grl=6.6934  grl_p=0.7378  grlU=6.584/3.543  pros=4.3842  grlPr=5.533/5.899  aux=3.1774  dead=32.3%  L/P/U=5462/5461/5461  actL/P/U=26/35/2  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.97e-05
+  [grad_norms @1500]
+    recon             |g|=0.28562  ratio=1.000x recon
+    pr_raw            |g|=2.16519  ratio=7.581x recon
+    pr_weighted       |g|=1.73215  ratio=6.065x recon
+    sid_raw           |g|=3.70036  ratio=12.956x recon
+    sid_weighted      |g|=2.22021  ratio=7.773x recon
+    grl               |g|=0.82966  ratio=2.905x recon
+    grl_p             |g|=0.38568  ratio=1.350x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   1500/26000  recon=1.6785  pr=0.8860  sid=5.6973  grl=6.7363  grl_p=0.7743  grlU=6.291/3.528  pros=4.1710  grlPr=5.197/5.500  aux=3.7725  dead=36.0%  L/P/U=5462/5461/5461  actL/P/U=25/36/3  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.96e-05
+  step   1600/26000  recon=1.8390  pr=0.9751  sid=5.3906  grl=7.0332  grl_p=0.8846  grlU=6.094/3.559  pros=5.3552  grlPr=6.181/5.999  aux=4.4030  dead=38.9%  L/P/U=5462/5461/5461  actL/P/U=24/36/4  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.95e-05
+  step   1700/26000  recon=1.9734  pr=0.8890  sid=5.2109  grl=6.6719  grl_p=0.9640  grlU=6.232/3.567  pros=4.8171  grlPr=6.936/7.042  aux=4.8915  dead=40.7%  L/P/U=5462/5461/5461  actL/P/U=25/35/4  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.95e-05
+  step   1800/26000  recon=2.0238  pr=0.7485  sid=5.5547  grl=6.9434  grl_p=0.9463  grlU=5.889/3.549  pros=3.4793  grlPr=4.827/4.651  aux=5.2801  dead=41.2%  L/P/U=5462/5461/5461  actL/P/U=26/33/6  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.94e-05
+  step   1900/26000  recon=2.0534  pr=0.8673  sid=5.3447  grl=6.7578  grl_p=1.3376  grlU=5.952/3.555  pros=3.2288  grlPr=4.102/4.502  aux=5.8231  dead=40.8%  L/P/U=5462/5461/5461  actL/P/U=30/27/7  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.93e-05
+  [grad_norms @2000]
+    recon             |g|=0.40536  ratio=1.000x recon
+    pr_raw            |g|=3.11877  ratio=7.694x recon
+    pr_weighted       |g|=2.49502  ratio=6.155x recon
+    sid_raw           |g|=3.61142  ratio=8.909x recon
+    sid_weighted      |g|=2.16685  ratio=5.346x recon
+    grl               |g|=2.14000  ratio=5.279x recon
+    grl_p             |g|=0.78590  ratio=1.939x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   2000/26000  recon=1.9840  pr=0.8067  sid=5.6895  grl=6.7148  grl_p=1.4437  grlU=5.775/3.537  pros=3.6343  grlPr=4.734/5.075  aux=5.7178  dead=40.1%  L/P/U=5462/5461/5461  actL/P/U=31/25/8  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.92e-05
+  [val] step=2000  recon=1.9957  pr=0.8103  PER=0.210  sid_acc=0.384
+  ✓ best checkpoint (disent=0.8259  PER=0.210 sid=0.384) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_prosody/stage2_best.pt
+  step   2100/26000  recon=1.9859  pr=0.8261  sid=5.6699  grl=6.7344  grl_p=1.8866  grlU=5.448/3.563  pros=2.4912  grlPr=3.818/3.461  aux=5.8433  dead=39.2%  L/P/U=5462/5461/5461  actL/P/U=33/22/8  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.90e-05
+  step   2200/26000  recon=2.0590  pr=0.9851  sid=5.7266  grl=6.8750  grl_p=2.1206  grlU=5.655/3.568  pros=2.9279  grlPr=4.193/4.416  aux=6.0016  dead=38.1%  L/P/U=5462/5461/5461  actL/P/U=35/20/9  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.89e-05
+  step   2300/26000  recon=2.1273  pr=0.8227  sid=5.7266  grl=6.8105  grl_p=2.2748  grlU=5.676/3.548  pros=3.3942  grlPr=4.939/5.080  aux=6.3773  dead=38.0%  L/P/U=5462/5461/5461  actL/P/U=36/18/9  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.88e-05
+  step   2400/26000  recon=2.1509  pr=0.6871  sid=5.4336  grl=6.5254  grl_p=2.3545  grlU=5.136/3.563  pros=3.6441  grlPr=4.811/5.994  aux=6.6206  dead=38.2%  L/P/U=5462/5461/5461  actL/P/U=39/17/8  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.87e-05
+  [grad_norms @2500]
+    recon             |g|=0.60751  ratio=1.000x recon
+    pr_raw            |g|=3.24940  ratio=5.349x recon
+    pr_weighted       |g|=2.59952  ratio=4.279x recon
+    sid_raw           |g|=2.98854  ratio=4.919x recon
+    sid_weighted      |g|=1.79313  ratio=2.952x recon
+    grl               |g|=1.79518  ratio=2.955x recon
+    grl_p             |g|=2.83693  ratio=4.670x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   2500/26000  recon=2.2078  pr=0.7982  sid=5.7129  grl=6.7676  grl_p=2.5456  grlU=4.661/3.565  pros=2.7633  grlPr=3.792/3.836  aux=6.9835  dead=38.3%  L/P/U=5462/5461/5461  actL/P/U=38/16/10  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.85e-05
+  step   2600/26000  recon=2.3210  pr=0.7583  sid=5.5254  grl=6.4570  grl_p=2.5406  grlU=4.827/3.559  pros=3.4494  grlPr=4.864/5.440  aux=7.3842  dead=37.9%  L/P/U=5462/5461/5461  actL/P/U=38/16/10  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.84e-05
+  step   2700/26000  recon=2.3391  pr=0.6344  sid=5.4238  grl=6.7754  grl_p=2.7296  grlU=4.851/3.586  pros=3.7997  grlPr=5.848/5.042  aux=7.0385  dead=38.1%  L/P/U=5462/5461/5461  actL/P/U=39/15/10  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.82e-05
+  step   2800/26000  recon=2.5200  pr=0.8172  sid=5.4551  grl=6.6367  grl_p=2.9134  grlU=5.150/3.586  pros=2.7872  grlPr=3.782/4.016  aux=7.9848  dead=38.2%  L/P/U=5462/5461/5461  actL/P/U=38/15/11  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.80e-05
+  step   2900/26000  recon=2.5417  pr=0.7019  sid=5.4043  grl=6.4453  grl_p=2.8996  grlU=4.919/3.585  pros=2.8959  grlPr=3.307/3.553  aux=7.9975  dead=38.2%  L/P/U=5462/5461/5461  actL/P/U=39/14/11  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.79e-05
+  [grad_norms @3000]
+    recon             |g|=0.61959  ratio=1.000x recon
+    pr_raw            |g|=2.07329  ratio=3.346x recon
+    pr_weighted       |g|=1.65863  ratio=2.677x recon
+    sid_raw           |g|=6.44498  ratio=10.402x recon
+    sid_weighted      |g|=3.86699  ratio=6.241x recon
+    grl               |g|=3.42760  ratio=5.532x recon
+    grl_p             |g|=2.85265  ratio=4.604x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   3000/26000  recon=2.5507  pr=0.7062  sid=5.4355  grl=6.5938  grl_p=2.9693  grlU=4.832/3.556  pros=2.7671  grlPr=3.544/3.911  aux=7.9352  dead=38.4%  L/P/U=5462/5461/5461  actL/P/U=38/14/11  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.77e-05
+  [val] step=3000  recon=2.5849  pr=0.7682  PER=0.200  sid_acc=0.412
+  ✓ best checkpoint (disent=0.7881  PER=0.200 sid=0.412) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_prosody/stage2_best.pt
+  step   3100/26000  recon=2.6485  pr=0.7636  sid=5.3672  grl=6.6348  grl_p=3.0239  grlU=4.637/3.556  pros=2.8682  grlPr=4.142/4.173  aux=8.1909  dead=38.4%  L/P/U=5462/5461/5461  actL/P/U=39/14/11  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.75e-05
+  step   3200/26000  recon=2.8553  pr=0.8153  sid=5.4512  grl=6.4043  grl_p=3.0223  grlU=4.032/3.568  pros=3.2744  grlPr=4.321/4.135  aux=8.9718  dead=38.4%  L/P/U=5462/5461/5461  actL/P/U=37/14/14  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.73e-05
+  step   3300/26000  recon=3.0005  pr=0.7675  sid=5.3105  grl=6.3340  grl_p=3.0326  grlU=3.791/3.575  pros=3.1190  grlPr=3.815/4.337  aux=9.4488  dead=38.6%  L/P/U=5462/5461/5461  actL/P/U=37/14/13  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.71e-05
+  step   3400/26000  recon=3.0192  pr=0.7241  sid=4.8408  grl=6.2383  grl_p=3.0464  grlU=3.726/3.574  pros=3.2736  grlPr=4.391/4.585  aux=9.4220  dead=38.6%  L/P/U=5462/5461/5461  actL/P/U=37/14/13  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.69e-05
+  [grad_norms @3500]
+    recon             |g|=0.74732  ratio=1.000x recon
+    pr_raw            |g|=2.04347  ratio=2.734x recon
+    pr_weighted       |g|=1.63477  ratio=2.188x recon
+    sid_raw           |g|=4.06221  ratio=5.436x recon
+    sid_weighted      |g|=2.43733  ratio=3.261x recon
+    grl               |g|=5.01520  ratio=6.711x recon
+    grl_p             |g|=4.73935  ratio=6.342x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   3500/26000  recon=3.1096  pr=0.8314  sid=5.2725  grl=6.7441  grl_p=3.0590  grlU=4.672/3.645  pros=3.0361  grlPr=3.665/3.644  aux=9.5204  dead=38.5%  L/P/U=5462/5461/5461  actL/P/U=36/14/14  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.67e-05
+  step   3600/26000  recon=3.3066  pr=0.8012  sid=5.0186  grl=5.8809  grl_p=3.0009  grlU=3.916/3.577  pros=3.8197  grlPr=4.953/5.405  aux=10.4559  dead=38.4%  L/P/U=5462/5461/5461  actL/P/U=35/15/14  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.64e-05
+  step   3700/26000  recon=3.2876  pr=0.6949  sid=4.7715  grl=6.5430  grl_p=2.9845  grlU=4.346/3.531  pros=2.8883  grlPr=3.674/3.617  aux=10.4883  dead=38.5%  L/P/U=5462/5461/5461  actL/P/U=36/14/14  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.62e-05
+  step   3800/26000  recon=3.4594  pr=0.7546  sid=4.8916  grl=6.5117  grl_p=3.0212  grlU=4.300/3.593  pros=3.0052  grlPr=3.793/4.357  aux=10.9562  dead=38.3%  L/P/U=5462/5461/5461  actL/P/U=35/13/16  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.60e-05
+  step   3900/26000  recon=3.6521  pr=0.9107  sid=4.7510  grl=6.0918  grl_p=3.0296  grlU=3.256/3.533  pros=3.9730  grlPr=4.369/4.348  aux=11.5302  dead=37.9%  L/P/U=5462/5461/5461  actL/P/U=35/13/16  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.57e-05
+  [grad_norms @4000]
+    recon             |g|=0.97250  ratio=1.000x recon
+    pr_raw            |g|=0.77237  ratio=0.794x recon
+    pr_weighted       |g|=0.61789  ratio=0.635x recon
+    sid_raw           |g|=6.66501  ratio=6.854x recon
+    sid_weighted      |g|=3.99901  ratio=4.112x recon
+    grl               |g|=2.95332  ratio=3.037x recon
+    grl_p             |g|=6.79335  ratio=6.985x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   4000/26000  recon=3.8681  pr=0.9203  sid=4.6387  grl=5.9668  grl_p=3.1051  grlU=3.909/3.560  pros=3.9412  grlPr=4.521/4.143  aux=12.0599  dead=38.1%  L/P/U=5462/5461/5461  actL/P/U=33/14/17  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.55e-05
+  [val] step=4000  recon=3.7550  pr=0.8793  PER=0.242  sid_acc=0.604
+  ✓ best checkpoint (disent=0.6376  PER=0.242 sid=0.604) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_prosody/stage2_best.pt
+  step   4100/26000  recon=3.9165  pr=0.8216  sid=4.4912  grl=6.2969  grl_p=2.9956  grlU=2.657/3.532  pros=3.2229  grlPr=3.457/3.495  aux=12.2888  dead=38.4%  L/P/U=5462/5461/5461  actL/P/U=33/15/17  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.52e-05
+  step   4200/26000  recon=4.0640  pr=0.9160  sid=4.4922  grl=6.3652  grl_p=3.0505  grlU=4.239/3.655  pros=2.9689  grlPr=3.044/3.182  aux=12.3628  dead=38.2%  L/P/U=5462/5461/5461  actL/P/U=32/15/16  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.49e-05
+  step   4300/26000  recon=4.3345  pr=0.8929  sid=3.8623  grl=6.0352  grl_p=2.9860  grlU=2.315/3.564  pros=4.1949  grlPr=4.658/4.722  aux=13.0110  dead=38.2%  L/P/U=5462/5461/5461  actL/P/U=31/15/18  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.47e-05
+  step   4400/26000  recon=4.4353  pr=1.0269  sid=3.7378  grl=6.4785  grl_p=3.0630  grlU=3.129/3.549  pros=4.0094  grlPr=4.565/4.469  aux=13.4039  dead=38.0%  L/P/U=5462/5461/5461  actL/P/U=31/16/17  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.44e-05
+  [grad_norms @4500]
+    recon             |g|=1.02204  ratio=1.000x recon
+    pr_raw            |g|=1.07706  ratio=1.054x recon
+    pr_weighted       |g|=0.86165  ratio=0.843x recon
+    sid_raw           |g|=5.09235  ratio=4.983x recon
+    sid_weighted      |g|=3.05541  ratio=2.990x recon
+    grl               |g|=4.24072  ratio=4.149x recon
+    grl_p             |g|=8.77419  ratio=8.585x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   4500/26000  recon=4.4832  pr=0.9755  sid=4.3564  grl=5.8789  grl_p=3.0724  grlU=2.957/3.583  pros=3.5808  grlPr=3.869/4.026  aux=13.7213  dead=37.8%  L/P/U=5462/5461/5461  actL/P/U=31/15/18  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.41e-05
+  step   4600/26000  recon=4.6497  pr=0.9106  sid=4.1895  grl=6.5996  grl_p=2.9445  grlU=2.527/3.541  pros=3.2099  grlPr=3.130/2.866  aux=13.7283  dead=37.9%  L/P/U=5462/5461/5461  actL/P/U=29/17/18  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.38e-05
+  step   4700/26000  recon=4.8256  pr=1.0339  sid=3.8696  grl=6.2568  grl_p=3.0216  grlU=3.123/3.620  pros=3.5305  grlPr=3.326/3.250  aux=15.2637  dead=37.8%  L/P/U=5462/5461/5461  actL/P/U=29/16/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.35e-05
+  step   4800/26000  recon=4.9510  pr=0.9570  sid=3.4238  grl=6.0449  grl_p=2.9806  grlU=2.887/3.581  pros=3.5805  grlPr=3.722/3.848  aux=14.2735  dead=37.9%  L/P/U=5462/5461/5461  actL/P/U=30/16/18  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.32e-05
+  step   4900/26000  recon=4.8291  pr=1.0063  sid=3.4121  grl=6.2148  grl_p=3.0299  grlU=3.601/3.576  pros=3.7685  grlPr=3.795/3.977  aux=13.7001  dead=37.8%  L/P/U=5462/5461/5461  actL/P/U=30/16/18  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.29e-05
+  [grad_norms @5000]
+    recon             |g|=1.14578  ratio=1.000x recon
+    pr_raw            |g|=1.08848  ratio=0.950x recon
+    pr_weighted       |g|=0.87079  ratio=0.760x recon
+    sid_raw           |g|=5.63776  ratio=4.920x recon
+    sid_weighted      |g|=3.38266  ratio=2.952x recon
+    grl               |g|=2.37718  ratio=2.075x recon
+    grl_p             |g|=2.65622  ratio=2.318x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   5000/26000  recon=5.1197  pr=0.9937  sid=4.0195  grl=6.5078  grl_p=3.0054  grlU=3.565/3.571  pros=3.6500  grlPr=4.111/4.140  aux=14.9909  dead=37.8%  L/P/U=5462/5461/5461  actL/P/U=29/16/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.26e-05
+  [val] step=5000  recon=5.0826  pr=1.0043  PER=0.284  sid_acc=0.728
+  ✓ best checkpoint (disent=0.5560  PER=0.284 sid=0.728) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_prosody/stage2_best.pt
+  step   5100/26000  recon=5.3544  pr=1.0066  sid=3.5791  grl=5.7695  grl_p=3.0565  grlU=2.953/3.584  pros=3.7397  grlPr=4.157/4.491  aux=16.1011  dead=37.8%  L/P/U=5462/5461/5461  actL/P/U=30/16/19  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.23e-05
+  step   5200/26000  recon=5.3564  pr=1.0658  sid=3.8398  grl=6.5430  grl_p=3.0413  grlU=3.292/3.602  pros=3.9260  grlPr=4.325/3.972  aux=15.4964  dead=37.8%  L/P/U=5462/5461/5461  actL/P/U=28/17/19  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.19e-05
+  step   5300/26000  recon=5.4309  pr=1.0869  sid=3.1475  grl=5.5879  grl_p=2.9984  grlU=2.098/3.544  pros=3.7090  grlPr=3.030/3.352  aux=15.4173  dead=37.6%  L/P/U=5462/5461/5461  actL/P/U=27/16/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.16e-05
+  step   5400/26000  recon=5.8230  pr=1.1096  sid=3.4233  grl=6.1836  grl_p=3.0061  grlU=3.046/3.517  pros=4.6151  grlPr=4.289/4.421  aux=16.8083  dead=37.4%  L/P/U=5462/5461/5461  actL/P/U=27/16/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.13e-05
+  [grad_norms @5500]
+    recon             |g|=2.17094  ratio=1.000x recon
+    pr_raw            |g|=3.08133  ratio=1.419x recon
+    pr_weighted       |g|=2.46506  ratio=1.135x recon
+    sid_raw           |g|=5.43601  ratio=2.504x recon
+    sid_weighted      |g|=3.26161  ratio=1.502x recon
+    grl               |g|=23.32242  ratio=10.743x recon
+    grl_p             |g|=5.47614  ratio=2.522x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   5500/26000  recon=6.1367  pr=1.0538  sid=3.4089  grl=6.2480  grl_p=3.0435  grlU=2.266/3.560  pros=3.8615  grlPr=4.354/3.850  aux=18.7742  dead=37.4%  L/P/U=5462/5461/5461  actL/P/U=27/16/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.09e-05
+  step   5600/26000  recon=6.1272  pr=1.0992  sid=3.0698  grl=5.8408  grl_p=3.0556  grlU=2.517/3.543  pros=4.8905  grlPr=5.979/5.450  aux=17.3535  dead=37.4%  L/P/U=5462/5461/5461  actL/P/U=27/17/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.05e-05
+  step   5700/26000  recon=5.9865  pr=1.0944  sid=3.1997  grl=5.9863  grl_p=2.9706  grlU=1.885/3.569  pros=3.5767  grlPr=2.925/2.983  aux=16.1322  dead=37.5%  L/P/U=5462/5461/5461  actL/P/U=26/18/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.02e-05
+  step   5800/26000  recon=6.1716  pr=1.1086  sid=3.2573  grl=6.1641  grl_p=2.9928  grlU=3.063/3.584  pros=4.3789  grlPr=4.304/5.368  aux=17.7066  dead=37.8%  L/P/U=5462/5461/5461  actL/P/U=26/16/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.98e-05
+  step   5900/26000  recon=6.3528  pr=1.1008  sid=3.1221  grl=6.6016  grl_p=2.9698  grlU=2.088/3.582  pros=3.6917  grlPr=3.932/3.846  aux=17.5013  dead=37.9%  L/P/U=5462/5461/5461  actL/P/U=26/18/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.94e-05
+  [grad_norms @6000]
+    recon             |g|=1.39891  ratio=1.000x recon
+    pr_raw            |g|=0.68747  ratio=0.491x recon
+    pr_weighted       |g|=0.54998  ratio=0.393x recon
+    sid_raw           |g|=6.03286  ratio=4.313x recon
+    sid_weighted      |g|=3.61972  ratio=2.588x recon
+    grl               |g|=14.10943  ratio=10.086x recon
+    grl_p             |g|=7.02320  ratio=5.020x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   6000/26000  recon=6.3107  pr=1.1431  sid=2.9185  grl=6.4492  grl_p=2.9783  grlU=2.839/3.585  pros=4.1135  grlPr=4.044/4.137  aux=17.6894  dead=37.7%  L/P/U=5462/5461/5461  actL/P/U=26/19/19  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.91e-05
+  [val] step=6000  recon=6.3345  pr=1.1126  PER=0.326  sid_acc=0.884
+  ✓ best checkpoint (disent=0.4421  PER=0.326 sid=0.884) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/scaled_prosody/stage2_best.pt
+  step   6100/26000  recon=6.3812  pr=1.1549  sid=2.8965  grl=5.8730  grl_p=2.9281  grlU=2.799/3.523  pros=3.3687  grlPr=4.191/4.080  aux=18.3540  dead=37.5%  L/P/U=5462/5461/5461  actL/P/U=25/19/19  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.87e-05
+  step   6200/26000  recon=6.9111  pr=1.1835  sid=2.7283  grl=6.5938  grl_p=2.9375  grlU=3.298/3.548  pros=4.1082  grlPr=4.330/4.107  aux=20.6372  dead=37.4%  L/P/U=5462/5461/5461  actL/P/U=24/19/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.83e-05
+  step   6300/26000  recon=6.8528  pr=1.2282  sid=2.6301  grl=6.1836  grl_p=2.9537  grlU=1.657/3.584  pros=5.2496  grlPr=5.284/5.241  aux=18.6262  dead=37.2%  L/P/U=5462/5461/5461  actL/P/U=24/20/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.79e-05
+  step   6400/26000  recon=7.2271  pr=1.2343  sid=2.5635  grl=5.9590  grl_p=3.0052  grlU=2.618/3.573  pros=3.5785  grlPr=2.900/3.180  aux=19.8132  dead=36.7%  L/P/U=5462/5461/5461  actL/P/U=23/19/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.75e-05
+  [grad_norms @6500]
+    recon             |g|=2.18865  ratio=1.000x recon
+    pr_raw            |g|=6.88572  ratio=3.146x recon
+    pr_weighted       |g|=5.50857  ratio=2.517x recon
+    sid_raw           |g|=6.63409  ratio=3.031x recon
+    sid_weighted      |g|=3.98046  ratio=1.819x recon
+    grl               |g|=20.53940  ratio=9.385x recon
+    grl_p             |g|=5.21067  ratio=2.381x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   6500/26000  recon=7.2711  pr=1.2588  sid=2.1804  grl=6.7852  grl_p=2.9515  grlU=2.464/3.529  pros=3.8902  grlPr=4.239/4.619  aux=20.0311  dead=36.8%  L/P/U=5462/5461/5461  actL/P/U=25/20/19  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.71e-05
+  step   6600/26000  recon=7.4269  pr=1.2178  sid=2.2241  grl=5.6777  grl_p=2.9367  grlU=1.675/3.503  pros=4.4473  grlPr=4.257/4.251  aux=20.4821  dead=36.6%  L/P/U=5462/5461/5461  actL/P/U=23/21/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.67e-05
+  step   6700/26000  recon=7.5109  pr=1.2513  sid=2.2471  grl=5.7666  grl_p=2.9889  grlU=2.997/3.470  pros=3.5585  grlPr=3.087/3.040  aux=19.6054  dead=36.3%  L/P/U=5462/5461/5461  actL/P/U=23/21/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.62e-05
+  step   6800/26000  recon=7.8104  pr=1.1772  sid=2.1887  grl=6.1289  grl_p=3.0122  grlU=2.879/3.333  pros=4.0520  grlPr=3.501/3.726  aux=21.2329  dead=36.0%  L/P/U=5462/5461/5461  actL/P/U=23/21/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.58e-05
+  step   6900/26000  recon=7.8864  pr=1.2203  sid=1.7812  grl=6.1348  grl_p=2.9783  grlU=1.699/3.265  pros=3.1122  grlPr=3.012/3.521  aux=20.2668  dead=36.0%  L/P/U=5462/5461/5461  actL/P/U=22/21/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.54e-05
+  [grad_norms @7000]
+    recon             |g|=2.09161  ratio=1.000x recon
+    pr_raw            |g|=8.55015  ratio=4.088x recon
+    pr_weighted       |g|=6.84012  ratio=3.270x recon
+    sid_raw           |g|=4.35893  ratio=2.084x recon
+    sid_weighted      |g|=2.61536  ratio=1.250x recon
+    grl               |g|=15.65906  ratio=7.487x recon
+    grl_p             |g|=9.79832  ratio=4.685x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   7000/26000  recon=8.1596  pr=1.3170  sid=2.1222  grl=5.8682  grl_p=2.9179  grlU=1.813/2.939  pros=3.7271  grlPr=4.107/4.106  aux=21.5578  dead=35.9%  L/P/U=5462/5461/5461  actL/P/U=22/22/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.50e-05
+  [val] step=7000  recon=8.0753  pr=1.2764  PER=0.376  sid_acc=0.918
+  step   7100/26000  recon=8.3183  pr=1.2650  sid=1.5356  grl=5.5947  grl_p=2.9544  grlU=1.136/2.842  pros=3.8452  grlPr=4.528/4.500  aux=21.5149  dead=35.5%  L/P/U=5462/5461/5461  actL/P/U=22/23/19  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.45e-05
+  step   7200/26000  recon=8.5645  pr=1.3400  sid=1.5571  grl=5.3604  grl_p=2.8821  grlU=1.265/2.622  pros=4.2257  grlPr=3.454/3.552  aux=22.8408  dead=35.5%  L/P/U=5462/5461/5461  actL/P/U=21/22/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.41e-05
+  step   7300/26000  recon=8.4054  pr=1.2496  sid=1.9031  grl=6.1152  grl_p=2.9702  grlU=2.428/2.495  pros=3.4239  grlPr=3.054/3.354  aux=21.8684  dead=35.4%  L/P/U=5462/5461/5461  actL/P/U=21/22/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.36e-05
+  step   7400/26000  recon=8.7933  pr=1.3495  sid=1.5439  grl=4.9209  grl_p=2.9133  grlU=1.132/2.531  pros=3.2713  grlPr=3.849/4.209  aux=24.6451  dead=35.2%  L/P/U=5462/5461/5461  actL/P/U=21/23/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.32e-05
+  [grad_norms @7500]
+    recon             |g|=3.33350  ratio=1.000x recon
+    pr_raw            |g|=6.20698  ratio=1.862x recon
+    pr_weighted       |g|=4.96559  ratio=1.490x recon
+    sid_raw           |g|=7.31713  ratio=2.195x recon
+    sid_weighted      |g|=4.39028  ratio=1.317x recon
+    grl               |g|=15.69325  ratio=4.708x recon
+    grl_p             |g|=7.74233  ratio=2.323x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   7500/26000  recon=9.1923  pr=1.2790  sid=1.2776  grl=5.4590  grl_p=2.9366  grlU=0.732/2.524  pros=3.5654  grlPr=3.592/5.513  aux=23.1262  dead=35.0%  L/P/U=5462/5461/5461  actL/P/U=20/24/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.27e-05
+  step   7600/26000  recon=9.0739  pr=1.3524  sid=1.2544  grl=5.7607  grl_p=2.9143  grlU=2.001/2.463  pros=3.7563  grlPr=3.980/4.034  aux=22.4537  dead=34.8%  L/P/U=5462/5461/5461  actL/P/U=19/24/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.22e-05
+  step   7700/26000  recon=9.2774  pr=1.4418  sid=1.6823  grl=6.0518  grl_p=2.9233  grlU=1.931/2.313  pros=4.9451  grlPr=5.159/4.713  aux=22.2020  dead=34.6%  L/P/U=5462/5461/5461  actL/P/U=20/23/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.18e-05
+  step   7800/26000  recon=9.3324  pr=1.4112  sid=1.0840  grl=5.4844  grl_p=2.9135  grlU=1.269/2.353  pros=3.8792  grlPr=3.542/3.477  aux=24.0650  dead=34.5%  L/P/U=5462/5461/5461  actL/P/U=19/25/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.13e-05
+  step   7900/26000  recon=9.8679  pr=1.4263  sid=1.2627  grl=5.4087  grl_p=2.9074  grlU=1.583/2.412  pros=4.1481  grlPr=4.394/4.471  aux=24.3775  dead=34.5%  L/P/U=5462/5461/5461  actL/P/U=18/26/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.08e-05
+  [grad_norms @8000]
+    recon             |g|=2.60875  ratio=1.000x recon
+    pr_raw            |g|=11.33229  ratio=4.344x recon
+    pr_weighted       |g|=9.06583  ratio=3.475x recon
+    sid_raw           |g|=3.67888  ratio=1.410x recon
+    sid_weighted      |g|=2.20733  ratio=0.846x recon
+    grl               |g|=23.25509  ratio=8.914x recon
+    grl_p             |g|=2.42563  ratio=0.930x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   8000/26000  recon=9.6840  pr=1.4273  sid=1.1863  grl=5.5117  grl_p=2.8461  grlU=1.366/2.320  pros=4.1892  grlPr=3.463/3.403  aux=23.5441  dead=34.4%  L/P/U=5462/5461/5461  actL/P/U=18/25/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.03e-05
+  [val] step=8000  recon=9.7613  pr=1.4542  PER=0.431  sid_acc=0.958
+  step   8100/26000  recon=10.1099  pr=1.4669  sid=1.0608  grl=5.8770  grl_p=2.8720  grlU=0.976/2.338  pros=3.7529  grlPr=3.897/3.589  aux=24.4167  dead=34.1%  L/P/U=5462/5461/5461  actL/P/U=18/24/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.98e-05
+  step   8200/26000  recon=10.2768  pr=1.3338  sid=1.3854  grl=5.4473  grl_p=2.8880  grlU=1.114/2.144  pros=3.8431  grlPr=4.012/4.038  aux=26.1176  dead=34.0%  L/P/U=5462/5461/5461  actL/P/U=18/24/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.93e-05
+  step   8300/26000  recon=10.6988  pr=1.4591  sid=1.0408  grl=5.6602  grl_p=2.8753  grlU=1.726/2.250  pros=6.5790  grlPr=6.752/6.963  aux=26.6746  dead=34.0%  L/P/U=5462/5461/5461  actL/P/U=18/25/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.89e-05
+  step   8400/26000  recon=10.4934  pr=1.4814  sid=0.9786  grl=5.4326  grl_p=2.9023  grlU=1.320/2.382  pros=3.6127  grlPr=4.093/4.107  aux=25.2853  dead=33.7%  L/P/U=5462/5461/5461  actL/P/U=17/26/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.83e-05
+  [grad_norms @8500]
+    recon             |g|=2.73498  ratio=1.000x recon
+    pr_raw            |g|=4.75741  ratio=1.739x recon
+    pr_weighted       |g|=3.80593  ratio=1.392x recon
+    sid_raw           |g|=4.66194  ratio=1.705x recon
+    sid_weighted      |g|=2.79716  ratio=1.023x recon
+    grl               |g|=21.49475  ratio=7.859x recon
+    grl_p             |g|=2.14322  ratio=0.784x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   8500/26000  recon=10.7105  pr=1.4904  sid=0.8188  grl=5.1428  grl_p=2.8960  grlU=1.385/2.260  pros=4.0542  grlPr=4.085/4.409  aux=26.2242  dead=33.5%  L/P/U=5462/5461/5461  actL/P/U=18/25/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.78e-05
+  step   8600/26000  recon=11.0615  pr=1.5565  sid=1.1069  grl=5.8486  grl_p=2.8750  grlU=1.194/2.261  pros=4.0748  grlPr=3.751/3.828  aux=28.7503  dead=33.7%  L/P/U=5462/5461/5461  actL/P/U=17/26/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.73e-05
+  step   8700/26000  recon=11.3573  pr=1.4820  sid=0.7499  grl=5.1320  grl_p=2.8727  grlU=1.581/2.322  pros=5.3138  grlPr=5.519/5.779  aux=27.7412  dead=33.5%  L/P/U=5462/5461/5461  actL/P/U=17/27/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.68e-05
+  step   8800/26000  recon=11.2694  pr=1.5223  sid=0.6892  grl=5.5781  grl_p=2.7742  grlU=2.354/2.493  pros=3.2796  grlPr=2.962/4.139  aux=26.9194  dead=33.4%  L/P/U=5462/5461/5461  actL/P/U=17/28/19  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.63e-05
+  step   8900/26000  recon=11.3012  pr=1.5851  sid=0.8754  grl=4.6611  grl_p=2.8572  grlU=1.053/2.257  pros=4.1618  grlPr=4.077/4.371  aux=26.4445  dead=33.3%  L/P/U=5462/5461/5461  actL/P/U=17/27/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.58e-05
+  [grad_norms @9000]
+    recon             |g|=3.25189  ratio=1.000x recon
+    pr_raw            |g|=2.61804  ratio=0.805x recon
+    pr_weighted       |g|=2.09444  ratio=0.644x recon
+    sid_raw           |g|=5.01466  ratio=1.542x recon
+    sid_weighted      |g|=3.00879  ratio=0.925x recon
+    grl               |g|=38.34491  ratio=11.792x recon
+    grl_p             |g|=1.47031  ratio=0.452x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   9000/26000  recon=11.6904  pr=1.6412  sid=0.9091  grl=5.3110  grl_p=2.8272  grlU=1.562/2.313  pros=3.3514  grlPr=3.332/3.604  aux=27.7186  dead=33.4%  L/P/U=5462/5461/5461  actL/P/U=17/27/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.52e-05
+  [val] step=9000  recon=11.5049  pr=1.6284  PER=0.476  sid_acc=0.974
+  step   9100/26000  recon=11.7417  pr=1.5958  sid=0.5351  grl=5.1621  grl_p=2.8944  grlU=0.640/2.312  pros=4.0025  grlPr=3.457/3.565  aux=27.5174  dead=33.3%  L/P/U=5462/5461/5461  actL/P/U=15/27/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.47e-05
+  step   9200/26000  recon=12.0404  pr=1.7497  sid=0.6086  grl=4.7095  grl_p=2.9560  grlU=0.761/2.315  pros=4.0914  grlPr=4.117/4.314  aux=29.0478  dead=33.1%  L/P/U=5462/5461/5461  actL/P/U=15/28/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.42e-05
+  step   9300/26000  recon=12.2396  pr=1.5697  sid=0.4105  grl=5.0332  grl_p=2.8452  grlU=0.513/2.239  pros=3.3393  grlPr=3.695/3.644  aux=28.8581  dead=32.9%  L/P/U=5462/5461/5461  actL/P/U=15/27/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.36e-05
+  step   9400/26000  recon=12.0691  pr=1.7325  sid=0.4628  grl=5.5029  grl_p=2.8445  grlU=0.755/2.285  pros=3.0318  grlPr=3.077/2.748  aux=30.3476  dead=33.0%  L/P/U=5462/5461/5461  actL/P/U=15/28/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.31e-05
+  [grad_norms @9500]
+    recon             |g|=2.64121  ratio=1.000x recon
+    pr_raw            |g|=6.24333  ratio=2.364x recon
+    pr_weighted       |g|=4.99466  ratio=1.891x recon
+    sid_raw           |g|=5.47084  ratio=2.071x recon
+    sid_weighted      |g|=3.28251  ratio=1.243x recon
+    grl               |g|=24.38754  ratio=9.233x recon
+    grl_p             |g|=1.65135  ratio=0.625x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step   9500/26000  recon=12.5347  pr=1.6688  sid=0.4454  grl=5.4209  grl_p=2.9332  grlU=1.360/2.345  pros=3.8510  grlPr=3.855/4.174  aux=29.1639  dead=32.9%  L/P/U=5462/5461/5461  actL/P/U=15/28/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.26e-05
+  step   9600/26000  recon=12.5854  pr=1.7057  sid=0.6621  grl=5.4404  grl_p=2.8667  grlU=0.900/2.260  pros=4.2066  grlPr=4.319/4.228  aux=28.7307  dead=32.6%  L/P/U=5462/5461/5461  actL/P/U=14/27/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.20e-05
+  step   9700/26000  recon=12.6438  pr=1.6543  sid=0.4448  grl=5.0117  grl_p=2.7749  grlU=0.997/2.243  pros=5.0890  grlPr=4.972/5.085  aux=28.7154  dead=32.5%  L/P/U=5462/5461/5461  actL/P/U=14/28/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.15e-05
+  step   9800/26000  recon=12.9779  pr=1.8734  sid=0.4556  grl=5.1572  grl_p=2.8724  grlU=1.047/2.272  pros=4.2165  grlPr=3.600/3.513  aux=30.6854  dead=32.2%  L/P/U=5462/5461/5461  actL/P/U=14/27/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.09e-05
+  step   9900/26000  recon=13.0016  pr=1.7368  sid=0.5651  grl=4.9517  grl_p=2.8006  grlU=1.099/2.431  pros=3.8667  grlPr=4.871/4.595  aux=30.7079  dead=32.0%  L/P/U=5462/5461/5461  actL/P/U=14/29/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.04e-05
+  [grad_norms @10000]
+    recon             |g|=3.27221  ratio=1.000x recon
+    pr_raw            |g|=10.43045  ratio=3.188x recon
+    pr_weighted       |g|=8.34436  ratio=2.550x recon
+    sid_raw           |g|=3.76853  ratio=1.152x recon
+    sid_weighted      |g|=2.26112  ratio=0.691x recon
+    grl               |g|=18.53767  ratio=5.665x recon
+    grl_p             |g|=7.45319  ratio=2.278x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  10000/26000  recon=13.2488  pr=1.8502  sid=0.5128  grl=5.1543  grl_p=2.7699  grlU=0.848/2.233  pros=3.9989  grlPr=4.101/3.993  aux=30.9515  dead=31.9%  L/P/U=5462/5461/5461  actL/P/U=13/29/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.98e-05
+  [val] step=10000  recon=13.2200  pr=1.8386  PER=0.523  sid_acc=0.972
+  step  10100/26000  recon=13.2895  pr=1.9212  sid=0.3179  grl=5.0205  grl_p=2.8715  grlU=1.371/2.366  pros=3.8068  grlPr=3.739/3.894  aux=34.5692  dead=31.9%  L/P/U=5462/5461/5461  actL/P/U=13/30/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.92e-05
+  step  10200/26000  recon=13.7657  pr=2.0418  sid=0.4833  grl=5.2617  grl_p=2.8780  grlU=1.617/2.398  pros=3.3371  grlPr=3.829/3.452  aux=32.0749  dead=31.7%  L/P/U=5462/5461/5461  actL/P/U=14/30/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.87e-05
+  step  10300/26000  recon=13.2769  pr=1.8434  sid=0.2955  grl=5.0576  grl_p=2.8459  grlU=1.793/2.323  pros=4.1175  grlPr=4.495/5.264  aux=31.7249  dead=31.2%  L/P/U=5462/5461/5461  actL/P/U=14/29/20  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.81e-05
+  step  10400/26000  recon=13.6316  pr=1.8273  sid=0.4558  grl=5.3367  grl_p=2.7945  grlU=1.802/2.230  pros=3.3898  grlPr=3.050/3.135  aux=31.4649  dead=31.2%  L/P/U=5462/5461/5461  actL/P/U=13/30/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.75e-05
+  [grad_norms @10500]
+    recon             |g|=3.49015  ratio=1.000x recon
+    pr_raw            |g|=6.80095  ratio=1.949x recon
+    pr_weighted       |g|=5.44076  ratio=1.559x recon
+    sid_raw           |g|=3.99918  ratio=1.146x recon
+    sid_weighted      |g|=2.39951  ratio=0.688x recon
+    grl               |g|=11.25275  ratio=3.224x recon
+    grl_p             |g|=1.18938  ratio=0.341x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  10500/26000  recon=13.8064  pr=2.0118  sid=0.4538  grl=5.2520  grl_p=2.8564  grlU=0.725/2.290  pros=3.8403  grlPr=4.045/4.031  aux=30.6525  dead=30.9%  L/P/U=5462/5461/5461  actL/P/U=12/31/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.70e-05
+  step  10600/26000  recon=13.6347  pr=1.9148  sid=0.2654  grl=5.0181  grl_p=2.8401  grlU=1.365/2.348  pros=3.6854  grlPr=3.810/4.026  aux=32.0685  dead=30.9%  L/P/U=5462/5461/5461  actL/P/U=13/29/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.64e-05
+  step  10700/26000  recon=14.0008  pr=2.0243  sid=0.4713  grl=5.0791  grl_p=2.8177  grlU=0.879/2.232  pros=3.9107  grlPr=3.737/3.877  aux=33.6761  dead=30.9%  L/P/U=5462/5461/5461  actL/P/U=13/29/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.58e-05
+  step  10800/26000  recon=14.3795  pr=2.1204  sid=0.2106  grl=4.9214  grl_p=2.7604  grlU=0.965/2.297  pros=3.1951  grlPr=3.201/3.027  aux=33.2514  dead=30.8%  L/P/U=5462/5461/5461  actL/P/U=12/31/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.52e-05
+  step  10900/26000  recon=14.4208  pr=1.9910  sid=0.3160  grl=5.6206  grl_p=2.7815  grlU=2.385/2.277  pros=3.7301  grlPr=3.700/4.061  aux=32.4143  dead=30.7%  L/P/U=5462/5461/5461  actL/P/U=12/32/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.46e-05
+  [grad_norms @11000]
+    recon             |g|=3.74821  ratio=1.000x recon
+    pr_raw            |g|=4.81736  ratio=1.285x recon
+    pr_weighted       |g|=3.85389  ratio=1.028x recon
+    sid_raw           |g|=1.73061  ratio=0.462x recon
+    sid_weighted      |g|=1.03837  ratio=0.277x recon
+    grl               |g|=14.48777  ratio=3.865x recon
+    grl_p             |g|=1.38575  ratio=0.370x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  11000/26000  recon=14.8533  pr=2.1209  sid=0.1895  grl=5.2510  grl_p=2.8723  grlU=1.367/2.408  pros=3.1125  grlPr=3.230/3.544  aux=33.1509  dead=30.6%  L/P/U=5462/5461/5461  actL/P/U=12/31/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.40e-05
+  [val] step=11000  recon=14.4267  pr=2.0485  PER=0.575  sid_acc=0.982
+  step  11100/26000  recon=14.5034  pr=1.9832  sid=0.4321  grl=4.8914  grl_p=2.7487  grlU=0.856/2.297  pros=3.1408  grlPr=3.070/3.488  aux=33.1545  dead=30.6%  L/P/U=5462/5461/5461  actL/P/U=11/32/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.35e-05
+  step  11200/26000  recon=14.6869  pr=1.9983  sid=0.3263  grl=5.2676  grl_p=2.7579  grlU=1.047/2.222  pros=3.3613  grlPr=3.720/3.385  aux=33.8011  dead=30.8%  L/P/U=5462/5461/5461  actL/P/U=11/31/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.29e-05
+  step  11300/26000  recon=15.0818  pr=2.0387  sid=0.2481  grl=6.1660  grl_p=2.8502  grlU=1.325/2.210  pros=3.8685  grlPr=4.132/4.125  aux=34.7862  dead=30.1%  L/P/U=5462/5461/5461  actL/P/U=11/32/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.23e-05
+  step  11400/26000  recon=15.3751  pr=2.1003  sid=0.5052  grl=4.9348  grl_p=2.8346  grlU=2.478/2.236  pros=5.1346  grlPr=5.588/5.495  aux=34.9564  dead=29.9%  L/P/U=5462/5461/5461  actL/P/U=11/30/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.17e-05
+  [grad_norms @11500]
+    recon             |g|=3.95737  ratio=1.000x recon
+    pr_raw            |g|=30.72567  ratio=7.764x recon
+    pr_weighted       |g|=24.58054  ratio=6.211x recon
+    sid_raw           |g|=2.81155  ratio=0.710x recon
+    sid_weighted      |g|=1.68693  ratio=0.426x recon
+    grl               |g|=8.67399  ratio=2.192x recon
+    grl_p             |g|=3.29441  ratio=0.832x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  11500/26000  recon=14.8581  pr=2.0953  sid=0.2180  grl=4.8827  grl_p=2.7610  grlU=0.762/2.265  pros=3.6124  grlPr=3.364/3.127  aux=32.9463  dead=29.7%  L/P/U=5462/5461/5461  actL/P/U=10/33/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.11e-05
+  step  11600/26000  recon=15.2819  pr=2.1931  sid=0.1654  grl=5.5332  grl_p=2.8263  grlU=0.838/2.353  pros=3.5015  grlPr=3.689/3.565  aux=35.3302  dead=29.8%  L/P/U=5462/5461/5461  actL/P/U=10/33/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.05e-05
+  step  11700/26000  recon=15.7741  pr=2.1020  sid=0.1520  grl=5.3599  grl_p=2.7235  grlU=0.794/2.292  pros=3.0546  grlPr=2.988/3.148  aux=36.0602  dead=29.6%  L/P/U=5462/5461/5461  actL/P/U=11/31/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.99e-05
+  step  11800/26000  recon=15.4951  pr=2.2238  sid=0.3129  grl=5.4683  grl_p=2.7716  grlU=2.032/2.244  pros=3.3193  grlPr=3.584/3.644  aux=35.6855  dead=29.4%  L/P/U=5462/5461/5461  actL/P/U=10/32/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.93e-05
+  step  11900/26000  recon=15.7812  pr=2.2735  sid=0.2982  grl=4.0012  grl_p=2.8408  grlU=0.675/2.294  pros=3.5724  grlPr=3.765/3.411  aux=36.1650  dead=29.4%  L/P/U=5462/5461/5461  actL/P/U=10/32/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.87e-05
+  [grad_norms @12000]
+    recon             |g|=4.06488  ratio=1.000x recon
+    pr_raw            |g|=19.72594  ratio=4.853x recon
+    pr_weighted       |g|=15.78076  ratio=3.882x recon
+    sid_raw           |g|=4.77022  ratio=1.174x recon
+    sid_weighted      |g|=2.86213  ratio=0.704x recon
+    grl               |g|=13.13137  ratio=3.230x recon
+    grl_p             |g|=2.62678  ratio=0.646x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  12000/26000  recon=16.0995  pr=2.2443  sid=0.3589  grl=5.3496  grl_p=2.7690  grlU=1.035/2.163  pros=3.5647  grlPr=3.038/2.974  aux=37.3663  dead=29.4%  L/P/U=5462/5461/5461  actL/P/U=10/31/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.81e-05
+  [val] step=12000  recon=16.2000  pr=2.2499  PER=0.617  sid_acc=0.988
+  step  12100/26000  recon=16.6819  pr=2.2976  sid=0.3433  grl=5.8242  grl_p=2.7533  grlU=1.575/2.246  pros=3.2906  grlPr=3.163/3.303  aux=38.4155  dead=29.3%  L/P/U=5462/5461/5461  actL/P/U=10/31/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.75e-05
+  step  12200/26000  recon=16.2523  pr=2.1408  sid=0.5724  grl=3.9175  grl_p=2.7572  grlU=1.370/2.297  pros=2.8173  grlPr=3.167/3.239  aux=38.7530  dead=29.0%  L/P/U=5462/5461/5461  actL/P/U=11/31/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.69e-05
+  step  12300/26000  recon=16.9573  pr=2.3640  sid=0.2074  grl=4.8711  grl_p=2.7669  grlU=0.650/2.370  pros=2.9355  grlPr=3.466/3.315  aux=40.8823  dead=29.0%  L/P/U=5462/5461/5461  actL/P/U=11/31/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.63e-05
+  step  12400/26000  recon=16.2871  pr=2.2414  sid=0.3413  grl=4.8916  grl_p=2.7620  grlU=2.127/2.325  pros=3.0403  grlPr=2.893/2.926  aux=36.7931  dead=29.0%  L/P/U=5462/5461/5461  actL/P/U=10/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.57e-05
+  [grad_norms @12500]
+    recon             |g|=3.81989  ratio=1.000x recon
+    pr_raw            |g|=10.52383  ratio=2.755x recon
+    pr_weighted       |g|=8.41907  ratio=2.204x recon
+    sid_raw           |g|=1.31772  ratio=0.345x recon
+    sid_weighted      |g|=0.79063  ratio=0.207x recon
+    grl               |g|=27.34791  ratio=7.159x recon
+    grl_p             |g|=2.81401  ratio=0.737x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  12500/26000  recon=16.7057  pr=2.1913  sid=0.2314  grl=3.9968  grl_p=2.8029  grlU=0.603/2.190  pros=3.1595  grlPr=3.511/3.317  aux=37.7279  dead=29.0%  L/P/U=5462/5461/5461  actL/P/U=11/32/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.51e-05
+  step  12600/26000  recon=16.8670  pr=2.1546  sid=0.1988  grl=5.0967  grl_p=2.8664  grlU=0.727/2.197  pros=5.4540  grlPr=5.736/5.623  aux=38.8205  dead=28.9%  L/P/U=5462/5461/5461  actL/P/U=11/31/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.45e-05
+  step  12700/26000  recon=17.0582  pr=2.3661  sid=0.2192  grl=4.8354  grl_p=2.7041  grlU=1.238/2.205  pros=3.7881  grlPr=3.234/3.422  aux=39.3531  dead=28.8%  L/P/U=5462/5461/5461  actL/P/U=10/32/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.39e-05
+  step  12800/26000  recon=16.9106  pr=2.3315  sid=0.2211  grl=4.7949  grl_p=2.7596  grlU=0.963/2.252  pros=2.9012  grlPr=2.913/2.881  aux=38.9483  dead=28.6%  L/P/U=5462/5461/5461  actL/P/U=10/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.32e-05
+  step  12900/26000  recon=17.6382  pr=2.5065  sid=0.1837  grl=4.3691  grl_p=2.7887  grlU=0.770/2.309  pros=3.3020  grlPr=3.884/3.625  aux=40.7775  dead=28.4%  L/P/U=5462/5461/5461  actL/P/U=10/32/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.26e-05
+  [grad_norms @13000]
+    recon             |g|=4.11243  ratio=1.000x recon
+    pr_raw            |g|=17.83168  ratio=4.336x recon
+    pr_weighted       |g|=14.26534  ratio=3.469x recon
+    sid_raw           |g|=5.22768  ratio=1.271x recon
+    sid_weighted      |g|=3.13661  ratio=0.763x recon
+    grl               |g|=16.95945  ratio=4.124x recon
+    grl_p             |g|=6.44579  ratio=1.567x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  13000/26000  recon=18.1444  pr=2.3714  sid=0.2064  grl=4.5093  grl_p=2.8180  grlU=0.038/2.196  pros=3.8861  grlPr=4.037/3.678  aux=44.0545  dead=28.2%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.20e-05
+  [val] step=13000  recon=17.5706  pr=2.3889  PER=0.642  sid_acc=0.986
+  step  13100/26000  recon=17.9594  pr=2.4494  sid=0.1609  grl=4.3822  grl_p=2.7418  grlU=0.254/2.286  pros=3.4994  grlPr=4.170/3.705  aux=43.3160  dead=28.0%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.14e-05
+  step  13200/26000  recon=18.3955  pr=2.3503  sid=0.3255  grl=4.8797  grl_p=2.7070  grlU=0.417/2.099  pros=3.8334  grlPr=3.619/3.662  aux=45.7059  dead=27.9%  L/P/U=5462/5461/5461  actL/P/U=10/32/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.08e-05
+  step  13300/26000  recon=18.2384  pr=2.5511  sid=0.1709  grl=3.6766  grl_p=2.7572  grlU=0.145/2.326  pros=3.4212  grlPr=3.255/3.084  aux=42.4685  dead=27.9%  L/P/U=5462/5461/5461  actL/P/U=9/34/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.02e-05
+  step  13400/26000  recon=18.2311  pr=2.3729  sid=0.2897  grl=4.4963  grl_p=2.7240  grlU=0.166/2.302  pros=3.3383  grlPr=4.016/3.884  aux=43.8975  dead=27.8%  L/P/U=5462/5461/5461  actL/P/U=10/32/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.96e-05
+  [grad_norms @13500]
+    recon             |g|=3.38161  ratio=1.000x recon
+    pr_raw            |g|=8.56228  ratio=2.532x recon
+    pr_weighted       |g|=6.84983  ratio=2.026x recon
+    sid_raw           |g|=2.18145  ratio=0.645x recon
+    sid_weighted      |g|=1.30887  ratio=0.387x recon
+    grl               |g|=29.11832  ratio=8.611x recon
+    grl_p             |g|=1.40422  ratio=0.415x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  13500/26000  recon=18.0353  pr=2.2722  sid=0.1892  grl=4.9395  grl_p=2.7731  grlU=0.420/2.195  pros=3.3167  grlPr=3.466/3.239  aux=42.4899  dead=27.5%  L/P/U=5462/5461/5461  actL/P/U=10/32/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.90e-05
+  step  13600/26000  recon=18.3627  pr=2.4740  sid=0.2750  grl=4.7074  grl_p=2.7520  grlU=0.810/2.218  pros=3.2501  grlPr=3.467/3.223  aux=42.8143  dead=27.2%  L/P/U=5462/5461/5461  actL/P/U=10/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.84e-05
+  step  13700/26000  recon=18.5014  pr=2.3907  sid=0.2883  grl=5.0413  grl_p=2.6336  grlU=0.941/2.203  pros=3.3572  grlPr=4.240/4.199  aux=42.5501  dead=27.0%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.78e-05
+  step  13800/26000  recon=19.2682  pr=2.5136  sid=0.2439  grl=3.7736  grl_p=2.6904  grlU=1.104/2.262  pros=3.5324  grlPr=4.099/4.250  aux=44.9740  dead=27.0%  L/P/U=5462/5461/5461  actL/P/U=10/32/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.71e-05
+  step  13900/26000  recon=18.6265  pr=2.4998  sid=0.3071  grl=4.4838  grl_p=2.6991  grlU=0.825/2.304  pros=3.3636  grlPr=2.949/2.860  aux=43.4201  dead=27.0%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.65e-05
+  [grad_norms @14000]
+    recon             |g|=4.40450  ratio=1.000x recon
+    pr_raw            |g|=17.66990  ratio=4.012x recon
+    pr_weighted       |g|=14.13592  ratio=3.209x recon
+    sid_raw           |g|=1.39506  ratio=0.317x recon
+    sid_weighted      |g|=0.83703  ratio=0.190x recon
+    grl               |g|=14.61112  ratio=3.317x recon
+    grl_p             |g|=5.49698  ratio=1.248x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  14000/26000  recon=18.4619  pr=2.5490  sid=0.2496  grl=5.3516  grl_p=2.7441  grlU=1.139/2.245  pros=4.9257  grlPr=4.861/4.686  aux=44.0009  dead=26.9%  L/P/U=5462/5461/5461  actL/P/U=8/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.59e-05
+  [val] step=14000  recon=18.9885  pr=2.5349  PER=0.665  sid_acc=0.986
+  step  14100/26000  recon=19.1856  pr=2.5002  sid=0.4410  grl=5.5928  grl_p=2.6583  grlU=1.400/2.210  pros=4.5139  grlPr=4.734/4.900  aux=46.6511  dead=26.8%  L/P/U=5462/5461/5461  actL/P/U=10/31/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.53e-05
+  step  14200/26000  recon=19.1898  pr=2.5423  sid=0.1932  grl=4.6296  grl_p=2.7657  grlU=1.578/2.231  pros=3.5458  grlPr=3.904/3.829  aux=46.7156  dead=26.5%  L/P/U=5462/5461/5461  actL/P/U=9/30/24  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.47e-05
+  step  14300/26000  recon=19.2795  pr=2.5637  sid=0.1695  grl=4.2911  grl_p=2.6587  grlU=0.103/2.218  pros=4.0575  grlPr=4.373/4.356  aux=45.7570  dead=26.3%  L/P/U=5462/5461/5461  actL/P/U=9/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.41e-05
+  step  14400/26000  recon=19.6703  pr=2.5502  sid=0.1322  grl=4.1650  grl_p=2.7084  grlU=0.357/2.210  pros=3.5495  grlPr=3.460/3.726  aux=47.8038  dead=26.2%  L/P/U=5462/5461/5461  actL/P/U=9/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.35e-05
+  [grad_norms @14500]
+    recon             |g|=6.08494  ratio=1.000x recon
+    pr_raw            |g|=9.13171  ratio=1.501x recon
+    pr_weighted       |g|=7.30537  ratio=1.201x recon
+    sid_raw           |g|=2.35685  ratio=0.387x recon
+    sid_weighted      |g|=1.41411  ratio=0.232x recon
+    grl               |g|=18.88726  ratio=3.104x recon
+    grl_p             |g|=2.56212  ratio=0.421x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  14500/26000  recon=19.6777  pr=2.5294  sid=0.1530  grl=5.1030  grl_p=2.6594  grlU=0.337/2.267  pros=3.2619  grlPr=3.692/3.941  aux=45.4143  dead=26.1%  L/P/U=5462/5461/5461  actL/P/U=9/34/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.29e-05
+  step  14600/26000  recon=19.4746  pr=2.5717  sid=0.1355  grl=4.7759  grl_p=2.7657  grlU=0.347/2.182  pros=3.2357  grlPr=3.101/3.412  aux=44.4740  dead=26.1%  L/P/U=5462/5461/5461  actL/P/U=9/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.23e-05
+  step  14700/26000  recon=20.0320  pr=2.7504  sid=0.1626  grl=4.7396  grl_p=2.7391  grlU=0.465/2.266  pros=3.2973  grlPr=4.071/4.441  aux=48.0207  dead=25.8%  L/P/U=5462/5461/5461  actL/P/U=9/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.17e-05
+  step  14800/26000  recon=20.3252  pr=2.6501  sid=0.2347  grl=3.9978  grl_p=2.7112  grlU=0.427/2.151  pros=3.5629  grlPr=3.711/3.763  aux=49.3856  dead=25.7%  L/P/U=5462/5461/5461  actL/P/U=9/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.11e-05
+  step  14900/26000  recon=20.1689  pr=2.6125  sid=0.0725  grl=5.1782  grl_p=2.6069  grlU=0.680/2.227  pros=3.0692  grlPr=3.228/3.225  aux=46.8813  dead=25.6%  L/P/U=5462/5461/5461  actL/P/U=9/34/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.05e-05
+  [grad_norms @15000]
+    recon             |g|=6.19449  ratio=1.000x recon
+    pr_raw            |g|=33.27020  ratio=5.371x recon
+    pr_weighted       |g|=26.61616  ratio=4.297x recon
+    sid_raw           |g|=2.27240  ratio=0.367x recon
+    sid_weighted      |g|=1.36344  ratio=0.220x recon
+    grl               |g|=32.34472  ratio=5.222x recon
+    grl_p             |g|=2.01084  ratio=0.325x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  15000/26000  recon=20.3077  pr=2.6117  sid=0.1602  grl=4.2354  grl_p=2.6158  grlU=0.189/2.210  pros=3.6600  grlPr=4.284/4.125  aux=48.1311  dead=25.8%  L/P/U=5462/5461/5461  actL/P/U=9/32/24  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.99e-05
+  [val] step=15000  recon=19.9531  pr=2.6803  PER=0.689  sid_acc=0.982
+  step  15100/26000  recon=20.1290  pr=2.6365  sid=0.1467  grl=4.2874  grl_p=2.6214  grlU=0.227/2.156  pros=2.9486  grlPr=3.445/3.353  aux=46.4147  dead=25.6%  L/P/U=5462/5461/5461  actL/P/U=8/33/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.93e-05
+  step  15200/26000  recon=20.1775  pr=2.6701  sid=0.4206  grl=5.0211  grl_p=2.6697  grlU=1.632/2.290  pros=2.9464  grlPr=3.536/3.820  aux=48.7797  dead=25.6%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.87e-05
+  step  15300/26000  recon=20.1398  pr=2.7194  sid=0.1357  grl=4.5444  grl_p=2.6591  grlU=0.676/2.298  pros=2.9659  grlPr=3.468/3.601  aux=49.5295  dead=25.3%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.81e-05
+  step  15400/26000  recon=20.2348  pr=2.6553  sid=0.0900  grl=4.1605  grl_p=2.6303  grlU=0.622/2.185  pros=3.2398  grlPr=3.120/3.043  aux=45.7273  dead=25.3%  L/P/U=5462/5461/5461  actL/P/U=8/34/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.75e-05
+  [grad_norms @15500]
+    recon             |g|=5.37506  ratio=1.000x recon
+    pr_raw            |g|=20.65434  ratio=3.843x recon
+    pr_weighted       |g|=16.52347  ratio=3.074x recon
+    sid_raw           |g|=5.83888  ratio=1.086x recon
+    sid_weighted      |g|=3.50333  ratio=0.652x recon
+    grl               |g|=10.08242  ratio=1.876x recon
+    grl_p             |g|=2.49964  ratio=0.465x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  15500/26000  recon=19.8883  pr=2.8295  sid=0.2461  grl=5.0601  grl_p=2.6590  grlU=0.616/2.243  pros=2.8933  grlPr=3.063/2.900  aux=48.5301  dead=25.1%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.70e-05
+  step  15600/26000  recon=20.9508  pr=2.7473  sid=0.2226  grl=4.4921  grl_p=2.6781  grlU=1.034/2.159  pros=3.0201  grlPr=3.273/3.412  aux=50.1159  dead=25.2%  L/P/U=5462/5461/5461  actL/P/U=9/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.64e-05
+  step  15700/26000  recon=20.6992  pr=2.6595  sid=0.1606  grl=3.9370  grl_p=2.6262  grlU=0.261/2.189  pros=4.3104  grlPr=5.053/5.101  aux=49.6234  dead=25.0%  L/P/U=5462/5461/5461  actL/P/U=9/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.58e-05
+  step  15800/26000  recon=20.6479  pr=2.7831  sid=0.1787  grl=3.0623  grl_p=2.5831  grlU=0.256/2.157  pros=3.5146  grlPr=3.386/3.194  aux=51.2604  dead=24.9%  L/P/U=5462/5461/5461  actL/P/U=9/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.52e-05
+  step  15900/26000  recon=20.4277  pr=2.8214  sid=0.2330  grl=4.1303  grl_p=2.6951  grlU=0.869/2.234  pros=3.7216  grlPr=4.180/3.843  aux=48.9952  dead=24.8%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.46e-05
+  [grad_norms @16000]
+    recon             |g|=4.04038  ratio=1.000x recon
+    pr_raw            |g|=37.43574  ratio=9.265x recon
+    pr_weighted       |g|=29.94860  ratio=7.412x recon
+    sid_raw           |g|=1.17024  ratio=0.290x recon
+    sid_weighted      |g|=0.70214  ratio=0.174x recon
+    grl               |g|=12.18747  ratio=3.016x recon
+    grl_p             |g|=1.72550  ratio=0.427x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  16000/26000  recon=20.6660  pr=2.7430  sid=0.1346  grl=5.0806  grl_p=2.6616  grlU=0.329/2.258  pros=3.3706  grlPr=3.876/3.768  aux=50.6037  dead=24.5%  L/P/U=5462/5461/5461  actL/P/U=8/33/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.40e-05
+  [val] step=16000  recon=20.6701  pr=2.7795  PER=0.707  sid_acc=0.990
+  step  16100/26000  recon=20.3819  pr=2.6482  sid=0.1296  grl=3.9505  grl_p=2.6334  grlU=0.350/2.257  pros=3.5549  grlPr=3.947/4.008  aux=47.3633  dead=24.4%  L/P/U=5462/5461/5461  actL/P/U=9/34/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.35e-05
+  step  16200/26000  recon=20.5604  pr=2.6761  sid=0.1538  grl=3.8149  grl_p=2.6064  grlU=0.097/2.171  pros=3.5374  grlPr=3.674/3.838  aux=50.5444  dead=24.5%  L/P/U=5462/5461/5461  actL/P/U=8/33/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.29e-05
+  step  16300/26000  recon=21.3409  pr=2.8702  sid=0.2160  grl=4.3340  grl_p=2.5529  grlU=1.049/2.206  pros=2.7236  grlPr=3.544/3.356  aux=50.6551  dead=24.3%  L/P/U=5462/5461/5461  actL/P/U=8/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.23e-05
+  step  16400/26000  recon=20.9339  pr=2.6737  sid=0.1474  grl=3.9497  grl_p=2.6343  grlU=0.642/2.242  pros=3.0591  grlPr=3.483/3.761  aux=49.1311  dead=24.3%  L/P/U=5462/5461/5461  actL/P/U=9/34/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.18e-05
+  [grad_norms @16500]
+    recon             |g|=4.50530  ratio=1.000x recon
+    pr_raw            |g|=34.18577  ratio=7.588x recon
+    pr_weighted       |g|=27.34862  ratio=6.070x recon
+    sid_raw           |g|=2.86308  ratio=0.635x recon
+    sid_weighted      |g|=1.71785  ratio=0.381x recon
+    grl               |g|=21.23532  ratio=4.713x recon
+    grl_p             |g|=1.50938  ratio=0.335x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  16500/26000  recon=21.0383  pr=2.9321  sid=0.1641  grl=4.4133  grl_p=2.6279  grlU=0.412/2.241  pros=3.4480  grlPr=3.597/3.700  aux=48.7025  dead=24.3%  L/P/U=5462/5461/5461  actL/P/U=8/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.12e-05
+  step  16600/26000  recon=20.8902  pr=2.7985  sid=0.1524  grl=2.6646  grl_p=2.6286  grlU=0.671/2.243  pros=2.8639  grlPr=2.930/2.997  aux=49.6924  dead=24.3%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.06e-05
+  step  16700/26000  recon=21.0403  pr=2.7300  sid=0.1375  grl=3.2800  grl_p=2.5978  grlU=0.287/2.112  pros=3.3001  grlPr=3.768/3.777  aux=51.0308  dead=24.1%  L/P/U=5462/5461/5461  actL/P/U=9/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.01e-05
+  step  16800/26000  recon=21.0914  pr=2.7192  sid=0.1438  grl=4.3323  grl_p=2.6151  grlU=1.138/2.148  pros=3.3005  grlPr=3.773/3.741  aux=48.1873  dead=24.0%  L/P/U=5462/5461/5461  actL/P/U=9/33/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.95e-05
+  step  16900/26000  recon=21.5876  pr=2.8440  sid=0.2866  grl=3.6646  grl_p=2.5825  grlU=1.172/2.218  pros=3.4606  grlPr=3.892/4.158  aux=50.2005  dead=24.0%  L/P/U=5462/5461/5461  actL/P/U=9/34/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.90e-05
+  [grad_norms @17000]
+    recon             |g|=4.59501  ratio=1.000x recon
+    pr_raw            |g|=31.89182  ratio=6.941x recon
+    pr_weighted       |g|=25.51345  ratio=5.552x recon
+    sid_raw           |g|=2.65220  ratio=0.577x recon
+    sid_weighted      |g|=1.59132  ratio=0.346x recon
+    grl               |g|=75.63980  ratio=16.461x recon
+    grl_p             |g|=6.94129  ratio=1.511x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  17000/26000  recon=21.1739  pr=2.7994  sid=0.1868  grl=4.2310  grl_p=2.5682  grlU=0.329/2.154  pros=2.7233  grlPr=3.423/3.471  aux=52.5886  dead=23.9%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.84e-05
+  [val] step=17000  recon=21.2388  pr=2.8443  PER=0.711  sid_acc=0.994
+  step  17100/26000  recon=21.5936  pr=2.7668  sid=0.1778  grl=3.8247  grl_p=2.5799  grlU=0.607/2.125  pros=3.0921  grlPr=3.203/3.842  aux=53.0062  dead=23.7%  L/P/U=5462/5461/5461  actL/P/U=10/32/23  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.79e-05
+  step  17200/26000  recon=21.1122  pr=2.8627  sid=0.0830  grl=4.4941  grl_p=2.5947  grlU=0.329/2.253  pros=2.9782  grlPr=2.968/3.093  aux=47.9619  dead=23.5%  L/P/U=5462/5461/5461  actL/P/U=7/35/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.74e-05
+  step  17300/26000  recon=21.4386  pr=2.8532  sid=0.0827  grl=4.2595  grl_p=2.6484  grlU=0.256/2.302  pros=2.9713  grlPr=3.431/3.613  aux=50.7558  dead=23.7%  L/P/U=5462/5461/5461  actL/P/U=9/34/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.68e-05
+  step  17400/26000  recon=21.4274  pr=2.8878  sid=0.2199  grl=3.3190  grl_p=2.6926  grlU=0.386/2.266  pros=3.5909  grlPr=3.875/3.791  aux=51.2546  dead=23.6%  L/P/U=5462/5461/5461  actL/P/U=9/33/22  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.63e-05
+  [grad_norms @17500]
+    recon             |g|=6.67180  ratio=1.000x recon
+    pr_raw            |g|=20.56872  ratio=3.083x recon
+    pr_weighted       |g|=16.45497  ratio=2.466x recon
+    sid_raw           |g|=2.17204  ratio=0.326x recon
+    sid_weighted      |g|=1.30322  ratio=0.195x recon
+    grl               |g|=130.14521  ratio=19.507x recon
+    grl_p             |g|=10.73418  ratio=1.609x recon
+    route             |g|=0.00000  ratio=0.000x recon
+  step  17500/26000  recon=22.3910  pr=2.8209  sid=0.1727  grl=3.4511  grl_p=2.6426  grlU=0.196/2.241  pros=3.2874  grlPr=3.885/3.877  aux=53.3875  dead=23.4%  L/P/U=5462/5461/5461  actL/P/U=8/35/21  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.58e-05

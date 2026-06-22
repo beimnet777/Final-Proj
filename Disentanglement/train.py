@@ -15,6 +15,7 @@ from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
@@ -127,6 +128,44 @@ def _edit_distance(a, b) -> int:
     return dp[n]
 
 
+# ---------------------------------------------------------------- adversary readouts
+# An adversary's CE/CTC loss alone is hard to read (e.g. speaker CE 4.5 vs chance
+# ln(251)=5.52 — is that "removed"?).  The interpretable readout is how much of the
+# factor the adversary can still EXTRACT: speaker top-1 accuracy (chance 1/S) for the
+# speaker adversaries, greedy PER (chance ~1.0) for the phoneme CTC adversaries.
+# Both helpers return raw counts so eval can accumulate exactly over the val set.
+
+@torch.no_grad()
+def _speaker_correct(logits: torch.Tensor, speaker_ids: torch.Tensor,
+                     lengths: torch.Tensor):
+    """(#correct, #total) top-1 speaker hits for an adversary head.
+
+    Handles frame-level (B, T, S) — padding-masked — and pooled (B, S) heads.
+    """
+    if logits.dim() == 3:
+        B, T, _ = logits.shape
+        pred = logits.argmax(dim=-1)                                        # (B, T)
+        mask = (torch.arange(T, device=logits.device).unsqueeze(0)
+                < lengths.unsqueeze(1))
+        tgt  = speaker_ids.unsqueeze(1).expand(B, T)
+        return int(((pred == tgt) & mask).sum().item()), int(mask.sum().item())
+    pred = logits.argmax(dim=-1)                                            # (B,)
+    return int((pred == speaker_ids).sum().item()), int(speaker_ids.numel())
+
+
+@torch.no_grad()
+def _ctc_errors(logits: torch.Tensor, targets: torch.Tensor,
+                input_lengths: torch.Tensor, target_lengths: torch.Tensor):
+    """(edit-distance, ref-length) for a CTC adversary head via greedy decode."""
+    preds = _greedy_ctc_decode(logits, input_lengths)
+    num = den = 0
+    for i, pred_ids in enumerate(preds):
+        ref = targets[i, :target_lengths[i]].tolist()
+        num += _edit_distance(pred_ids, ref)
+        den += len(ref)
+    return num, den
+
+
 # ---------------------------------------------------------------- validation
 
 @torch.no_grad()
@@ -150,6 +189,12 @@ def _eval_stage2(model, val_dl, device, use_bf16) -> Dict[str, float]:
     r_total, pr_total = 0.0, 0.0
     per_num, per_den  = 0, 0
     sid_correct, sid_total = 0, 0
+    # adversary readouts (speaker acc / phoneme PER) — accumulated only when the
+    # corresponding adversary head is present in the model's output.
+    grl_c, grl_t        = 0, 0    # speaker adversary on z_L
+    grlu_c, grlu_t      = 0, 0    # speaker adversary on z_U
+    grlp_n, grlp_d      = 0, 0    # phoneme adversary on z_P
+    grlpu_n, grlpu_d    = 0, 0    # phoneme adversary on z_U
     n = 0
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
 
@@ -179,13 +224,31 @@ def _eval_stage2(model, val_dl, device, use_bf16) -> Dict[str, float]:
         sid_correct += (sid_pred == speaker_ids).sum().item()
         sid_total   += speaker_ids.size(0)
 
+        # adversary readouts — how much factor each adversary can still extract
+        c, t = _speaker_correct(out["grl_logits"], speaker_ids, out["out_lengths"])
+        grl_c += c; grl_t += t
+        if "grl_u_logits" in out:
+            c, t = _speaker_correct(out["grl_u_logits"], speaker_ids, out["out_lengths"])
+            grlu_c += c; grlu_t += t
+        if "pr_grl_logits" in out:
+            num, den = _ctc_errors(out["pr_grl_logits"], targets, out["out_lengths"], target_lengths)
+            grlp_n += num; grlp_d += den
+        if "pr_grl_u_logits" in out:
+            num, den = _ctc_errors(out["pr_grl_u_logits"], targets, out["out_lengths"], target_lengths)
+            grlpu_n += num; grlpu_d += den
+
     model.train()
-    return {
+    metrics = {
         "recon":   r_total   / max(n, 1),
         "pr":      pr_total  / max(n, 1),
         "per":     per_num   / max(per_den, 1),
         "sid_acc": sid_correct / max(sid_total, 1),
+        "grl_acc": grl_c     / max(grl_t, 1),     # speaker still readable from z_L (chance 1/S)
     }
+    if grlp_d  > 0: metrics["grl_p_per"]   = grlp_n  / grlp_d   # phoneme still readable from z_P
+    if grlu_t  > 0: metrics["grl_u_acc"]   = grlu_c  / grlu_t   # speaker still readable from z_U
+    if grlpu_d > 0: metrics["grl_p_u_per"] = grlpu_n / grlpu_d  # phoneme still readable from z_U
+    return metrics
 
 
 # ---------------------------------------------------------------- gradient norm snapshot
@@ -221,7 +284,7 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
                            eff_grl_weight: float = -1.0, grl_p_lam=None) -> None:
     """Per-loss gradient norms on SAE params — used for weight calibration."""
     device = torch.device(cfg.device)
-    audios, audio_lengths, targets, target_lengths, speaker_ids = batch
+    audios, audio_lengths, targets, target_lengths, speaker_ids = batch[:5]   # invariance batch has a 6th (perturbed) elem
     audios        = audios.to(device)
     audio_lengths = audio_lengths.to(device)
     targets       = targets.to(device)
@@ -259,6 +322,28 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         l_grl_p_gn = (ctc_pr_loss(out["pr_grl_logits"], targets, out["out_lengths"], target_lengths)
                       if (_grl_p_w > 0 and "pr_grl_logits" in out)
                       else l_recon.new_zeros(()))
+
+        # --- PER-FRAME gradient each adversary delivers to its block (reversal
+        # strength factored out, lam=1) — exposes the pooled-vs-dense dilution:
+        # pooled grl spreads one gradient over T frames; per-frame grl_p gives each
+        # frame its own.  Reported as the mean over valid frames of ||dL/dz[t]||.
+        def _per_frame_grad(loss, z):
+            g = torch.autograd.grad(loss, z, retain_graph=True, allow_unused=True)[0]
+            if g is None:
+                return 0.0
+            pf = g.float().norm(dim=-1)                                   # (B, T)
+            Tg = pf.shape[1]
+            m  = (torch.arange(Tg, device=z.device).unsqueeze(0) < out["out_lengths"].unsqueeze(1)).float()
+            return float((pf * m).sum() / m.sum().clamp(min=1))
+        sp_lg  = model.grl_head(out["z_L"], out["out_lengths"], 1.0)
+        L_sp   = (sid_ce_loss_frames(sp_lg, speaker_ids, out["out_lengths"])
+                  if sp_lg.dim() == 3 else sid_ce_loss(sp_lg, speaker_ids))
+        pf_grl = _per_frame_grad(L_sp, out["z_L"])
+        pf_grl_p = 0.0
+        if _grl_p_w > 0 and hasattr(model, 'pr_grl_head'):
+            ph_lg  = model.pr_grl_head(out["z_P"], 1.0)
+            L_ph   = ctc_pr_loss(ph_lg, targets, out["out_lengths"], target_lengths)
+            pf_grl_p = _per_frame_grad(L_ph, out["z_P"])
 
         loss_terms = [
             ("recon",    l_recon,              True),
@@ -298,8 +383,122 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
     for k, v in norms.items():
         ratio = v / recon_n if recon_n > 1e-8 else float("nan")
         lines.append(f"    {k:<16s}  |g|={v:.5f}  ratio={ratio:.3f}x recon")
+    # per-frame gradient density (mean ||dL/dz[t]|| over valid frames; lam=1)
+    ratio_pf = (pf_grl_p / pf_grl) if pf_grl > 1e-12 else float("nan")
+    lines.append(f"    per-frame |dL/dz[t]|:  grl(z_L)={pf_grl:.5f}   grl_p(z_P)={pf_grl_p:.5f}"
+                 f"   (grl_p/grl = {ratio_pf:.1f}x  <- pooled-vs-dense dilution)")
     print("\n".join(lines))
+    norms["grl_perframe"] = pf_grl
+    norms["grl_p_perframe"] = pf_grl_p
     tb.log_grad_norms(step, norms)
+
+
+def _masked_mse(a: torch.Tensor, b: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    """Mean squared error over valid frames (a, b: (B, T, D))."""
+    T = a.shape[1]
+    mask = (torch.arange(T, device=a.device).unsqueeze(0) < lengths.unsqueeze(1)
+            ).float().unsqueeze(-1)
+    return (((a - b) ** 2) * mask).sum() / mask.sum().clamp(min=1) / a.shape[-1]
+
+
+def _invariance_loss(zL: torch.Tensor, zLp: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    """Scale-normalized per-frame invariance: the FRACTION of z_L's energy that
+    changes under the speaker perturbation, averaged over valid frames.
+
+        r_t = ||z_L[t] - z_L'[t]||^2 / (0.5(||z_L[t]||^2 + ||z_L'[t]||^2) + eps)
+
+    r in [0, ~2]: 0 = perfectly invariant, 1 = orthogonal.  Being scale-invariant
+    (independent of z_L magnitude and of the K_L zero-padding), a small interpretable
+    weight works — unlike the raw MSE whose K_L normalization diluted the gradient.
+    """
+    T = min(zL.shape[1], zLp.shape[1])
+    zL, zLp = zL[:, :T], zLp[:, :T]
+    diff = (zL - zLp).pow(2).sum(-1)                                  # (B, T)
+    den  = 0.5 * (zL.pow(2).sum(-1) + zLp.pow(2).sum(-1)) + 1e-6
+    r    = diff / den                                                 # (B, T)
+    mask = (torch.arange(T, device=zL.device).unsqueeze(0) < lengths.unsqueeze(1)).float()
+    return (r * mask).sum() / mask.sum().clamp(min=1)
+
+
+def _interp1d(x: torch.Tensor, T: int) -> torch.Tensor:
+    """Linear-resample a 1-D contour to length T."""
+    L = x.shape[0]
+    if L == T:
+        return x
+    if L < 2:
+        return x.new_full((T,), float(x.mean()) if L else 0.0)
+    return F.interpolate(x.view(1, 1, L), size=T, mode="linear", align_corners=True).view(T)
+
+
+@torch.no_grad()
+def _prosody_targets_fast(audios, audio_lengths, out_lengths, sr: int = 16_000):
+    """Per-frame prosody targets aligned to the SAE frame grid, computed on the fly
+    (no caching): log-F0 via torchaudio NCCF pitch (fast, batched-capable) + log
+    frame-RMS energy.  Returns (f0, voiced, energy), each (B, Tmax).  F0 is raw
+    (not speaker-normalized) so z_P can serve both SID and prosody."""
+    import torchaudio.functional as AF
+    B = audios.shape[0]
+    Tmax = int(out_lengths.max().item()) if B else 0
+    dev = audios.device
+    f0o = torch.zeros(B, Tmax, device=dev)
+    vo  = torch.zeros(B, Tmax, device=dev)
+    eo  = torch.zeros(B, Tmax, device=dev)
+    frame, hop = 400, 160
+    # Pitch/energy extraction must run in fp32 (NCCF/FFT) — disable the bf16 autocast.
+    ac_ctx = torch.autocast("cuda" if audios.is_cuda else "cpu", enabled=False)
+    aud = audios.float()
+    with ac_ctx:
+      for i in range(B):
+        n  = int(audio_lengths[i].item())
+        Ti = int(out_lengths[i].item())
+        if Ti <= 0 or n < frame:
+            continue
+        w = aud[i, :n]
+        loge = w.unfold(0, frame, hop).pow(2).mean(-1).clamp_min(1e-8).log()   # (Lf,)
+        try:
+            f0 = AF.detect_pitch_frequency(
+                w.unsqueeze(0), sr, frame_time=hop / sr,
+                win_length=30, freq_low=65, freq_high=400).squeeze(0)
+        except Exception:
+            f0 = torch.zeros_like(loge)
+        voiced = ((f0 >= 65.0) & (f0 <= 400.0)).float()
+        logf0  = torch.where(voiced.bool(), f0.clamp_min(1.0).log(), torch.zeros_like(f0))
+        f0o[i, :Ti] = _interp1d(logf0,  Ti)
+        vo[i, :Ti]  = (_interp1d(voiced, Ti) > 0.5).float()
+        eo[i, :Ti]  = _interp1d(loge,   Ti)
+    return f0o, vo, eo
+
+
+def _prosody_train_loss(pred, f0, voiced, energy, lengths) -> torch.Tensor:
+    """Masked MSE: F0 on voiced frames, energy on all valid frames (pred: (B,T,2)).
+
+    The padded pred frame-dim can exceed the target Tmax (=out_lengths.max()) by a
+    frame, so align both to the common T (extra frames are padding, masked anyway).
+    """
+    T = min(pred.shape[1], f0.shape[1])
+    pred = pred[:, :T]
+    valid = (torch.arange(T, device=pred.device).unsqueeze(0) < lengths.unsqueeze(1)).float()
+    vmask = voiced[:, :T] * valid
+    f0e = ((pred[..., 0] - f0[:, :T]) ** 2 * vmask).sum() / vmask.sum().clamp(min=1)
+    ee  = ((pred[..., 1] - energy[:, :T]) ** 2 * valid).sum() / valid.sum().clamp(min=1)
+    return f0e + ee
+
+
+@torch.no_grad()
+def _init_bias_geometric_median(model, batch, device, use_bf16, iters: int = 20) -> None:
+    """Init b_pre to the geometric median of a batch of h_t (Gao et al. A.1)."""
+    audios, audio_lengths = batch[0].to(device), batch[1].to(device)
+    ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
+    with ctx:
+        h_t, out_lengths = model.encoder(audios, audio_lengths)
+    T = h_t.shape[1]
+    mask = (torch.arange(T, device=device).unsqueeze(0) < out_lengths.unsqueeze(1))
+    X = h_t[mask].float()                                      # (N, D) valid frames
+    gm = X.mean(0)
+    for _ in range(iters):                                     # Weiszfeld iterations
+        w = 1.0 / (X - gm).norm(dim=1).clamp(min=1e-6)
+        gm = (X * w.unsqueeze(1)).sum(0) / w.sum()
+    model.sae.b_pre.data.copy_(gm.to(model.sae.b_pre.dtype))
 
 
 # ================================================================ Stage 1
@@ -323,6 +522,13 @@ def run_stage1(cfg: DISConfig) -> Path:
 
     use_bf16 = cfg.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     scaler   = torch.amp.GradScaler("cuda", enabled=(not use_bf16))
+
+    if getattr(cfg, 'geom_median_bias', False):
+        _init_bias_geometric_median(model, next(iter(train_dl)), device, use_bf16)
+        print("[stage 1] b_pre ← geometric median of a data sample")
+    if model.sae.aux_k > 0:
+        print(f"[stage 1] AuxK on: aux_k={model.sae.aux_k}  coef={cfg.aux_k_coef}  "
+              f"dead_thresh={model.sae.dead_threshold} steps  renorm_dec={getattr(cfg,'renorm_decoder',False)}")
 
     from datetime import datetime
     tb = DISLogger(cfg.runs_dir / "tb", run_name=f"stage1_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
@@ -356,6 +562,15 @@ def run_stage1(cfg: DISConfig) -> Path:
             if cfg.decor_weight > 0:
                 l_decor = decor_loss(out["z_t"], audio_lengths)
                 loss    = loss + cfg.decor_weight * l_decor
+            # AuxK dead-latent revival (Gao): model the recon residual with dead latents.
+            l_aux = None
+            if model.sae.aux_k > 0:
+                model.sae.update_dead(out["z_t"])
+                e_hat = model.sae.aux_reconstruct(out["z_pre"])
+                if e_hat is not None:
+                    resid = (out["h_t"] - out["h_hat"]).detach()         # residual target
+                    l_aux = _masked_mse(resid, e_hat, out["out_lengths"])
+                    loss  = loss + cfg.aux_k_coef * l_aux
 
         if use_bf16:
             loss.backward()
@@ -368,6 +583,8 @@ def run_stage1(cfg: DISConfig) -> Path:
             scaler.step(optimizer)
             scaler.update()
 
+        if getattr(cfg, 'renorm_decoder', False):
+            model.sae.normalize_decoder()
         scheduler.step()
 
         if step % cfg.log_every == 0 or step == 1:
@@ -383,7 +600,13 @@ def run_stage1(cfg: DISConfig) -> Path:
                       f"decor={decor_v:.4f} (w={cfg.decor_weight * decor_v:.4f})  "
                       f"total={loss.item():.4f}  lr={lr_now:.2e}")
             else:
-                print(f"  step {step:>6d}/{cfg.total_steps}  recon={recon_v:.4f}  lr={lr_now:.2e}")
+                aux_str = ""
+                if model.sae.aux_k > 0:
+                    n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
+                    aux_v  = l_aux.item() if l_aux is not None else 0.0
+                    aux_str = f"  aux={aux_v:.4f}  dead={n_dead}/{cfg.K} ({100*n_dead/cfg.K:.1f}%)"
+                    log_dict["aux"] = aux_v; log_dict["dead_frac"] = n_dead / cfg.K
+                print(f"  step {step:>6d}/{cfg.total_steps}  recon={recon_v:.4f}  lr={lr_now:.2e}{aux_str}")
             tb.log_train(step, log_dict)
             tb.log_sae(step, density)
 
@@ -450,6 +673,19 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     print(f"[stage 2] steps={cfg.stage2_steps}  batch={cfg.batch_size}")
 
     model.train()
+    use_bf16_init = cfg.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    if getattr(cfg, 'geom_median_bias', False):
+        _b = next(iter(train_dl))
+        _init_bias_geometric_median(model, (_b[0], _b[1]), device, use_bf16_init)
+        print("[stage 2] b_pre ← geometric median of a data sample")
+    if model.sae.aux_k > 0:
+        print(f"[stage 2] AuxK on: aux_k={model.sae.aux_k}  coef={cfg.aux_k_coef}  "
+              f"dead_thresh={model.sae.dead_threshold}  renorm_dec={getattr(cfg,'renorm_decoder',False)}")
+    if hasattr(model, 'grl_head_u'):
+        print(f"[stage 2] z_U adversaries on: grl_u={cfg.grl_u_weight}  grl_p_u={cfg.grl_phoneme_u_weight}")
+    if hasattr(model, 'prosody_head'):
+        print(f"[stage 2] prosody on: prosody_weight={cfg.prosody_weight}  "
+              f"anti-prosody grl_L={cfg.grl_prosody_weight}  grl_U={cfg.grl_prosody_u_weight}")
 
     projection_mode = getattr(cfg, 'projection_disentanglement', False)
 
@@ -460,16 +696,33 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     for _m in ("proj_L", "proj_P", "up_L", "up_P", "proj_U", "up_U"):
         if hasattr(model, _m):
             projection_params.extend(getattr(model, _m).parameters())
+    # Adversary discriminators get their own (optionally higher) lr so they can
+    # track the moving encoder; task heads stay weak at lr_heads.
+    u_adv_params = (list(model.grl_head_u.parameters()) + list(model.pr_grl_head_u.parameters())
+                    if hasattr(model, 'grl_head_u') else [])
+    # Prosody: task head trains at lr_heads; anti-prosody adversaries at lr_disc.
+    prosody_task_params = list(model.prosody_head.parameters()) if hasattr(model, 'prosody_head') else []
+    prosody_adv_params  = []
+    if hasattr(model, 'prosody_grl_head'):
+        prosody_adv_params += list(model.prosody_grl_head.parameters())
+    if hasattr(model, 'prosody_grl_head_u'):
+        prosody_adv_params += list(model.prosody_grl_head_u.parameters())
+    disc_params  = (list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters())
+                    + u_adv_params + prosody_adv_params)
+    lr_disc_eff  = cfg.lr_disc if getattr(cfg, 'lr_disc', 0.0) > 0 else cfg.lr_heads
     param_groups = [
         {"params": list(model.sae.parameters()),         "lr": cfg.lr},
         {"params": routing_params,                       "lr": cfg.lr_routing},
         {"params": (list(model.pr_head.parameters()) +
                     list(model.sid_head.parameters()) +
-                    list(model.grl_head.parameters()) +
-                    list(model.pr_grl_head.parameters())), "lr": cfg.lr_heads},
+                    prosody_task_params),                "lr": cfg.lr_heads},
+        {"params": disc_params,                          "lr": lr_disc_eff},
     ]
     if projection_params:
         param_groups.insert(2, {"params": projection_params, "lr": cfg.lr_heads})
+    vib_params = [model.vib_logvar] if hasattr(model, 'vib_logvar') else []
+    if vib_params:
+        param_groups.append({"params": vib_params, "lr": cfg.lr})
     optimizer = AdamW(param_groups, weight_decay=cfg.weight_decay)
     scheduler = _make_scheduler(optimizer, cfg.warmup_steps, cfg.stage2_steps, cfg.lr, cfg.lr_min)
 
@@ -484,10 +737,27 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     best_ckpt      = cfg.checkpoint_dir / "stage2_best.pt"
     train_iter     = iter(train_dl)
     no_routing     = getattr(cfg, 'no_routing', False)
+    fixed_blocks   = getattr(cfg, 'fixed_blocks', False)
     n_routes       = getattr(cfg, 'n_routes', 3)
-    routing_active = not no_routing and not projection_mode and bool(routing_params)
+    routing_active = not no_routing and not projection_mode and not fixed_blocks and bool(routing_params)
     grl_p_weight   = getattr(cfg, 'grl_phoneme_weight', 0.0)
     dann_fix       = getattr(cfg, 'dann_full_discriminator', False)
+    n_disc_steps   = max(1, int(getattr(cfg, 'n_disc_steps', 1)))
+    vib_w          = getattr(cfg, 'vib_zL_weight', 0.0)
+    vib_ramp_end   = getattr(cfg, 'vib_zL_ramp_end', 0)
+    grl_u_weight   = getattr(cfg, 'grl_u_weight', 0.0)          # speaker adv on z_U
+    grl_p_u_weight = getattr(cfg, 'grl_phoneme_u_weight', 0.0)  # phoneme adv on z_U
+    invariance_on  = getattr(cfg, 'invariance', False)
+    inv_w          = getattr(cfg, 'inv_weight', 0.0)
+    inv_ramp_end   = getattr(cfg, 'inv_ramp_end', 0)
+    if invariance_on:
+        print(f"[stage 2] invariance ON: inv_weight={inv_w}  ramp_end={inv_ramp_end} "
+              f"(z_L speaker-invariance via perturbed-pair consistency)")
+    prosody_on     = hasattr(model, 'prosody_head')
+    prosody_w      = getattr(cfg, 'prosody_weight', 0.0)            # z_P prosody task
+    grl_pros_w     = getattr(cfg, 'grl_prosody_weight', 0.0)        # anti-prosody on z_L
+    grl_pros_u_w   = getattr(cfg, 'grl_prosody_u_weight', 0.0)      # anti-prosody on z_U
+    aux_k_on       = model.sae.aux_k > 0
     ub_w           = getattr(cfg, 'ub_weight', 0.0)
     ub_ramp_start  = getattr(cfg, 'ub_ramp_start', 0)
     ub_ramp_end    = getattr(cfg, 'ub_ramp_end', 0)
@@ -496,7 +766,21 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     routing_clip_params = [] if projection_mode else list(model.routing.parameters())
     all_params     = (list(model.sae.parameters()) + routing_clip_params + projection_params +
                       list(model.pr_head.parameters()) + list(model.sid_head.parameters()) +
-                      list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters()))
+                      list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters()) +
+                      u_adv_params + prosody_task_params + prosody_adv_params +
+                      ([model.vib_logvar] if hasattr(model, 'vib_logvar') else []))
+
+    # ---- GradNorm: learn the managed task weights online (replaces fixed weights) ----
+    gradnorm_on = bool(getattr(cfg, 'gradnorm', False))
+    gn_every    = max(1, int(getattr(cfg, 'gradnorm_every', 1)))
+    gn_ctrl     = None
+    if gradnorm_on:
+        from gradnorm import GradNormController
+        gn_names = [t.strip() for t in getattr(cfg, 'gradnorm_tasks', 'recon,pr,sid').split(',') if t.strip()]
+        gn_ctrl  = GradNormController(gn_names, model.sae.enc_weight,
+                                      alpha=cfg.gradnorm_alpha, lr=cfg.gradnorm_lr, device=str(device))
+        print(f"[stage 2] GradNorm ON: tasks={gn_names}  alpha={cfg.gradnorm_alpha}  "
+              f"lr={cfg.gradnorm_lr}  every={gn_every}  shared=sae.enc_weight")
 
     for step in range(1, cfg.stage2_steps + 1):
         try:
@@ -513,6 +797,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             eff_ub_w = ub_w * min(1.0, max(0.0, (step - ub_ramp_start) / (ub_ramp_end - ub_ramp_start)))
         else:
             eff_ub_w = ub_w
+        # VIB KL ramp (let z_L form before compressing)
+        eff_vib_w = (vib_w * min(1.0, step / vib_ramp_end)) if (vib_w > 0 and vib_ramp_end > 0) else vib_w
         grl_active        = (cfg.grl_delay_steps == 0 or step >= cfg.grl_delay_steps)
         ramp              = _dann_lambda(step, cfg.stage2_steps) if grl_active else 0.0
         if dann_fix:
@@ -527,12 +813,22 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             grl_p_lam        = None
             eff_grl_weight   = cfg.grl_weight if grl_active else 0.0
             eff_grl_p_weight = grl_p_weight
+        # z_U adversaries (anti-speaker + anti-phoneme): reversal ramps with the rest;
+        # discriminators train at full strength (dann), so eff weight on their loss = 1.
+        grl_u_lam   = grl_u_weight   * ramp
+        grl_p_u_lam = grl_p_u_weight * ramp
+        # anti-prosody adversaries (z_L / z_U): reversal ramps with the rest
+        grl_pros_lam   = grl_pros_w   * ramp
+        # Invariance weight ramp (let z_L form content before stripping speaker)
+        eff_inv_w = (inv_w * min(1.0, step / inv_ramp_end)) if (invariance_on and inv_ramp_end > 0) else inv_w
+        grl_pros_u_lam = grl_pros_u_w * ramp
 
         if step % cfg.grad_log_every == 0:
             _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
                                    eff_grl_weight, grl_p_lam)
 
-        audios, audio_lengths, targets, target_lengths, speaker_ids = batch
+        audios, audio_lengths, targets, target_lengths, speaker_ids = batch[:5]
+        pert_audios    = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
         audios         = audios.to(device, non_blocking=True)
         audio_lengths  = audio_lengths.to(device, non_blocking=True)
         targets        = targets.to(device, non_blocking=True)
@@ -543,7 +839,16 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
         with ctx:
             out     = model(audios, audio_lengths, stage=2, grl_lambda=grl_lam,
-                            grl_p_lambda=grl_p_lam)
+                            grl_p_lambda=grl_p_lam,
+                            grl_u_lambda=grl_u_lam, grl_p_u_lambda=grl_p_u_lam,
+                            grl_prosody_lambda=grl_pros_lam,
+                            grl_prosody_u_lambda=grl_pros_u_lam)
+            # Invariance: z_L of the speaker-perturbed copy must match z_L of the
+            # original (frame-aligned) — a dense per-frame speaker-removal signal.
+            l_inv = out["z_L"].new_zeros(())
+            if invariance_on and pert_audios is not None:
+                out_p = model(pert_audios, audio_lengths, stage=2, grl_lambda=0.0)
+                l_inv = _invariance_loss(out["z_L"], out_p["z_L"], out["out_lengths"])
             l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
             l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
             l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
@@ -569,15 +874,79 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             l_u        = (out["z_U"].pow(2).mean()
                           if (u_l2_w > 0 and "z_U" in out)
                           else l_recon.new_zeros(()))
-            total      = (l_recon
-                          + cfg.alpha        * l_pr
-                          + cfg.beta         * l_sid
-                          + eff_grl_weight   * l_grl
-                          + eff_grl_p_weight * l_grl_p
+            # VIB KL on z_L
+            l_vib      = (out["vib_kl"] if "vib_kl" in out else l_recon.new_zeros(()))
+            # z_U adversaries: anti-speaker + anti-phoneme (dann → eff weight 1.0)
+            l_grl_u    = (sid_ce_loss_frames(out["grl_u_logits"], speaker_ids, out["out_lengths"])
+                          if (grl_u_weight > 0 and "grl_u_logits" in out and out["grl_u_logits"].dim() == 3)
+                          else (sid_ce_loss(out["grl_u_logits"], speaker_ids)
+                                if (grl_u_weight > 0 and "grl_u_logits" in out)
+                                else l_recon.new_zeros(())))
+            l_grl_p_u  = (ctc_pr_loss(out["pr_grl_u_logits"], targets, out["out_lengths"], target_lengths)
+                          if (grl_p_u_weight > 0 and "pr_grl_u_logits" in out)
+                          else l_recon.new_zeros(()))
+            eff_grl_u_w   = 1.0 if grl_u_weight   > 0 else 0.0
+            eff_grl_p_u_w = 1.0 if grl_p_u_weight > 0 else 0.0
+            # Prosody: per-frame F0/energy regression on z_P + anti-prosody adversaries.
+            l_pros = l_pros_grl = l_pros_grl_u = l_recon.new_zeros(())
+            if prosody_on and "prosody_pred" in out:
+                p_f0, p_v, p_e = _prosody_targets_fast(audios, audio_lengths, out["out_lengths"])
+                l_pros = _prosody_train_loss(out["prosody_pred"], p_f0, p_v, p_e, out["out_lengths"])
+                if "prosody_grl_pred" in out:
+                    l_pros_grl = _prosody_train_loss(out["prosody_grl_pred"], p_f0, p_v, p_e, out["out_lengths"])
+                if "prosody_grl_u_pred" in out:
+                    l_pros_grl_u = _prosody_train_loss(out["prosody_grl_u_pred"], p_f0, p_v, p_e, out["out_lengths"])
+            eff_grl_pros_w   = 1.0 if grl_pros_w   > 0 else 0.0
+            eff_grl_pros_u_w = 1.0 if grl_pros_u_w > 0 else 0.0
+            # AuxK dead-latent revival (Gao): model the recon residual with dead latents
+            l_aux = l_recon.new_zeros(())
+            if aux_k_on:
+                model.sae.update_dead(out["z_t"])
+                e_hat = model.sae.aux_reconstruct(out["z_pre"])
+                if e_hat is not None:
+                    resid = (out["h_t"] - out["h_hat"]).detach()
+                    l_aux = _masked_mse(resid, e_hat, out["out_lengths"])
+            # GradNorm-managed weights override the fixed ones for listed tasks;
+            # unmanaged tasks keep their cfg/eff weights.
+            if gradnorm_on:
+                _gw = gn_ctrl.weights()
+                m_recon  = _gw.get('recon',   1.0)
+                m_pr     = _gw.get('pr',      cfg.alpha)
+                m_sid    = _gw.get('sid',     cfg.beta)
+                m_grl    = _gw.get('grl',     eff_grl_weight)
+                m_grl_p  = _gw.get('grl_p',   eff_grl_p_weight)
+                m_grl_u  = _gw.get('grl_u',   eff_grl_u_w)
+                m_grl_pu = _gw.get('grl_p_u', eff_grl_p_u_w)
+                m_aux    = _gw.get('aux',     cfg.aux_k_coef)
+            else:
+                m_recon, m_pr, m_sid = 1.0, cfg.alpha, cfg.beta
+                m_grl, m_grl_p, m_grl_u, m_grl_pu = (eff_grl_weight, eff_grl_p_weight,
+                                                     eff_grl_u_w, eff_grl_p_u_w)
+                m_aux = cfg.aux_k_coef
+            total      = (m_recon            * l_recon
+                          + m_pr             * l_pr
+                          + m_sid            * l_sid
+                          + m_grl            * l_grl
+                          + m_grl_p          * l_grl_p
+                          + m_grl_u          * l_grl_u
+                          + m_grl_pu         * l_grl_p_u
+                          + prosody_w        * l_pros
+                          + eff_grl_pros_w   * l_pros_grl
+                          + eff_grl_pros_u_w * l_pros_grl_u
+                          + eff_inv_w        * l_inv
                           + cfg.rho          * l_route
                           + spec_w           * l_spec
                           + eff_ub_w         * l_ub
-                          + u_l2_w           * l_u)
+                          + u_l2_w           * l_u
+                          + eff_vib_w        * l_vib
+                          + m_aux            * l_aux)
+
+        # GradNorm weight update (retains the graph so total.backward() still works).
+        if gradnorm_on and step % gn_every == 0:
+            _gn_losses = {'recon': l_recon, 'pr': l_pr, 'sid': l_sid, 'grl': l_grl,
+                          'grl_p': l_grl_p, 'grl_u': l_grl_u, 'grl_p_u': l_grl_p_u,
+                          'aux': l_aux}
+            gn_ctrl.update({n: _gn_losses[n] for n in gn_ctrl.names})
 
         if use_bf16:
             total.backward()
@@ -590,11 +959,65 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             scaler.step(optimizer)
             scaler.update()
 
+        if getattr(cfg, 'renorm_decoder', False):
+            model.sae.normalize_decoder()
+
+        # ---- Extra discriminator catch-up steps (GAN n_critic) ----
+        # Reuse THIS batch's detached z_L/z_P (no extra encoder forward) to take a
+        # few more gradient steps on the adversary heads, so they track the moving
+        # encoder instead of stalling at chance.  lam=0: z is detached anyway, this
+        # is pure discriminator learning (no reversal to the encoder).
+        if n_disc_steps > 1:
+            zL_d   = out["z_L"].detach()
+            zP_d   = out["z_P"].detach()
+            zU_d   = out["z_U"].detach() if "z_U" in out else None
+            lens_d = out["out_lengths"]
+            # Reuse this batch's prosody targets for the anti-prosody adversary catch-up.
+            pros_adv = prosody_on and (grl_pros_w > 0 or grl_pros_u_w > 0)
+            if pros_adv:
+                pf0_d, pv_d, pe_d = _prosody_targets_fast(audios, audio_lengths, lens_d)
+            for _ in range(n_disc_steps - 1):
+                optimizer.zero_grad(set_to_none=True)
+                with ctx:
+                    sp = model.grl_head(zL_d, lens_d, 0.0)
+                    l_d = (sid_ce_loss_frames(sp, speaker_ids, lens_d)
+                           if sp.dim() == 3 else sid_ce_loss(sp, speaker_ids))
+                    if grl_p_weight > 0:
+                        ph = model.pr_grl_head(zP_d, 0.0)
+                        l_d = l_d + ctc_pr_loss(ph, targets, lens_d, target_lengths)
+                    if hasattr(model, 'grl_head_u') and zU_d is not None:
+                        spu = model.grl_head_u(zU_d, lens_d, 0.0)
+                        l_d = l_d + (sid_ce_loss_frames(spu, speaker_ids, lens_d)
+                                     if spu.dim() == 3 else sid_ce_loss(spu, speaker_ids))
+                        phu = model.pr_grl_head_u(zU_d, 0.0)
+                        l_d = l_d + ctc_pr_loss(phu, targets, lens_d, target_lengths)
+                    if pros_adv and grl_pros_w > 0:
+                        l_d = l_d + _prosody_train_loss(
+                            model.prosody_grl_head(zL_d, 0.0), pf0_d, pv_d, pe_d, lens_d)
+                    if pros_adv and grl_pros_u_w > 0 and zU_d is not None:
+                        l_d = l_d + _prosody_train_loss(
+                            model.prosody_grl_head_u(zU_d, 0.0), pf0_d, pv_d, pe_d, lens_d)
+                if use_bf16:
+                    l_d.backward()
+                    nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip)
+                    optimizer.step()
+                else:
+                    scaler.scale(l_d).backward()
+                    scaler.unscale_(optimizer)
+                    nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip)
+                    scaler.step(optimizer)
+                    scaler.update()
+            optimizer.zero_grad(set_to_none=True)
+
         scheduler.step()
 
         if step % cfg.log_every == 0 or step == 1:
             lr_now = optimizer.param_groups[0]["lr"]
-            if not no_routing and not projection_mode:
+            if fixed_blocks:
+                n_L, n_P, n_U = cfg.K_L, cfg.K_P, cfg.K_U
+                routing_diag = {}
+                entropy = float('nan')
+            elif not no_routing and not projection_mode:
                 n_L, n_P, n_U = model.routing.hard_counts
                 routing_diag = model.routing.routing_diagnostics
                 entropy = routing_diag["balance_entropy"]
@@ -614,23 +1037,73 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 fmask    = (torch.arange(T_, device=z_active.device).unsqueeze(0)
                             < out["out_lengths"].unsqueeze(1)).float()
                 n_valid  = fmask.sum().clamp(min=1)
-                if not no_routing and not projection_mode:
+                hard_idx = None
+                if fixed_blocks:
+                    hard_idx = model.block_idx                           # (K,) fixed
+                elif not no_routing and not projection_mode:
                     hard_idx = model.routing.logits.argmax(dim=-1)       # (K,)
+                if hard_idx is not None:
                     act_L = ((z_active * (hard_idx == 0).float()).sum(-1) * fmask).sum() / n_valid
                     act_P = ((z_active * (hard_idx == 1).float()).sum(-1) * fmask).sum() / n_valid
                     act_U = ((z_active * (hard_idx == 2).float()).sum(-1) * fmask).sum() / n_valid
                 else:
                     act_L = act_P = act_U = z_active.new_tensor(float('nan'))
 
-            grl_p_str = f"  grl_p={l_grl_p.item():.4f}" if grl_p_weight > 0 else ""
+                # Adversary readouts on this batch (loss is hard to read; accuracy/PER
+                # say directly how much each adversary still extracts).
+                gc, gt   = _speaker_correct(out["grl_logits"], speaker_ids, out["out_lengths"])
+                grl_acc  = gc / max(gt, 1)
+                grl_p_per = grl_u_acc = grl_p_u_per = None
+                if "pr_grl_logits" in out:
+                    num, den  = _ctc_errors(out["pr_grl_logits"], targets, out["out_lengths"], target_lengths)
+                    grl_p_per = num / max(den, 1)
+                if "grl_u_logits" in out:
+                    uc, ut    = _speaker_correct(out["grl_u_logits"], speaker_ids, out["out_lengths"])
+                    grl_u_acc = uc / max(ut, 1)
+                if "pr_grl_u_logits" in out:
+                    num, den    = _ctc_errors(out["pr_grl_u_logits"], targets, out["out_lengths"], target_lengths)
+                    grl_p_u_per = num / max(den, 1)
+
+            losses["grl_acc"] = grl_acc
+            if grl_p_per   is not None: losses["grl_p_per"]   = grl_p_per
+            if grl_u_acc   is not None: losses["grl_u_acc"]   = grl_u_acc
+            if grl_p_u_per is not None: losses["grl_p_u_per"] = grl_p_u_per
+
+            grl_p_str = ""
+            if grl_p_weight > 0:
+                grl_p_str = f"  grl_p={l_grl_p.item():.4f}"
+                if grl_p_per is not None:
+                    grl_p_str += f"(per={grl_p_per:.3f})"
             ub_str    = f"  ub={l_ub.item():.4f}"        if ub_w > 0        else ""
+            u_str = ""
+            if grl_u_weight > 0 or grl_p_u_weight > 0:
+                u_str = f"  grlU={l_grl_u.item():.3f}/{l_grl_p_u.item():.3f}"
+                _ua = f"{grl_u_acc:.3f}"   if grl_u_acc   is not None else "na"
+                _up = f"{grl_p_u_per:.3f}" if grl_p_u_per is not None else "na"
+                u_str += f"(acc={_ua},per={_up})"
+            pros_str  = ""
+            if prosody_on:
+                pros_str = f"  pros={l_pros.item():.4f}"
+                if grl_pros_w > 0 or grl_pros_u_w > 0:
+                    pros_str += f"  grlPr={l_pros_grl.item():.3f}/{l_pros_grl_u.item():.3f}"
+            inv_str   = f"  inv={l_inv.item():.4f}" if invariance_on else ""
+            vib_str   = f"  vib={l_vib.item():.4f}(w={eff_vib_w:.1e})" if vib_w > 0 else ""
+            aux_str   = ""
+            if aux_k_on:
+                n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
+                aux_str = f"  aux={l_aux.item():.4f}  dead={100*n_dead/cfg.K:.1f}%"
+            gn_str = ""
+            if gradnorm_on:
+                _gw = gn_ctrl.weights()
+                gn_str = "  gn=[" + " ".join(f"{k}:{v:.2f}" for k, v in _gw.items()) + "]"
+                losses.update({f"w_{k}": v for k, v in _gw.items()})
             print(
                 f"  step {step:>6d}/{cfg.stage2_steps}"
                 f"  recon={l_recon.item():.4f}"
                 f"  pr={l_pr.item():.4f}"
                 f"  sid={l_sid.item():.4f}"
-                f"  grl={l_grl.item():.4f}"
-                f"{grl_p_str}{ub_str}"
+                f"  grl={l_grl.item():.4f}(acc={grl_acc:.3f})"
+                f"{grl_p_str}{u_str}{pros_str}{inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
                 f"  L/P/U={n_L}/{n_P}/{n_U}"
                 f"  actL/P/U={act_L.item():.0f}/{act_P.item():.0f}/{act_U.item():.0f}"
                 f"  H={entropy:.3f}"
@@ -646,12 +1119,23 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
 
         if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
             val_metrics = _eval_stage2(model, val_dl, device, use_bf16)
+            # Per-bucket × per-task val readout (PR=PER↓, SID=acc↑), read straight off
+            # the model heads — NOT a probe.  Build heads: z_L PR (pr_head), z_P SID
+            # (sid_head).  Adversary heads (co-adapted proxy): z_L SID (grl_head),
+            # z_P PR (pr_grl_head), z_U PR/SID (pr_grl_u_head / grl_u_head).
+            zL_str = f"z_L PR={val_metrics['per']:.3f} SID={val_metrics['grl_acc']:.3f}"
+            zP_str = (f"z_P PR={val_metrics['grl_p_per']:.3f} SID={val_metrics['sid_acc']:.3f}"
+                      if "grl_p_per" in val_metrics
+                      else f"z_P SID={val_metrics['sid_acc']:.3f}")
+            bucket_str = f"  | {zL_str}  | {zP_str}"
+            if "grl_u_acc" in val_metrics:
+                zU_pr = f"PR={val_metrics['grl_p_u_per']:.3f} " if "grl_p_u_per" in val_metrics else ""
+                bucket_str += f"  | z_U {zU_pr}SID={val_metrics['grl_u_acc']:.3f}"
             print(
                 f"  [val] step={step}"
                 f"  recon={val_metrics['recon']:.4f}"
                 f"  pr={val_metrics['pr']:.4f}"
-                f"  PER={val_metrics['per']:.3f}"
-                f"  sid_acc={val_metrics['sid_acc']:.3f}"
+                f"{bucket_str}"
             )
             tb.log_val(step, val_metrics)
             # Stage 2 optimizes disentanglement, not reconstruction.  recon is

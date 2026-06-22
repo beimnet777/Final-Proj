@@ -131,7 +131,10 @@ class PhoneTokenizer:
 # ---------------------------------------------------------------- audio helper
 
 def _decode_audio(audio_dict: dict, target_sr: int) -> np.ndarray:
-    arr, sr = sf.read(io.BytesIO(audio_dict["bytes"]))
+    if audio_dict.get("bytes") is not None:
+        arr, sr = sf.read(io.BytesIO(audio_dict["bytes"]))     # HF streamed bytes
+    else:
+        arr, sr = sf.read(audio_dict["path"])                  # local flac on disk
     if arr.ndim > 1:
         arr = arr.mean(axis=1)
     if sr != target_sr:
@@ -140,12 +143,53 @@ def _decode_audio(audio_dict: dict, target_sr: int) -> np.ndarray:
     return arr.astype(np.float32)
 
 
-def _stream_examples(split_name: str, cache_dir: str, n: Optional[int]) -> List[dict]:
+# HF split name -> local LibriSpeech dir name
+_LOCAL_SPLIT = {"validation": "dev-clean", "test": "test-clean"}
+
+
+def _local_examples(cfg, split_name: str, n: Optional[int]) -> List[dict]:
+    """Build examples from raw LibriSpeech flac on disk (no HF/network)."""
+    from pathlib import Path
+    if split_name == "train.100":
+        sub = getattr(cfg, "train_split_dir", "train-clean-100")
+    else:
+        sub = _LOCAL_SPLIT.get(split_name, split_name)
+    base = Path(cfg.librispeech_root) / sub
+    if not base.exists():
+        raise FileNotFoundError(f"local LibriSpeech split not found: {base}")
+    examples: List[dict] = []
+    for spk_dir in sorted(base.iterdir()):
+        if not spk_dir.is_dir():
+            continue
+        try:
+            spk = int(spk_dir.name)
+        except ValueError:
+            continue
+        for ch_dir in sorted(spk_dir.iterdir()):
+            if not ch_dir.is_dir():
+                continue
+            trans = ch_dir / f"{spk_dir.name}-{ch_dir.name}.trans.txt"
+            if not trans.exists():
+                continue
+            for line in trans.read_text().splitlines():
+                uid, _, txt = line.partition(" ")
+                flac = ch_dir / f"{uid}.flac"
+                if flac.exists():
+                    examples.append({"audio": {"path": str(flac), "bytes": None},
+                                     "text": txt, "speaker_id": spk, "id": uid})
+                    if n is not None and len(examples) >= n:
+                        return examples
+    return examples
+
+
+def _stream_examples(split_name: str, cfg, n: Optional[int]) -> List[dict]:
+    if getattr(cfg, "local_data", False):
+        return _local_examples(cfg, split_name, n)
     ds = load_dataset(
         "librispeech_asr", "clean",
         split=split_name,
         streaming=True,
-        cache_dir=cache_dir,
+        cache_dir=str(cfg.librispeech_cache_dir),
     )
     ds = ds.cast_column("audio", Audio(decode=False))
     return list(itertools.islice(ds, n) if n is not None else ds)
@@ -176,6 +220,8 @@ class Stage2Dataset(Dataset):
         speaker_to_idx: Dict[int, int],
         lexicon: Dict,
         sample_rate: int,
+        perturb: bool = False,
+        perturb_kwargs: Optional[dict] = None,
     ) -> None:
         self.examples       = [ex for ex in examples if ex["speaker_id"] in speaker_to_idx]
         dropped = len(examples) - len(self.examples)
@@ -185,6 +231,8 @@ class Stage2Dataset(Dataset):
         self.speaker_to_idx = speaker_to_idx
         self.lexicon        = lexicon
         self.sample_rate    = sample_rate
+        self.perturb        = perturb              # invariance: also yield a speaker-perturbed copy
+        self.perturb_kwargs = perturb_kwargs or {}
 
     def __len__(self) -> int:
         return len(self.examples)
@@ -196,6 +244,10 @@ class Stage2Dataset(Dataset):
         phones      = text_to_phones(ex["text"].lower(), self.lexicon)
         phone_ids   = self.tokenizer.encode(phones)
         speaker_idx = self.speaker_to_idx[ex["speaker_id"]]
+        if self.perturb:
+            from .perturb import perturb_speaker
+            pert = perturb_speaker(arr, self.sample_rate, **self.perturb_kwargs)
+            return audio, arr.shape[0], phone_ids, speaker_idx, torch.from_numpy(pert)
         return audio, arr.shape[0], phone_ids, speaker_idx
 
 
@@ -206,10 +258,12 @@ def make_stage1_dataloaders(cfg):
     n_train = cfg.max_train_examples if cfg.max_train_examples > 0 else None
     n_val   = cfg.max_val_examples   if cfg.max_val_examples   > 0 else None
 
-    print("[dis_data] loading train-clean-100 …")
-    trn_ex = _stream_examples("train.100", str(cfg.librispeech_cache_dir), n_train)
+    _train_name = (getattr(cfg, "train_split_dir", "train-clean-100")
+                   if getattr(cfg, "local_data", False) else "train-clean-100")
+    print(f"[dis_data] loading {_train_name} …")
+    trn_ex = _stream_examples("train.100", cfg, n_train)
     print("[dis_data] loading dev-clean …")
-    val_ex = _stream_examples("validation", str(cfg.librispeech_cache_dir), n_val)
+    val_ex = _stream_examples("validation", cfg, n_val)
 
     train_ds = Stage1Dataset(trn_ex, cfg.sample_rate)
     val_ds   = Stage1Dataset(val_ex, cfg.sample_rate)
@@ -237,9 +291,11 @@ def make_stage2_dataloaders(cfg):
 
     lexicon = _get_lexicon(cfg.lexicon_path)
 
-    print("[dis_data] loading train-clean-100 …")
+    _train_name = (getattr(cfg, "train_split_dir", "train-clean-100")
+                   if getattr(cfg, "local_data", False) else "train-clean-100")
+    print(f"[dis_data] loading {_train_name} …")
     n_load = cfg.max_train_examples if cfg.max_train_examples > 0 else None
-    all_ex = _stream_examples("train.100", str(cfg.librispeech_cache_dir), n_load)
+    all_ex = _stream_examples("train.100", cfg, n_load)
 
     # Shuffle with fixed seed so split is reproducible
     rng = _random.Random(42)
@@ -262,9 +318,17 @@ def make_stage2_dataloaders(cfg):
 
     kw_ds = dict(tokenizer=tokenizer, speaker_to_idx=speaker_to_idx,
                  lexicon=lexicon, sample_rate=cfg.sample_rate)
-    train_ds = Stage2Dataset(trn_ex, **kw_ds)
+    # Invariance: the TRAIN loader also yields a speaker-perturbed copy of each
+    # utterance (val/test do not — perturbation is only for the training loss).
+    inv_on = getattr(cfg, "invariance", False)
+    pk = dict(f0_range=(getattr(cfg, "inv_f0_low", 0.7), getattr(cfg, "inv_f0_high", 1.5)),
+              formant_range=(getattr(cfg, "inv_formant_low", 0.85), getattr(cfg, "inv_formant_high", 1.3)))
+    train_ds = Stage2Dataset(trn_ex, perturb=inv_on, perturb_kwargs=pk, **kw_ds)
     val_ds   = Stage2Dataset(val_ex, **kw_ds)
     test_ds  = Stage2Dataset(tst_ex, **kw_ds)
+    if inv_on:
+        print(f"[dis_data] invariance ON — train loader yields speaker-perturbed pairs "
+              f"(f0×{pk['f0_range']}, formant×{pk['formant_range']})")
     print(f"[dis_data]  train={len(train_ds)}  val={len(val_ds)}  test={len(test_ds)}  "
           f"vocab={cfg.vocab_size}  speakers={cfg.num_speakers}")
 

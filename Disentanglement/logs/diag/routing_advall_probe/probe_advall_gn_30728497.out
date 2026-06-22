@@ -1,0 +1,76 @@
+=== Probe routing_advall_gn (z_t,z_L,z_P : PR + SID-stats) ===  Thu Jun 18 19:13:36 BST 2026
+NVIDIA A100-SXM4-80GB
+[diag_probe] run=diag_probe_routing_advall_gn  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ln_sae/stage1_best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/routing_advall_gn/stage2_best.pt
+[diag_probe] sources=['z_L', 'z_P']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=4000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=5
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[diag_probe] topk overridden: 256 -> 128
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/ln_sae/stage1_best.pt  (step=6000  val=0.0737)
+[diag_probe] skipped 9 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head_u.projector.weight', 'grl_head_u.projector.bias']) — fine, probe does not use adversarial heads
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/routing_advall_gn/stage2_best.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=stats
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> PR ...
+[pr_data] g2p_en loaded for OOV words
+      [pr z_L] step 250/4000  dev PER=0.155  (best 0.155, bad 0/5)
+      [pr z_L] step 500/4000  dev PER=0.145  (best 0.145, bad 0/5)
+      [pr z_L] step 750/4000  dev PER=0.133  (best 0.133, bad 0/5)
+      [pr z_L] step 1000/4000  dev PER=0.130  (best 0.130, bad 0/5)
+      [pr z_L] step 1250/4000  dev PER=0.129  (best 0.129, bad 0/5)
+      [pr z_L] step 1500/4000  dev PER=0.129  (best 0.129, bad 0/5)
+      [pr z_L] step 1750/4000  dev PER=0.126  (best 0.126, bad 0/5)
+      [pr z_L] step 2000/4000  dev PER=0.127  (best 0.126, bad 1/5)
+      [pr z_L] step 2250/4000  dev PER=0.128  (best 0.126, bad 2/5)
+      [pr z_L] step 2500/4000  dev PER=0.128  (best 0.126, bad 3/5)
+      [pr z_L] step 2750/4000  dev PER=0.124  (best 0.124, bad 0/5)
+      [pr z_L] step 3000/4000  dev PER=0.123  (best 0.123, bad 0/5)
+      [pr z_L] step 3250/4000  dev PER=0.123  (best 0.123, bad 0/5)
+      [pr z_L] step 3500/4000  dev PER=0.124  (best 0.123, bad 1/5)
+      [pr z_L] step 3750/4000  dev PER=0.124  (best 0.123, bad 2/5)
+      [pr z_L] step 4000/4000  dev PER=0.124  (best 0.123, bad 3/5)
+    z_L -> PR               PER test=0.127  (val 0.123)
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_L] step 250/4000  dev acc=0.014  (best 0.014, bad 0/5)
+      [sid z_L] step 500/4000  dev acc=0.026  (best 0.026, bad 0/5)
+      [sid z_L] step 750/4000  dev acc=0.054  (best 0.054, bad 0/5)
+      [sid z_L] step 1000/4000  dev acc=0.128  (best 0.128, bad 0/5)
+      [sid z_L] step 1250/4000  dev acc=0.168  (best 0.168, bad 0/5)
+      [sid z_L] step 1500/4000  dev acc=0.290  (best 0.290, bad 0/5)
+      [sid z_L] step 1750/4000  dev acc=0.380  (best 0.380, bad 0/5)
+      [sid z_L] step 2000/4000  dev acc=0.414  (best 0.414, bad 0/5)
+      [sid z_L] step 2250/4000  dev acc=0.460  (best 0.460, bad 0/5)
+      [sid z_L] step 2500/4000  dev acc=0.540  (best 0.540, bad 0/5)
+      [sid z_L] step 2750/4000  dev acc=0.584  (best 0.584, bad 0/5)
+      [sid z_L] step 3000/4000  dev acc=0.660  (best 0.660, bad 0/5)
+      [sid z_L] step 3250/4000  dev acc=0.660  (best 0.660, bad 1/5)
+      [sid z_L] step 3500/4000  dev acc=0.686  (best 0.686, bad 0/5)
+      [sid z_L] step 3750/4000  dev acc=0.722  (best 0.722, bad 0/5)
+      [sid z_L] step 4000/4000  dev acc=0.720  (best 0.722, bad 1/5)
+    z_L -> SID              acc test=0.708  (val 0.722)
+  training probe: z_P -> PR ...
+      [pr z_P] step 250/4000  dev PER=0.256  (best 0.256, bad 0/5)
+      [pr z_P] step 500/4000  dev PER=0.235  (best 0.235, bad 0/5)
+      [pr z_P] step 750/4000  dev PER=0.229  (best 0.229, bad 0/5)
+      [pr z_P] step 1000/4000  dev PER=0.230  (best 0.229, bad 1/5)
+      [pr z_P] step 1250/4000  dev PER=0.222  (best 0.222, bad 0/5)
+      [pr z_P] step 1500/4000  dev PER=0.216  (best 0.216, bad 0/5)
+      [pr z_P] step 1750/4000  dev PER=0.215  (best 0.215, bad 0/5)
+      [pr z_P] step 2000/4000  dev PER=0.214  (best 0.214, bad 0/5)
+      [pr z_P] step 2250/4000  dev PER=0.217  (best 0.214, bad 1/5)
+      [pr z_P] step 2500/4000  dev PER=0.217  (best 0.214, bad 2/5)

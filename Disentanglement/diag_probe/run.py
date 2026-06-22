@@ -47,7 +47,7 @@ from config import DISConfig
 from pr_config import PRConfig
 
 
-VALID_SOURCES = ("h_t", "z_t", "z_L", "z_P")
+VALID_SOURCES = ("h_t", "z_t", "z_L", "z_P", "z_U")
 
 
 def _set_seed(seed: int) -> None:
@@ -79,8 +79,16 @@ def _parse_args():
     p.add_argument("--sources", default="z_t,z_L,z_P",
                    help="Comma-separated sources. Default excludes fixed h_t.")
     p.add_argument("--tasks", default="pr,sid",
-                   help="Comma-separated tasks from {pr,sid}.")
-    p.add_argument("--probe_steps", type=int, default=2000)
+                   help="Comma-separated tasks from {pr,sid}. Prosody is toggled by --prosody.")
+    p.add_argument("--prosody", action=argparse.BooleanOptionalAction, default=cfg.prosody,
+                   help="Master switch: add the per-frame log-F0 + log-energy prosody probe "
+                        "(off by default — experiments run without prosody unless this is set).")
+    p.add_argument("--probe_steps", type=int, default=2000,
+                   help="max probe steps (early stopping may end sooner)")
+    p.add_argument("--probe_val_every", type=int, default=250,
+                   help="eval probe on dev every N steps for early stopping (0 = off, fixed steps)")
+    p.add_argument("--probe_patience", type=int, default=5,
+                   help="early-stop after this many dev evals with no improvement (0 = off)")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--topk", type=int, default=0)
     p.add_argument("--librispeech_cache_dir", default=str(cfg.librispeech_cache_dir))
@@ -92,6 +100,9 @@ def _parse_args():
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--pr_probe_lr", type=float, default=5e-4)
     p.add_argument("--sid_probe_lr", type=float, default=1e-3)
+    p.add_argument("--prosody_probe_lr", type=float, default=5e-4)
+    p.add_argument("--prosody_max_train", type=int, default=2000,
+                   help="Utterances in the prosody probe train pool (bounds one-time pyin F0 cost).")
     p.add_argument("--sid_probe_arch", choices=("linear", "stats"), default="linear",
                    help="SID probe: 'linear'=projector->mean-pool->linear (SUPERB-style; blind to "
                         "instance-normed features), 'stats'=projector->ReLU->mean+std pool->linear.")
@@ -103,8 +114,30 @@ def _parse_args():
     p.add_argument("--instance_norm_zL", action="store_true",
                    help="Instance-normalize z_L over time — MUST match training (IN has no params, "
                         "so it is not stored in the checkpoint).")
+    p.add_argument("--vib_zL_weight", type=float, default=0.0,
+                   help="Match training: builds the vib_logvar param (eval uses the mean, no noise).")
+    p.add_argument("--vib_zL_layernorm", action="store_true",
+                   help="Match training: param-free LayerNorm on z_L before VIB.")
     p.add_argument("--hard_gumbel_routing", action=argparse.BooleanOptionalAction, default=True,
                    help="Routing eval mode — MUST match training (hard argmax vs soft fractional masks).")
+    p.add_argument("--fixed_blocks", action="store_true",
+                   help="Option A: fixed L/P/U blocks — MUST match training.")
+    # Projection mode (z_L/z_P are learned views of z_t) — MUST match training so
+    # the probe rebuilds proj_L/proj_P and reads the correct z_L/z_P.
+    p.add_argument("--projection_disentanglement", action="store_true")
+    p.add_argument("--projection_reconstruct", action="store_true")
+    p.add_argument("--projection_nonlinear", action="store_true")
+    p.add_argument("--projection_dim", type=int, default=cfg.projection_dim)
+    p.add_argument("--projection_hidden", type=int, default=cfg.projection_hidden)
+    p.add_argument("--projection_u_dim", type=int, default=cfg.projection_u_dim)
+    p.add_argument("--per_block_topk", action=argparse.BooleanOptionalAction, default=cfg.per_block_topk,
+                   help="MUST match training: per-block TopK vs global TopK.")
+    p.add_argument("--K_L",    type=int, default=cfg.K_L)
+    p.add_argument("--K_P",    type=int, default=cfg.K_P)
+    p.add_argument("--K_U",    type=int, default=cfg.K_U)
+    p.add_argument("--topk_L", type=int, default=cfg.topk_L)
+    p.add_argument("--topk_P", type=int, default=cfg.topk_P)
+    p.add_argument("--topk_U", type=int, default=cfg.topk_U)
     p.add_argument("--gumbel_tau_end", type=float, default=0.1,
                    help="Soft-routing eval temperature — match training's final tau.")
     return p.parse_args()
@@ -115,9 +148,15 @@ def main() -> None:
     _set_seed(args.seed)
     sources = _parse_sources(args.sources)
     tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
-    bad_tasks = [t for t in tasks if t not in ("pr", "sid")]
+    bad_tasks = [t for t in tasks if t not in ("pr", "sid", "prosody")]
     if bad_tasks:
-        raise ValueError(f"Unknown task(s): {bad_tasks}. Valid: ('pr', 'sid')")
+        raise ValueError(f"Unknown task(s): {bad_tasks}. Valid: ('pr', 'sid', 'prosody')")
+    # The --prosody switch is authoritative: --prosody adds it, --no-prosody removes
+    # it (even if listed in --tasks).  Default off → experiments run without prosody.
+    if args.prosody and "prosody" not in tasks:
+        tasks.append("prosody")
+    elif not args.prosody and "prosody" in tasks:
+        tasks.remove("prosody")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -134,6 +173,19 @@ def main() -> None:
     cfg.instance_norm_zL = bool(args.instance_norm_zL)
     cfg.hard_gumbel_routing = bool(args.hard_gumbel_routing)
     cfg.gumbel_tau_end = args.gumbel_tau_end
+    cfg.fixed_blocks = bool(args.fixed_blocks)
+    cfg.per_block_topk = bool(args.per_block_topk)
+    cfg.vib_zL_weight = args.vib_zL_weight
+    cfg.vib_zL_layernorm = bool(args.vib_zL_layernorm)
+    cfg.projection_disentanglement = bool(args.projection_disentanglement)
+    cfg.projection_reconstruct     = bool(args.projection_reconstruct)
+    cfg.projection_nonlinear       = bool(args.projection_nonlinear)
+    cfg.projection_dim             = args.projection_dim
+    cfg.projection_hidden          = args.projection_hidden
+    cfg.projection_u_dim           = args.projection_u_dim
+    cfg.prosody = bool(args.prosody)
+    cfg.K_L, cfg.K_P, cfg.K_U = args.K_L, args.K_P, args.K_U
+    cfg.topk_L, cfg.topk_P, cfg.topk_U = args.topk_L, args.topk_P, args.topk_U
     cfg.librispeech_cache_dir = Path(args.librispeech_cache_dir)
     cfg.lexicon_path = Path(args.lexicon_path)
     cfg.max_train_examples = args.max_train_examples
@@ -149,7 +201,8 @@ def main() -> None:
     print(
         f"[diag_probe] probe_steps={args.probe_steps}  "
         f"pr_lr={args.pr_probe_lr}  sid_lr={args.sid_probe_lr}  "
-        f"warmup={args.probe_warmup_steps}"
+        f"warmup={args.probe_warmup_steps}  "
+        f"val_every={args.probe_val_every}  patience={args.probe_patience}"
     )
 
     use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
@@ -187,7 +240,20 @@ def main() -> None:
                 print(f"[diag_probe] projection_dim overridden: {cfg.projection_dim} -> {ckpt_dim}")
                 cfg.projection_dim = ckpt_dim
             print("[diag_probe] projection_disentanglement enabled from checkpoint")
+        # Prosody is only meaningful if the model was TRAINED with it (the
+        # checkpoint then carries prosody_head weights).  Gate the prosody probe
+        # on that, so we never report prosody numbers for a model that never
+        # learned to put prosody anywhere.
+        ckpt_has_prosody = any(k.startswith("prosody_head") for k in state)
+        if "prosody" in tasks and not ckpt_has_prosody:
+            print("[diag_probe] checkpoint has no prosody head (prosody not trained) "
+                  "— skipping the prosody probe.")
+            tasks.remove("prosody")
         del tmp
+    elif "prosody" in tasks:
+        # No stage2 checkpoint → baseline only → prosody was never trained.
+        print("[diag_probe] no stage2 checkpoint — skipping the prosody probe.")
+        tasks.remove("prosody")
 
     if args.topk > 0:
         print(f"[diag_probe] topk overridden: {cfg.topk} -> {args.topk}")
@@ -227,7 +293,8 @@ def main() -> None:
         p.requires_grad_(False)
 
     view_dim = cfg.projection_dim if cfg.projection_disentanglement else cfg.K
-    dims: Dict[str, int] = {"h_t": cfg.D, "z_t": cfg.K, "z_L": view_dim, "z_P": view_dim}
+    dims: Dict[str, int] = {"h_t": cfg.D, "z_t": cfg.K, "z_L": view_dim,
+                            "z_P": view_dim, "z_U": view_dim}
     results: Dict[str, Dict[str, float]] = {}
 
     print(f"\n[diag_probe] speakers={cfg.num_speakers}  pr_vocab={pr_vocab_size}  D={cfg.D}  K={cfg.K}")
@@ -235,48 +302,102 @@ def main() -> None:
     print(f"[diag_probe] SID: closed-set utterance split (val/test held out); probe arch={args.sid_probe_arch}")
     print("[diag_probe] reported metric = TEST (val shown in parentheses)\n")
 
+    # Prosody: build the audio+target train pool ONCE (pyin F0 is slow; this caches
+    # it).  Targets are source-independent, so the same pool feeds every bucket.
+    prosody_pool = None
+    if "prosody" in tasks:
+        print(f"[diag_probe] building prosody train pool (<= {args.prosody_max_train} utts, one-time pyin) ...",
+              flush=True)
+        prosody_pool = base_probe._build_prosody_pool(
+            sid_train_dl, model, device, use_bf16, has_routing, args.prosody_max_train)
+        print(f"[diag_probe] prosody pool: {len(prosody_pool)} batches", flush=True)
+
     for src in sources:
         results[src] = {}
         for task in tasks:
             label = f"{src} -> {task.upper()}"
             print(f"  training probe: {label} ...", flush=True)
+            if task == "prosody":
+                probe = base_probe._ProsodyProbe(dims[src]).to(device)
+                val_cache  = base_probe._cache_features(src, sid_val_dl,  model, device, use_bf16, has_routing, "prosody")
+                test_cache = base_probe._cache_features(src, sid_test_dl, model, device, use_bf16, has_routing, "prosody")
+                best = base_probe._train_prosody_probe(
+                    probe, src, prosody_pool, model, device, use_bf16, has_routing,
+                    steps=args.probe_steps, lr=args.prosody_probe_lr,
+                    warmup_steps=args.probe_warmup_steps,
+                    grad_clip=args.probe_grad_clip,
+                    val_cache=val_cache, val_every=args.probe_val_every,
+                    patience=args.probe_patience,
+                )
+                f0c, ec = base_probe._eval_prosody_probe_cached(probe, test_cache, device)
+                vf0, ve = best if best is not None else base_probe._eval_prosody_probe_cached(probe, val_cache, device)
+                results[src]["prosody_f0"]  = f0c
+                results[src]["prosody_e"]   = ec
+                results[src]["prosody_f0_val"] = vf0
+                results[src]["prosody_e_val"]  = ve
+                print(f"    {label:<22s}  F0 r={f0c:.3f}  E r={ec:.3f}  (val F0 {vf0:.3f}, E {ve:.3f})", flush=True)
+                continue
             if task == "sid":
                 sid_cls = (base_probe._SIDProbeStats if args.sid_probe_arch == "stats"
                            else base_probe._SIDProbe)
                 probe = sid_cls(dims[src], cfg.num_speakers).to(device)
-                base_probe._train_sid_probe(
+                # Cache dev/test features once (frozen model) → cheap repeated evals.
+                val_cache  = base_probe._cache_features(src, sid_val_dl,  model, device, use_bf16, has_routing, "sid")
+                test_cache = base_probe._cache_features(src, sid_test_dl, model, device, use_bf16, has_routing, "sid")
+                best_val = base_probe._train_sid_probe(
                     probe, src, sid_train_dl, model, device, use_bf16, has_routing,
                     steps=args.probe_steps, lr=args.sid_probe_lr,
                     warmup_steps=args.probe_warmup_steps,
                     grad_clip=args.probe_grad_clip,
+                    val_cache=val_cache, val_every=args.probe_val_every,
+                    patience=args.probe_patience,
                 )
-                val_score  = base_probe._eval_sid_probe(probe, src, sid_val_dl,  model, device, use_bf16, has_routing)
-                test_score = base_probe._eval_sid_probe(probe, src, sid_test_dl, model, device, use_bf16, has_routing)
+                val_score  = (best_val if best_val is not None
+                              else base_probe._eval_sid_probe_cached(probe, val_cache, device))
+                test_score = base_probe._eval_sid_probe_cached(probe, test_cache, device)
             else:
                 probe = base_probe._PRProbe(dims[src], pr_vocab_size).to(device)
-                base_probe._train_pr_probe(
+                val_cache  = base_probe._cache_features(src, pr_val_dl,  model, device, use_bf16, has_routing, "pr")
+                test_cache = base_probe._cache_features(src, pr_test_dl, model, device, use_bf16, has_routing, "pr")
+                best_val = base_probe._train_pr_probe(
                     probe, src, pr_train_dl, model, device, use_bf16, has_routing,
                     steps=args.probe_steps, lr=args.pr_probe_lr,
                     warmup_steps=args.probe_warmup_steps,
                     grad_clip=args.probe_grad_clip,
+                    val_cache=val_cache, tokenizer=pr_tokenizer,
+                    val_every=args.probe_val_every, patience=args.probe_patience,
                 )
-                val_score  = base_probe._eval_pr_probe(probe, src, pr_val_dl,  model, pr_tokenizer, device, use_bf16, has_routing)
-                test_score = base_probe._eval_pr_probe(probe, src, pr_test_dl, model, pr_tokenizer, device, use_bf16, has_routing)
+                val_score  = (best_val if best_val is not None
+                              else base_probe._eval_pr_probe_cached(probe, val_cache, pr_tokenizer, device))
+                test_score = base_probe._eval_pr_probe_cached(probe, test_cache, pr_tokenizer, device)
             results[src][task] = test_score          # reported metric = TEST
             results[src][task + "_val"] = val_score
             unit = "PER" if task == "pr" else "acc"
             print(f"    {label:<22s}  {unit} test={test_score:.3f}  (val {val_score:.3f})", flush=True)
 
-    print(f"\n{'=' * 66}")
+    has_prosody = "prosody" in tasks
+    width = 66 + (28 if has_prosody else 0)
+    print(f"\n{'=' * width}")
     print(f"  DIAGNOSTIC PROBE RESULTS - {args.run_name}")
-    print(f"{'=' * 66}")
-    print(f"  {'Source':<8s}  {'PR (PER↓)':>12s}  {'SID (acc↑)':>12s}")
-    print(f"  {'-' * 8}  {'-' * 12}  {'-' * 12}")
+    print(f"{'=' * width}")
+    header = f"  {'Source':<8s}  {'PR (PER↓)':>12s}  {'SID (acc↑)':>12s}"
+    if has_prosody:
+        header += f"  {'F0 (r↑)':>12s}  {'E (r↑)':>12s}"
+    print(header)
+    dashes = f"  {'-' * 8}  {'-' * 12}  {'-' * 12}"
+    if has_prosody:
+        dashes += f"  {'-' * 12}  {'-' * 12}"
+    print(dashes)
     for src in sources:
         per = results[src].get("pr", float("nan"))
         acc = results[src].get("sid", float("nan"))
-        print(f"  {src:<8s}  {per:>12.3f}  {acc:>12.3f}")
-    print(f"{'=' * 66}\n")
+        row = f"  {src:<8s}  {per:>12.3f}  {acc:>12.3f}"
+        if has_prosody:
+            f0c = results[src].get("prosody_f0", float("nan"))
+            ec  = results[src].get("prosody_e", float("nan"))
+            row += f"  {f0c:>12.3f}  {ec:>12.3f}"
+        print(row)
+    print(f"{'=' * width}\n")
 
 
 if __name__ == "__main__":
