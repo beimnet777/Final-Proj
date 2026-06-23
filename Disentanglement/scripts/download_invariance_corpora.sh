@@ -35,6 +35,7 @@ ARCTIC_SPEAKERS=(awb bdl clb jmk ksp rms slt)
 # Canonical Festvox path is /cmu_arctic/packed/.  Try a couple of mirrors in
 # order; first one to deliver an archive wins.
 ARCTIC_URL_BASES=(
+    "http://www.speech.cs.cmu.edu/cmu_arctic/packed"
     "http://www.festvox.org/cmu_arctic/packed"
     "http://festvox.org/cmu_arctic/packed"
     "http://festvox.org/cmu_arctic/cmu_arctic/packed"
