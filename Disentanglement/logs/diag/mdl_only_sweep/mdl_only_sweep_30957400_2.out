@@ -1,0 +1,79 @@
+=== MDL-only probe on job2_dense_gradnorm_seed84 ===  Tue 23 Jun 13:10:46 BST 2026
+NVIDIA A100-SXM4-80GB
+[diag_probe] run=mdl_job2_dense_gradnorm_seed84  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job2_dense_gradnorm_seed84/stage2_best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job2_dense_gradnorm_seed84/stage2_best.pt
+[diag_probe] sources=['z_L', 'z_P']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=2000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=5
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job2_dense_gradnorm_seed84/stage2_best.pt  (step=8000  val=0.0945)
+[diag_probe] skipped 2 shape-mismatched/stale keys (e.g. ['grl_head.context_conv.weight', 'grl_head.context_conv.bias']) — fine, probe does not use adversarial heads
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job2_dense_gradnorm_seed84/stage2_best.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=stats
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> PR ...
+[pr_data] g2p_en loaded for OOV words
+      [mdl z_L/pr] block 1/7  slice=[31, 62)  block_nats=2409.4  running_kbits=29.64
+      [mdl z_L/pr] block 2/7  slice=[62, 125)  block_nats=5738.7  running_kbits=37.92
+      [mdl z_L/pr] block 3/7  slice=[125, 250)  block_nats=9771.2  running_kbits=52.01
+      [mdl z_L/pr] block 4/7  slice=[250, 500)  block_nats=19089.5  running_kbits=79.55
+      [mdl z_L/pr] block 5/7  slice=[500, 1000)  block_nats=30030.3  running_kbits=122.88
+      [mdl z_L/pr] block 6/7  slice=[1000, 2000)  block_nats=49552.6  running_kbits=194.37
+      [mdl z_L/pr] block 7/7  slice=[2000, 4000)  block_nats=92838.9  running_kbits=328.30
+    z_L -> PR               MDL kbits=328.30 / uniform=3124.45  compression=89.5%  (n=4000, 8 blocks)
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [mdl z_L/sid] block 1/7  slice=[31, 62)  block_nats=1067.5  running_kbits=1.79
+      [mdl z_L/sid] block 2/7  slice=[62, 125)  block_nats=2327.7  running_kbits=5.15
+      [mdl z_L/sid] block 3/7  slice=[125, 250)  block_nats=4022.4  running_kbits=10.95
+      [mdl z_L/sid] block 4/7  slice=[250, 500)  block_nats=4784.7  running_kbits=17.85
+      [mdl z_L/sid] block 5/7  slice=[500, 1000)  block_nats=5947.5  running_kbits=26.43
+      [mdl z_L/sid] block 6/7  slice=[1000, 2000)  block_nats=4685.1  running_kbits=33.19
+      [mdl z_L/sid] block 7/7  slice=[2000, 4000)  block_nats=6903.3  running_kbits=43.15
+    z_L -> SID              MDL kbits=43.15 / uniform=31.89  compression=0.0%  (n=4000, 8 blocks)
+  training probe: z_P -> PR ...
+      [mdl z_P/pr] block 1/7  slice=[31, 62)  block_nats=17884.5  running_kbits=50.09
+      [mdl z_P/pr] block 2/7  slice=[62, 125)  block_nats=43395.2  running_kbits=112.70
+      [mdl z_P/pr] block 3/7  slice=[125, 250)  block_nats=71426.2  running_kbits=215.75
+      [mdl z_P/pr] block 4/7  slice=[250, 500)  block_nats=129350.8  running_kbits=402.36
+      [mdl z_P/pr] block 5/7  slice=[500, 1000)  block_nats=238065.6  running_kbits=745.82
+      [mdl z_P/pr] block 6/7  slice=[1000, 2000)  block_nats=441304.5  running_kbits=1382.48
+      [mdl z_P/pr] block 7/7  slice=[2000, 4000)  block_nats=828767.8  running_kbits=2578.14
+    z_P -> PR               MDL kbits=2578.14 / uniform=3127.38  compression=17.6%  (n=4000, 8 blocks)
+  training probe: z_P -> SID ...
+      [mdl z_P/sid] block 1/7  slice=[31, 62)  block_nats=748.8  running_kbits=1.33
+      [mdl z_P/sid] block 2/7  slice=[62, 125)  block_nats=1581.7  running_kbits=3.61
+      [mdl z_P/sid] block 3/7  slice=[125, 250)  block_nats=2948.4  running_kbits=7.86
+      [mdl z_P/sid] block 4/7  slice=[250, 500)  block_nats=3240.7  running_kbits=12.54
+      [mdl z_P/sid] block 5/7  slice=[500, 1000)  block_nats=1565.6  running_kbits=14.80
+      [mdl z_P/sid] block 6/7  slice=[1000, 2000)  block_nats=1065.1  running_kbits=16.33
+      [mdl z_P/sid] block 7/7  slice=[2000, 4000)  block_nats=390.7  running_kbits=16.90
+    z_P -> SID              MDL kbits=16.90 / uniform=31.89  compression=47.0%  (n=4000, 8 blocks)
+
+[diag_probe] --mdl_only: standard accuracy/PER probe skipped; see existing logs for those numbers.
+================================================================================
+  MDL CODELENGTH (probe-budget-free) - mdl_job2_dense_gradnorm_seed84
+================================================================================
+  Source    Task     kbits ↓     uniform    compr% ↑       n
+  --------  ----  ----------  ----------  ----------  ------
+  z_L       PR        328.30     3124.45        89.5    4000
+  z_L       SID        43.15       31.89         0.0    4000
+  z_P       PR       2578.14     3127.38        17.6    4000
+  z_P       SID        16.90       31.89        47.0    4000
+================================================================================
+
+Finished MDL-only probe job2_dense_gradnorm_seed84: Tue 23 Jun 13:29:49 BST 2026

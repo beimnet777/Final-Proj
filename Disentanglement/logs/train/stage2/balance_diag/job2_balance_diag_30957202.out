@@ -1,0 +1,1107 @@
+=== JOB2 BALANCING DIAGNOSTIC (grad cosines) ===  Tue 23 Jun 12:57:42 BST 2026
+NVIDIA A100-SXM4-80GB
+Steps=2500  schedule_horizon=12000  grad_log_every=50
+Cosine output: grep '\[grad_cos' on the .out file
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=2500  α=0.8  β=0.6  grl=1.0  ρ=0.0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=19,510,154  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.8  β=0.6  grl=1.0  ρ=0.0  grl_p=0.5  hard_gumbel=True  spear_ln=True  dann_full_disc=True
+[stage 2] steps=2500  schedule_steps=12000  batch=16
+[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + (1 - grl_p_per)  — in-training head proxies, NOT a probe; run diag_probe/ for the authoritative leakage signal.
+[dis_data] g2p_en loaded for OOV words
+  step      1/2500  recon=0.3663  pr=19.3898  sid=5.5117  grl=5.5277(acc=0.002)  grl_p=19.3890(per=2.301)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-07
+  [grad_norms @50]
+    recon             |g|=0.12154  ratio=1.000x recon
+    pr_raw            |g|=4.35014  ratio=35.792x recon
+    pr_weighted       |g|=3.48011  ratio=28.634x recon
+    sid_raw           |g|=0.42091  ratio=3.463x recon
+    sid_weighted      |g|=0.25255  ratio=2.078x recon
+    grl               |g|=0.22223  ratio=1.828x recon
+    grl_p             |g|=0.16742  ratio=1.378x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00033   (grl_p/grl = 0.3x  <- pooled-vs-dense dilution)
+    [grad_cos @50]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.003
+      cos(recon_vs_sid          ) = -0.005
+      cos(recon_vs_grl          ) = -0.006
+      cos(recon_vs_grl_p        ) = +0.087  aligned
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.013
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.051  conflict
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @100]
+    recon             |g|=0.08276  ratio=1.000x recon
+    pr_raw            |g|=7.41827  ratio=89.633x recon
+    pr_weighted       |g|=5.93462  ratio=71.706x recon
+    sid_raw           |g|=0.40359  ratio=4.876x recon
+    sid_weighted      |g|=0.24215  ratio=2.926x recon
+    grl               |g|=0.52805  ratio=6.380x recon
+    grl_p             |g|=0.00750  ratio=0.091x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00002   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @100]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.024
+      cos(recon_vs_sid          ) = +0.004
+      cos(recon_vs_grl          ) = +0.005
+      cos(recon_vs_grl_p        ) = -0.013
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.010
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.005
+      cos(grl_vs_grl_p          ) = +0.000
+  step    100/2500  recon=0.3284  pr=16.4752  sid=5.5254  grl=5.5010(acc=0.000)  grl_p=3.5369(per=1.000)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-05
+  [grad_norms @150]
+    recon             |g|=0.07124  ratio=1.000x recon
+    pr_raw            |g|=11.33137  ratio=159.062x recon
+    pr_weighted       |g|=9.06510  ratio=127.250x recon
+    sid_raw           |g|=0.42796  ratio=6.007x recon
+    sid_weighted      |g|=0.25678  ratio=3.604x recon
+    grl               |g|=0.53960  ratio=7.575x recon
+    grl_p             |g|=0.03988  ratio=0.560x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00088   grl_p(z_P)=0.00009   (grl_p/grl = 0.1x  <- pooled-vs-dense dilution)
+    [grad_cos @150]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.018
+      cos(recon_vs_sid          ) = +0.002
+      cos(recon_vs_grl          ) = -0.001
+      cos(recon_vs_grl_p        ) = +0.001
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.002
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.020
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @200]
+    recon             |g|=0.06532  ratio=1.000x recon
+    pr_raw            |g|=14.80445  ratio=226.648x recon
+    pr_weighted       |g|=11.84356  ratio=181.318x recon
+    sid_raw           |g|=0.42640  ratio=6.528x recon
+    sid_weighted      |g|=0.25584  ratio=3.917x recon
+    grl               |g|=0.98224  ratio=15.038x recon
+    grl_p             |g|=0.07405  ratio=1.134x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00024   (grl_p/grl = 0.2x  <- pooled-vs-dense dilution)
+    [grad_cos @200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.000
+      cos(recon_vs_sid          ) = +0.000
+      cos(recon_vs_grl          ) = +0.009
+      cos(recon_vs_grl_p        ) = -0.005
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.144  aligned
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.000
+      cos(grl_vs_grl_p          ) = +0.000
+  step    200/2500  recon=0.3464  pr=7.7708  sid=5.5059  grl=5.3633(acc=0.044)  grl_p=1.2633(per=0.530)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.00e-05
+  [grad_norms @250]
+    recon             |g|=0.05987  ratio=1.000x recon
+    pr_raw            |g|=5.87424  ratio=98.124x recon
+    pr_weighted       |g|=4.69939  ratio=78.499x recon
+    sid_raw           |g|=0.40158  ratio=6.708x recon
+    sid_weighted      |g|=0.24095  ratio=4.025x recon
+    grl               |g|=2.10705  ratio=35.196x recon
+    grl_p             |g|=0.13074  ratio=2.184x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00028   (grl_p/grl = 0.3x  <- pooled-vs-dense dilution)
+    [grad_cos @250]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.001
+      cos(recon_vs_sid          ) = +0.000
+      cos(recon_vs_grl          ) = +0.014
+      cos(recon_vs_grl_p        ) = -0.010
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.058  aligned
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.010
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @300]
+    recon             |g|=0.04545  ratio=1.000x recon
+    pr_raw            |g|=0.74504  ratio=16.392x recon
+    pr_weighted       |g|=0.59603  ratio=13.114x recon
+    sid_raw           |g|=0.42655  ratio=9.385x recon
+    sid_weighted      |g|=0.25593  ratio=5.631x recon
+    grl               |g|=2.17058  ratio=47.756x recon
+    grl_p             |g|=0.28407  ratio=6.250x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00099   grl_p(z_P)=0.00039   (grl_p/grl = 0.4x  <- pooled-vs-dense dilution)
+    [grad_cos @300]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.002
+      cos(recon_vs_sid          ) = +0.000
+      cos(recon_vs_grl          ) = +0.022
+      cos(recon_vs_grl_p        ) = -0.083  conflict
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.001
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.009
+      cos(grl_vs_grl_p          ) = +0.000
+  step    300/2500  recon=0.3199  pr=3.4409  sid=5.5273  grl=5.3847(acc=0.013)  grl_p=2.1276(per=0.669)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.00e-05
+  [grad_norms @350]
+    recon             |g|=0.04331  ratio=1.000x recon
+    pr_raw            |g|=0.66444  ratio=15.341x recon
+    pr_weighted       |g|=0.53155  ratio=12.273x recon
+    sid_raw           |g|=0.41836  ratio=9.659x recon
+    sid_weighted      |g|=0.25101  ratio=5.796x recon
+    grl               |g|=4.42561  ratio=102.181x recon
+    grl_p             |g|=0.43657  ratio=10.080x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00056   (grl_p/grl = 0.6x  <- pooled-vs-dense dilution)
+    [grad_cos @350]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.014
+      cos(recon_vs_sid          ) = -0.001
+      cos(recon_vs_grl          ) = -0.023
+      cos(recon_vs_grl_p        ) = -0.072  conflict
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.051  conflict
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.008
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @400]
+    recon             |g|=0.03893  ratio=1.000x recon
+    pr_raw            |g|=0.61845  ratio=15.885x recon
+    pr_weighted       |g|=0.49476  ratio=12.708x recon
+    sid_raw           |g|=0.46265  ratio=11.883x recon
+    sid_weighted      |g|=0.27759  ratio=7.130x recon
+    grl               |g|=2.47909  ratio=63.676x recon
+    grl_p             |g|=1.21649  ratio=31.246x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00080   grl_p(z_P)=0.00055   (grl_p/grl = 0.7x  <- pooled-vs-dense dilution)
+    [grad_cos @400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.007
+      cos(recon_vs_sid          ) = +0.005
+      cos(recon_vs_grl          ) = -0.006
+      cos(recon_vs_grl_p        ) = -0.029
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.016
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.014
+      cos(grl_vs_grl_p          ) = +0.000
+  step    400/2500  recon=0.2371  pr=2.0737  sid=5.4883  grl=5.3727(acc=0.040)  grl_p=3.4258(per=0.868)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.00e-05
+  [grad_norms @450]
+    recon             |g|=0.03662  ratio=1.000x recon
+    pr_raw            |g|=0.75596  ratio=20.642x recon
+    pr_weighted       |g|=0.60477  ratio=16.514x recon
+    sid_raw           |g|=0.45775  ratio=12.499x recon
+    sid_weighted      |g|=0.27465  ratio=7.500x recon
+    grl               |g|=2.20351  ratio=60.169x recon
+    grl_p             |g|=1.02175  ratio=27.900x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00099   grl_p(z_P)=0.00050   (grl_p/grl = 0.5x  <- pooled-vs-dense dilution)
+    [grad_cos @450]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.011
+      cos(recon_vs_sid          ) = +0.014
+      cos(recon_vs_grl          ) = -0.029
+      cos(recon_vs_grl_p        ) = -0.030
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.003
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.001
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @500]
+    recon             |g|=0.04128  ratio=1.000x recon
+    pr_raw            |g|=0.33751  ratio=8.175x recon
+    pr_weighted       |g|=0.27000  ratio=6.540x recon
+    sid_raw           |g|=0.46506  ratio=11.265x recon
+    sid_weighted      |g|=0.27903  ratio=6.759x recon
+    grl               |g|=12.86691  ratio=311.663x recon
+    grl_p             |g|=0.50297  ratio=12.183x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00038   (grl_p/grl = 0.4x  <- pooled-vs-dense dilution)
+    [grad_cos @500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.014
+      cos(recon_vs_sid          ) = +0.022
+      cos(recon_vs_grl          ) = -0.016
+      cos(recon_vs_grl_p        ) = -0.036
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.015
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.000
+      cos(grl_vs_grl_p          ) = +0.000
+  step    500/2500  recon=0.1803  pr=1.1820  sid=5.4590  grl=6.9070(acc=0.007)  grl_p=3.0604(per=0.917)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  [grad_norms @550]
+    recon             |g|=0.05052  ratio=1.000x recon
+    pr_raw            |g|=0.33660  ratio=6.662x recon
+    pr_weighted       |g|=0.26928  ratio=5.330x recon
+    sid_raw           |g|=0.57176  ratio=11.316x recon
+    sid_weighted      |g|=0.34306  ratio=6.790x recon
+    grl               |g|=2.42303  ratio=47.957x recon
+    grl_p             |g|=0.49504  ratio=9.798x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00052   grl_p(z_P)=0.00036   (grl_p/grl = 0.7x  <- pooled-vs-dense dilution)
+    [grad_cos @550]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.009
+      cos(recon_vs_sid          ) = +0.040
+      cos(recon_vs_grl          ) = -0.005
+      cos(recon_vs_grl_p        ) = -0.028
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.006
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.010
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @600]
+    recon             |g|=0.04815  ratio=1.000x recon
+    pr_raw            |g|=0.31432  ratio=6.528x recon
+    pr_weighted       |g|=0.25146  ratio=5.222x recon
+    sid_raw           |g|=0.62916  ratio=13.066x recon
+    sid_weighted      |g|=0.37750  ratio=7.839x recon
+    grl               |g|=0.80910  ratio=16.802x recon
+    grl_p             |g|=0.63761  ratio=13.241x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00022   grl_p(z_P)=0.00043   (grl_p/grl = 2.0x  <- pooled-vs-dense dilution)
+    [grad_cos @600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.009
+      cos(recon_vs_sid          ) = +0.026
+      cos(recon_vs_grl          ) = -0.023
+      cos(recon_vs_grl_p        ) = -0.019
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.003
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.011
+      cos(grl_vs_grl_p          ) = +0.000
+  step    600/2500  recon=0.1430  pr=0.8300  sid=5.5000  grl=5.4954(acc=0.010)  grl_p=2.7587(per=0.893)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  [grad_norms @650]
+    recon             |g|=0.05781  ratio=1.000x recon
+    pr_raw            |g|=0.23187  ratio=4.011x recon
+    pr_weighted       |g|=0.18550  ratio=3.209x recon
+    sid_raw           |g|=0.53878  ratio=9.320x recon
+    sid_weighted      |g|=0.32327  ratio=5.592x recon
+    grl               |g|=5.90711  ratio=102.185x recon
+    grl_p             |g|=0.73583  ratio=12.729x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00036   (grl_p/grl = 0.4x  <- pooled-vs-dense dilution)
+    [grad_cos @650]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.011
+      cos(recon_vs_sid          ) = +0.041
+      cos(recon_vs_grl          ) = -0.019
+      cos(recon_vs_grl_p        ) = -0.018
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.001
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.032
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @700]
+    recon             |g|=0.03977  ratio=1.000x recon
+    pr_raw            |g|=0.29761  ratio=7.483x recon
+    pr_weighted       |g|=0.23809  ratio=5.986x recon
+    sid_raw           |g|=0.54228  ratio=13.635x recon
+    sid_weighted      |g|=0.32537  ratio=8.181x recon
+    grl               |g|=0.72828  ratio=18.311x recon
+    grl_p             |g|=0.79868  ratio=20.081x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00016   grl_p(z_P)=0.00043   (grl_p/grl = 2.7x  <- pooled-vs-dense dilution)
+    [grad_cos @700]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.006
+      cos(recon_vs_sid          ) = +0.042
+      cos(recon_vs_grl          ) = -0.005
+      cos(recon_vs_grl_p        ) = -0.023
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.006
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.005
+      cos(grl_vs_grl_p          ) = +0.000
+  step    700/2500  recon=0.1237  pr=0.7179  sid=5.3301  grl=5.4835(acc=0.025)  grl_p=2.8509(per=0.897)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.99e-05
+  [grad_norms @750]
+    recon             |g|=0.04516  ratio=1.000x recon
+    pr_raw            |g|=0.25961  ratio=5.749x recon
+    pr_weighted       |g|=0.20768  ratio=4.599x recon
+    sid_raw           |g|=0.71165  ratio=15.760x recon
+    sid_weighted      |g|=0.42699  ratio=9.456x recon
+    grl               |g|=0.72262  ratio=16.003x recon
+    grl_p             |g|=0.88325  ratio=19.560x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00044   (grl_p/grl = 3.0x  <- pooled-vs-dense dilution)
+    [grad_cos @750]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.002
+      cos(recon_vs_sid          ) = +0.069  aligned
+      cos(recon_vs_grl          ) = -0.004
+      cos(recon_vs_grl_p        ) = -0.021
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.007
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.001
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @800]
+    recon             |g|=0.04657  ratio=1.000x recon
+    pr_raw            |g|=0.29187  ratio=6.268x recon
+    pr_weighted       |g|=0.23349  ratio=5.014x recon
+    sid_raw           |g|=0.64798  ratio=13.915x recon
+    sid_weighted      |g|=0.38879  ratio=8.349x recon
+    grl               |g|=0.55651  ratio=11.951x recon
+    grl_p             |g|=0.95773  ratio=20.567x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00007   grl_p(z_P)=0.00043   (grl_p/grl = 5.9x  <- pooled-vs-dense dilution)
+    [grad_cos @800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.003
+      cos(recon_vs_sid          ) = +0.061  aligned
+      cos(recon_vs_grl          ) = -0.011
+      cos(recon_vs_grl_p        ) = -0.014
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.007
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.021
+      cos(grl_vs_grl_p          ) = +0.000
+  step    800/2500  recon=0.1164  pr=0.6216  sid=5.3477  grl=5.5678(acc=0.005)  grl_p=3.0838(per=0.923)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.98e-05
+  [grad_norms @850]
+    recon             |g|=0.04365  ratio=1.000x recon
+    pr_raw            |g|=0.34518  ratio=7.908x recon
+    pr_weighted       |g|=0.27615  ratio=6.327x recon
+    sid_raw           |g|=0.75470  ratio=17.291x recon
+    sid_weighted      |g|=0.45282  ratio=10.375x recon
+    grl               |g|=13.50517  ratio=309.418x recon
+    grl_p             |g|=1.11690  ratio=25.589x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00046   (grl_p/grl = 0.5x  <- pooled-vs-dense dilution)
+    [grad_cos @850]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.003
+      cos(recon_vs_sid          ) = +0.054  aligned
+      cos(recon_vs_grl          ) = +0.001
+      cos(recon_vs_grl_p        ) = -0.013
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.053  conflict
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.010
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @900]
+    recon             |g|=0.05405  ratio=1.000x recon
+    pr_raw            |g|=0.36192  ratio=6.697x recon
+    pr_weighted       |g|=0.28954  ratio=5.357x recon
+    sid_raw           |g|=0.77708  ratio=14.378x recon
+    sid_weighted      |g|=0.46625  ratio=8.627x recon
+    grl               |g|=0.78847  ratio=14.589x recon
+    grl_p             |g|=1.09194  ratio=20.204x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00044   (grl_p/grl = 3.0x  <- pooled-vs-dense dilution)
+    [grad_cos @900]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.010
+      cos(recon_vs_sid          ) = +0.066  aligned
+      cos(recon_vs_grl          ) = -0.006
+      cos(recon_vs_grl_p        ) = -0.013
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.006
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.004
+      cos(grl_vs_grl_p          ) = +0.000
+  step    900/2500  recon=0.1123  pr=0.5478  sid=5.2129  grl=5.4991(acc=0.025)  grl_p=3.0281(per=0.925)  dead=0.2%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.97e-05
+  [grad_norms @950]
+    recon             |g|=0.04266  ratio=1.000x recon
+    pr_raw            |g|=0.29758  ratio=6.976x recon
+    pr_weighted       |g|=0.23806  ratio=5.581x recon
+    sid_raw           |g|=0.68061  ratio=15.956x recon
+    sid_weighted      |g|=0.40837  ratio=9.574x recon
+    grl               |g|=0.70254  ratio=16.470x recon
+    grl_p             |g|=1.04714  ratio=24.549x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00007   grl_p(z_P)=0.00045   (grl_p/grl = 6.0x  <- pooled-vs-dense dilution)
+    [grad_cos @950]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.008
+      cos(recon_vs_sid          ) = +0.061  aligned
+      cos(recon_vs_grl          ) = -0.001
+      cos(recon_vs_grl_p        ) = -0.011
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.011
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.002
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1000]
+    recon             |g|=0.04425  ratio=1.000x recon
+    pr_raw            |g|=0.34384  ratio=7.770x recon
+    pr_weighted       |g|=0.27507  ratio=6.216x recon
+    sid_raw           |g|=0.90551  ratio=20.461x recon
+    sid_weighted      |g|=0.54330  ratio=12.277x recon
+    grl               |g|=1.19533  ratio=27.010x recon
+    grl_p             |g|=1.19424  ratio=26.985x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00011   grl_p(z_P)=0.00043   (grl_p/grl = 3.9x  <- pooled-vs-dense dilution)
+    [grad_cos @1000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.002
+      cos(recon_vs_sid          ) = +0.074  aligned
+      cos(recon_vs_grl          ) = +0.000
+      cos(recon_vs_grl_p        ) = -0.007
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.003
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.004
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1000/2500  recon=0.1105  pr=0.5383  sid=5.0918  grl=5.4594(acc=0.007)  grl_p=2.9354(per=0.922)  dead=0.4%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.95e-05
+  [val] step=1000  recon=0.1099  pr=0.5204  | z_L PR=0.140 SID=0.004  | z_P PR=0.921 SID=0.156
+  ✓ best checkpoint (disent=1.0677  PER=0.140 sid=0.156 grl_acc=0.004 grl_p_per=0.921) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/diag_job2_balance_diag/stage2_best.pt
+  [grad_norms @1050]
+    recon             |g|=0.04532  ratio=1.000x recon
+    pr_raw            |g|=0.25516  ratio=5.630x recon
+    pr_weighted       |g|=0.20413  ratio=4.504x recon
+    sid_raw           |g|=0.94215  ratio=20.790x recon
+    sid_weighted      |g|=0.56529  ratio=12.474x recon
+    grl               |g|=1.06490  ratio=23.498x recon
+    grl_p             |g|=1.44587  ratio=31.905x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00011   grl_p(z_P)=0.00056   (grl_p/grl = 5.0x  <- pooled-vs-dense dilution)
+    [grad_cos @1050]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.006
+      cos(recon_vs_sid          ) = +0.070  aligned
+      cos(recon_vs_grl          ) = +0.004
+      cos(recon_vs_grl_p        ) = -0.013
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.013
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.007
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1100]
+    recon             |g|=0.04688  ratio=1.000x recon
+    pr_raw            |g|=0.29152  ratio=6.219x recon
+    pr_weighted       |g|=0.23322  ratio=4.975x recon
+    sid_raw           |g|=0.94314  ratio=20.118x recon
+    sid_weighted      |g|=0.56588  ratio=12.071x recon
+    grl               |g|=0.72961  ratio=15.563x recon
+    grl_p             |g|=1.18591  ratio=25.297x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00009   grl_p(z_P)=0.00045   (grl_p/grl = 5.2x  <- pooled-vs-dense dilution)
+    [grad_cos @1100]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.001
+      cos(recon_vs_sid          ) = +0.074  aligned
+      cos(recon_vs_grl          ) = -0.007
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.010
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.009
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1100/2500  recon=0.1089  pr=0.4810  sid=5.1055  grl=5.5184(acc=0.002)  grl_p=3.0193(per=0.932)  dead=0.5%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.93e-05
+  [grad_norms @1150]
+    recon             |g|=0.04512  ratio=1.000x recon
+    pr_raw            |g|=0.33611  ratio=7.449x recon
+    pr_weighted       |g|=0.26889  ratio=5.959x recon
+    sid_raw           |g|=0.83218  ratio=18.442x recon
+    sid_weighted      |g|=0.49931  ratio=11.065x recon
+    grl               |g|=0.68243  ratio=15.124x recon
+    grl_p             |g|=1.49884  ratio=33.217x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00008   grl_p(z_P)=0.00058   (grl_p/grl = 7.2x  <- pooled-vs-dense dilution)
+    [grad_cos @1150]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.004
+      cos(recon_vs_sid          ) = +0.072  aligned
+      cos(recon_vs_grl          ) = -0.007
+      cos(recon_vs_grl_p        ) = -0.013
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.001
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.007
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1200]
+    recon             |g|=0.04270  ratio=1.000x recon
+    pr_raw            |g|=0.22221  ratio=5.204x recon
+    pr_weighted       |g|=0.17777  ratio=4.163x recon
+    sid_raw           |g|=0.98848  ratio=23.151x recon
+    sid_weighted      |g|=0.59309  ratio=13.891x recon
+    grl               |g|=0.74327  ratio=17.408x recon
+    grl_p             |g|=1.32851  ratio=31.115x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00010   grl_p(z_P)=0.00044   (grl_p/grl = 4.2x  <- pooled-vs-dense dilution)
+    [grad_cos @1200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.003
+      cos(recon_vs_sid          ) = +0.091  aligned
+      cos(recon_vs_grl          ) = -0.006
+      cos(recon_vs_grl_p        ) = -0.014
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.009
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.009
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1200/2500  recon=0.1074  pr=0.4165  sid=5.0547  grl=5.5062(acc=0.009)  grl_p=3.1670(per=0.968)  dead=0.6%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.91e-05
+  [grad_norms @1250]
+    recon             |g|=0.04164  ratio=1.000x recon
+    pr_raw            |g|=0.26431  ratio=6.348x recon
+    pr_weighted       |g|=0.21145  ratio=5.078x recon
+    sid_raw           |g|=0.90068  ratio=21.630x recon
+    sid_weighted      |g|=0.54041  ratio=12.978x recon
+    grl               |g|=1.07298  ratio=25.768x recon
+    grl_p             |g|=1.56918  ratio=37.685x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00009   grl_p(z_P)=0.00045   (grl_p/grl = 5.1x  <- pooled-vs-dense dilution)
+    [grad_cos @1250]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.001
+      cos(recon_vs_sid          ) = +0.067  aligned
+      cos(recon_vs_grl          ) = -0.001
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.005
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.006
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1300]
+    recon             |g|=0.04338  ratio=1.000x recon
+    pr_raw            |g|=0.25709  ratio=5.927x recon
+    pr_weighted       |g|=0.20567  ratio=4.741x recon
+    sid_raw           |g|=1.00440  ratio=23.154x recon
+    sid_weighted      |g|=0.60264  ratio=13.893x recon
+    grl               |g|=0.85796  ratio=19.778x recon
+    grl_p             |g|=1.37571  ratio=31.714x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00009   grl_p(z_P)=0.00045   (grl_p/grl = 4.8x  <- pooled-vs-dense dilution)
+    [grad_cos @1300]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.000
+      cos(recon_vs_sid          ) = +0.072  aligned
+      cos(recon_vs_grl          ) = -0.006
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.012
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.010
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1300/2500  recon=0.1075  pr=0.4464  sid=4.9141  grl=5.5443(acc=0.007)  grl_p=3.2058(per=0.960)  dead=0.6%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.88e-05
+  [grad_norms @1350]
+    recon             |g|=0.04262  ratio=1.000x recon
+    pr_raw            |g|=0.25025  ratio=5.871x recon
+    pr_weighted       |g|=0.20020  ratio=4.697x recon
+    sid_raw           |g|=1.05009  ratio=24.637x recon
+    sid_weighted      |g|=0.63005  ratio=14.782x recon
+    grl               |g|=1.78261  ratio=41.824x recon
+    grl_p             |g|=1.53109  ratio=35.923x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00018   grl_p(z_P)=0.00044   (grl_p/grl = 2.4x  <- pooled-vs-dense dilution)
+    [grad_cos @1350]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.070  aligned
+      cos(recon_vs_grl          ) = -0.000
+      cos(recon_vs_grl_p        ) = -0.007
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.005
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.006
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1400]
+    recon             |g|=0.04717  ratio=1.000x recon
+    pr_raw            |g|=0.26942  ratio=5.712x recon
+    pr_weighted       |g|=0.21554  ratio=4.569x recon
+    sid_raw           |g|=1.05123  ratio=22.286x recon
+    sid_weighted      |g|=0.63074  ratio=13.371x recon
+    grl               |g|=0.87693  ratio=18.591x recon
+    grl_p             |g|=1.58555  ratio=33.613x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00011   grl_p(z_P)=0.00047   (grl_p/grl = 4.4x  <- pooled-vs-dense dilution)
+    [grad_cos @1400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.095  aligned
+      cos(recon_vs_grl          ) = +0.000
+      cos(recon_vs_grl_p        ) = -0.001
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.008
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.002
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1400/2500  recon=0.1091  pr=0.4405  sid=4.8301  grl=5.5334(acc=0.000)  grl_p=3.3255(per=0.968)  dead=0.6%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.85e-05
+  [grad_norms @1450]
+    recon             |g|=0.04366  ratio=1.000x recon
+    pr_raw            |g|=0.27465  ratio=6.290x recon
+    pr_weighted       |g|=0.21972  ratio=5.032x recon
+    sid_raw           |g|=1.12609  ratio=25.791x recon
+    sid_weighted      |g|=0.67565  ratio=15.475x recon
+    grl               |g|=1.21181  ratio=27.755x recon
+    grl_p             |g|=1.45928  ratio=33.423x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00012   grl_p(z_P)=0.00041   (grl_p/grl = 3.5x  <- pooled-vs-dense dilution)
+    [grad_cos @1450]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.083  aligned
+      cos(recon_vs_grl          ) = -0.000
+      cos(recon_vs_grl_p        ) = -0.012
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.005
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.005
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1500]
+    recon             |g|=0.04606  ratio=1.000x recon
+    pr_raw            |g|=0.28951  ratio=6.286x recon
+    pr_weighted       |g|=0.23161  ratio=5.028x recon
+    sid_raw           |g|=1.14912  ratio=24.948x recon
+    sid_weighted      |g|=0.68947  ratio=14.969x recon
+    grl               |g|=1.33803  ratio=29.050x recon
+    grl_p             |g|=1.27605  ratio=27.704x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00014   grl_p(z_P)=0.00043   (grl_p/grl = 3.0x  <- pooled-vs-dense dilution)
+    [grad_cos @1500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.002
+      cos(recon_vs_sid          ) = +0.112  aligned
+      cos(recon_vs_grl          ) = -0.004
+      cos(recon_vs_grl_p        ) = -0.007
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.010
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.002
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1500/2500  recon=0.1098  pr=0.4481  sid=4.7969  grl=5.4050(acc=0.010)  grl_p=3.3561(per=0.979)  dead=0.6%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.82e-05
+  [grad_norms @1550]
+    recon             |g|=0.05201  ratio=1.000x recon
+    pr_raw            |g|=0.29729  ratio=5.716x recon
+    pr_weighted       |g|=0.23783  ratio=4.573x recon
+    sid_raw           |g|=1.49266  ratio=28.700x recon
+    sid_weighted      |g|=0.89560  ratio=17.220x recon
+    grl               |g|=1.46741  ratio=28.215x recon
+    grl_p             |g|=1.25656  ratio=24.161x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00009   grl_p(z_P)=0.00041   (grl_p/grl = 4.5x  <- pooled-vs-dense dilution)
+    [grad_cos @1550]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.101  aligned
+      cos(recon_vs_grl          ) = -0.004
+      cos(recon_vs_grl_p        ) = -0.006
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.003
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.008
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1600]
+    recon             |g|=0.05281  ratio=1.000x recon
+    pr_raw            |g|=0.43462  ratio=8.230x recon
+    pr_weighted       |g|=0.34770  ratio=6.584x recon
+    sid_raw           |g|=1.41334  ratio=26.764x recon
+    sid_weighted      |g|=0.84801  ratio=16.058x recon
+    grl               |g|=0.90928  ratio=17.219x recon
+    grl_p             |g|=1.37374  ratio=26.014x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00009   grl_p(z_P)=0.00041   (grl_p/grl = 4.8x  <- pooled-vs-dense dilution)
+    [grad_cos @1600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.001
+      cos(recon_vs_sid          ) = +0.077  aligned
+      cos(recon_vs_grl          ) = +0.000
+      cos(recon_vs_grl_p        ) = -0.011
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.002
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.011
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1600/2500  recon=0.1113  pr=0.4071  sid=4.8652  grl=5.4608(acc=0.048)  grl_p=3.5298(per=0.993)  dead=0.7%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.78e-05
+  [grad_norms @1650]
+    recon             |g|=0.04863  ratio=1.000x recon
+    pr_raw            |g|=0.25918  ratio=5.329x recon
+    pr_weighted       |g|=0.20734  ratio=4.263x recon
+    sid_raw           |g|=1.29374  ratio=26.601x recon
+    sid_weighted      |g|=0.77624  ratio=15.961x recon
+    grl               |g|=1.42882  ratio=29.379x recon
+    grl_p             |g|=1.14322  ratio=23.506x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00006   grl_p(z_P)=0.00032   (grl_p/grl = 5.4x  <- pooled-vs-dense dilution)
+    [grad_cos @1650]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.002
+      cos(recon_vs_sid          ) = +0.095  aligned
+      cos(recon_vs_grl          ) = -0.002
+      cos(recon_vs_grl_p        ) = -0.008
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.004
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.024
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1700]
+    recon             |g|=0.05430  ratio=1.000x recon
+    pr_raw            |g|=0.46302  ratio=8.527x recon
+    pr_weighted       |g|=0.37042  ratio=6.821x recon
+    sid_raw           |g|=1.97571  ratio=36.383x recon
+    sid_weighted      |g|=1.18543  ratio=21.830x recon
+    grl               |g|=0.95227  ratio=17.536x recon
+    grl_p             |g|=1.48848  ratio=27.411x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00009   grl_p(z_P)=0.00036   (grl_p/grl = 4.2x  <- pooled-vs-dense dilution)
+    [grad_cos @1700]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.002
+      cos(recon_vs_sid          ) = +0.084  aligned
+      cos(recon_vs_grl          ) = -0.003
+      cos(recon_vs_grl_p        ) = -0.000
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.004
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.038
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1700/2500  recon=0.1140  pr=0.4877  sid=4.7705  grl=5.5491(acc=0.000)  grl_p=3.5470(per=0.997)  dead=0.9%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.74e-05
+  [grad_norms @1750]
+    recon             |g|=0.05905  ratio=1.000x recon
+    pr_raw            |g|=0.27901  ratio=4.725x recon
+    pr_weighted       |g|=0.22321  ratio=3.780x recon
+    sid_raw           |g|=1.61539  ratio=27.355x recon
+    sid_weighted      |g|=0.96923  ratio=16.413x recon
+    grl               |g|=1.48628  ratio=25.168x recon
+    grl_p             |g|=1.02772  ratio=17.403x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00008   grl_p(z_P)=0.00033   (grl_p/grl = 4.2x  <- pooled-vs-dense dilution)
+    [grad_cos @1750]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.117  aligned
+      cos(recon_vs_grl          ) = -0.002
+      cos(recon_vs_grl_p        ) = -0.002
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.005
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.035
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1800]
+    recon             |g|=0.05548  ratio=1.000x recon
+    pr_raw            |g|=0.27150  ratio=4.894x recon
+    pr_weighted       |g|=0.21720  ratio=3.915x recon
+    sid_raw           |g|=2.79265  ratio=50.337x recon
+    sid_weighted      |g|=1.67559  ratio=30.202x recon
+    grl               |g|=1.08399  ratio=19.539x recon
+    grl_p             |g|=1.14174  ratio=20.580x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00010   grl_p(z_P)=0.00029   (grl_p/grl = 2.9x  <- pooled-vs-dense dilution)
+    [grad_cos @1800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.114  aligned
+      cos(recon_vs_grl          ) = -0.003
+      cos(recon_vs_grl_p        ) = -0.016
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.002
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.031
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1800/2500  recon=0.1169  pr=0.3955  sid=5.0762  grl=5.4964(acc=0.016)  grl_p=3.5683(per=1.000)  dead=1.2%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.69e-05
+  [grad_norms @1850]
+    recon             |g|=0.05378  ratio=1.000x recon
+    pr_raw            |g|=0.35652  ratio=6.629x recon
+    pr_weighted       |g|=0.28521  ratio=5.303x recon
+    sid_raw           |g|=1.50525  ratio=27.987x recon
+    sid_weighted      |g|=0.90315  ratio=16.792x recon
+    grl               |g|=1.04075  ratio=19.351x recon
+    grl_p             |g|=1.52338  ratio=28.324x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00008   grl_p(z_P)=0.00033   (grl_p/grl = 4.1x  <- pooled-vs-dense dilution)
+    [grad_cos @1850]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.002
+      cos(recon_vs_sid          ) = +0.110  aligned
+      cos(recon_vs_grl          ) = +0.003
+      cos(recon_vs_grl_p        ) = -0.006
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.012
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.016
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @1900]
+    recon             |g|=0.05503  ratio=1.000x recon
+    pr_raw            |g|=0.24239  ratio=4.405x recon
+    pr_weighted       |g|=0.19391  ratio=3.524x recon
+    sid_raw           |g|=1.67397  ratio=30.420x recon
+    sid_weighted      |g|=1.00438  ratio=18.252x recon
+    grl               |g|=1.16404  ratio=21.153x recon
+    grl_p             |g|=2.40129  ratio=43.637x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00010   grl_p(z_P)=0.00068   (grl_p/grl = 6.7x  <- pooled-vs-dense dilution)
+    [grad_cos @1900]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.004
+      cos(recon_vs_sid          ) = +0.113  aligned
+      cos(recon_vs_grl          ) = +0.004
+      cos(recon_vs_grl_p        ) = -0.004
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.003
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.004
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1900/2500  recon=0.1180  pr=0.3351  sid=5.2090  grl=5.5469(acc=0.000)  grl_p=2.9644(per=0.844)  dead=1.3%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.64e-05
+  [grad_norms @1950]
+    recon             |g|=0.05135  ratio=1.000x recon
+    pr_raw            |g|=0.28614  ratio=5.573x recon
+    pr_weighted       |g|=0.22891  ratio=4.458x recon
+    sid_raw           |g|=1.97060  ratio=38.379x recon
+    sid_weighted      |g|=1.18236  ratio=23.027x recon
+    grl               |g|=1.40129  ratio=27.291x recon
+    grl_p             |g|=2.70197  ratio=52.623x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00009   grl_p(z_P)=0.00076   (grl_p/grl = 8.3x  <- pooled-vs-dense dilution)
+    [grad_cos @1950]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.080  aligned
+      cos(recon_vs_grl          ) = +0.004
+      cos(recon_vs_grl_p        ) = -0.012
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.014
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.023
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @2000]
+    recon             |g|=0.05523  ratio=1.000x recon
+    pr_raw            |g|=0.33154  ratio=6.003x recon
+    pr_weighted       |g|=0.26523  ratio=4.802x recon
+    sid_raw           |g|=2.03624  ratio=36.867x recon
+    sid_weighted      |g|=1.22174  ratio=22.120x recon
+    grl               |g|=1.57936  ratio=28.595x recon
+    grl_p             |g|=2.80308  ratio=50.752x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00009   grl_p(z_P)=0.00078   (grl_p/grl = 9.2x  <- pooled-vs-dense dilution)
+    [grad_cos @2000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.003
+      cos(recon_vs_sid          ) = +0.103  aligned
+      cos(recon_vs_grl          ) = -0.003
+      cos(recon_vs_grl_p        ) = -0.005
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.004
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.006
+      cos(grl_vs_grl_p          ) = +0.000
+  step   2000/2500  recon=0.1207  pr=0.3917  sid=5.2715  grl=5.4865(acc=0.001)  grl_p=2.3150(per=0.664)  dead=1.5%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.59e-05
+  [val] step=2000  recon=0.1218  pr=0.3653  | z_L PR=0.092 SID=0.004  | z_P PR=0.640 SID=0.138
+  [grad_norms @2050]
+    recon             |g|=0.05874  ratio=1.000x recon
+    pr_raw            |g|=0.26564  ratio=4.523x recon
+    pr_weighted       |g|=0.21252  ratio=3.618x recon
+    sid_raw           |g|=2.37824  ratio=40.491x recon
+    sid_weighted      |g|=1.42694  ratio=24.294x recon
+    grl               |g|=0.88886  ratio=15.133x recon
+    grl_p             |g|=2.91556  ratio=49.639x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00008   grl_p(z_P)=0.00094   (grl_p/grl = 12.3x  <- pooled-vs-dense dilution)
+    [grad_cos @2050]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.003
+      cos(recon_vs_sid          ) = +0.079  aligned
+      cos(recon_vs_grl          ) = -0.002
+      cos(recon_vs_grl_p        ) = -0.001
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.001
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.008
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @2100]
+    recon             |g|=0.06628  ratio=1.000x recon
+    pr_raw            |g|=0.34390  ratio=5.189x recon
+    pr_weighted       |g|=0.27512  ratio=4.151x recon
+    sid_raw           |g|=2.87886  ratio=43.437x recon
+    sid_weighted      |g|=1.72731  ratio=26.062x recon
+    grl               |g|=1.35479  ratio=20.441x recon
+    grl_p             |g|=3.23033  ratio=48.740x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00008   grl_p(z_P)=0.00086   (grl_p/grl = 11.2x  <- pooled-vs-dense dilution)
+    [grad_cos @2100]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.002
+      cos(recon_vs_sid          ) = +0.101  aligned
+      cos(recon_vs_grl          ) = +0.003
+      cos(recon_vs_grl_p        ) = -0.006
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.006
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.037
+      cos(grl_vs_grl_p          ) = +0.000
+  step   2100/2500  recon=0.1265  pr=0.3767  sid=5.6973  grl=5.5955(acc=0.000)  grl_p=1.7208(per=0.482)  dead=1.8%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.53e-05
+  [grad_norms @2150]
+    recon             |g|=0.06931  ratio=1.000x recon
+    pr_raw            |g|=0.33811  ratio=4.878x recon
+    pr_weighted       |g|=0.27049  ratio=3.902x recon
+    sid_raw           |g|=2.28206  ratio=32.924x recon
+    sid_weighted      |g|=1.36924  ratio=19.754x recon
+    grl               |g|=1.65363  ratio=23.857x recon
+    grl_p             |g|=3.51949  ratio=50.776x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00010   grl_p(z_P)=0.00088   (grl_p/grl = 8.7x  <- pooled-vs-dense dilution)
+    [grad_cos @2150]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.002
+      cos(recon_vs_sid          ) = +0.092  aligned
+      cos(recon_vs_grl          ) = +0.003
+      cos(recon_vs_grl_p        ) = -0.004
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.005
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.013
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @2200]
+    recon             |g|=0.06723  ratio=1.000x recon
+    pr_raw            |g|=0.28737  ratio=4.274x recon
+    pr_weighted       |g|=0.22989  ratio=3.419x recon
+    sid_raw           |g|=1.83538  ratio=27.299x recon
+    sid_weighted      |g|=1.10123  ratio=16.379x recon
+    grl               |g|=1.76234  ratio=26.213x recon
+    grl_p             |g|=2.52930  ratio=37.620x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00014   grl_p(z_P)=0.00082   (grl_p/grl = 5.9x  <- pooled-vs-dense dilution)
+    [grad_cos @2200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.002
+      cos(recon_vs_sid          ) = +0.061  aligned
+      cos(recon_vs_grl          ) = -0.004
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.007
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.028
+      cos(grl_vs_grl_p          ) = +0.000
+  step   2200/2500  recon=0.1253  pr=0.3307  sid=5.8242  grl=5.5196(acc=0.005)  grl_p=1.3184(per=0.393)  dead=2.2%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.48e-05
+  [grad_norms @2250]
+    recon             |g|=0.06617  ratio=1.000x recon
+    pr_raw            |g|=0.23750  ratio=3.589x recon
+    pr_weighted       |g|=0.19000  ratio=2.871x recon
+    sid_raw           |g|=3.53831  ratio=53.472x recon
+    sid_weighted      |g|=2.12299  ratio=32.083x recon
+    grl               |g|=0.99484  ratio=15.034x recon
+    grl_p             |g|=2.44517  ratio=36.952x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00006   grl_p(z_P)=0.00074   (grl_p/grl = 11.7x  <- pooled-vs-dense dilution)
+    [grad_cos @2250]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.004
+      cos(recon_vs_sid          ) = +0.054  aligned
+      cos(recon_vs_grl          ) = -0.000
+      cos(recon_vs_grl_p        ) = -0.006
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.001
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.004
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @2300]
+    recon             |g|=0.06816  ratio=1.000x recon
+    pr_raw            |g|=0.31468  ratio=4.617x recon
+    pr_weighted       |g|=0.25175  ratio=3.694x recon
+    sid_raw           |g|=4.51038  ratio=66.175x recon
+    sid_weighted      |g|=2.70623  ratio=39.705x recon
+    grl               |g|=1.46949  ratio=21.560x recon
+    grl_p             |g|=2.85869  ratio=41.942x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00010   grl_p(z_P)=0.00082   (grl_p/grl = 8.5x  <- pooled-vs-dense dilution)
+    [grad_cos @2300]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.000
+      cos(recon_vs_sid          ) = +0.039
+      cos(recon_vs_grl          ) = +0.004
+      cos(recon_vs_grl_p        ) = +0.002
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.002
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.012
+      cos(grl_vs_grl_p          ) = +0.000
+  step   2300/2500  recon=0.1208  pr=0.4458  sid=5.5723  grl=5.4922(acc=0.001)  grl_p=1.5405(per=0.444)  dead=2.4%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.41e-05
+  [grad_norms @2350]
+    recon             |g|=0.07666  ratio=1.000x recon
+    pr_raw            |g|=0.25417  ratio=3.315x recon
+    pr_weighted       |g|=0.20334  ratio=2.652x recon
+    sid_raw           |g|=3.21758  ratio=41.970x recon
+    sid_weighted      |g|=1.93055  ratio=25.182x recon
+    grl               |g|=1.55691  ratio=20.308x recon
+    grl_p             |g|=3.75809  ratio=49.021x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00008   grl_p(z_P)=0.00073   (grl_p/grl = 8.7x  <- pooled-vs-dense dilution)
+    [grad_cos @2350]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.047
+      cos(recon_vs_grl          ) = -0.000
+      cos(recon_vs_grl_p        ) = -0.010
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.005
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.007
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @2400]
+    recon             |g|=0.06347  ratio=1.000x recon
+    pr_raw            |g|=0.28624  ratio=4.510x recon
+    pr_weighted       |g|=0.22899  ratio=3.608x recon
+    sid_raw           |g|=1.52493  ratio=24.027x recon
+    sid_weighted      |g|=0.91496  ratio=14.416x recon
+    grl               |g|=0.74615  ratio=11.756x recon
+    grl_p             |g|=2.83843  ratio=44.722x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00005   grl_p(z_P)=0.00084   (grl_p/grl = 16.8x  <- pooled-vs-dense dilution)
+    [grad_cos @2400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.033
+      cos(recon_vs_grl          ) = +0.002
+      cos(recon_vs_grl_p        ) = -0.011
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.011
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.000
+      cos(grl_vs_grl_p          ) = +0.000
+  step   2400/2500  recon=0.1208  pr=0.3448  sid=5.4805  grl=5.5259(acc=0.000)  grl_p=1.4827(per=0.444)  dead=2.8%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.35e-05
+  [grad_norms @2450]
+    recon             |g|=0.07042  ratio=1.000x recon
+    pr_raw            |g|=0.29183  ratio=4.144x recon
+    pr_weighted       |g|=0.23347  ratio=3.316x recon
+    sid_raw           |g|=1.64459  ratio=23.356x recon
+    sid_weighted      |g|=0.98675  ratio=14.013x recon
+    grl               |g|=1.04256  ratio=14.806x recon
+    grl_p             |g|=2.55575  ratio=36.295x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00006   grl_p(z_P)=0.00079   (grl_p/grl = 12.7x  <- pooled-vs-dense dilution)
+    [grad_cos @2450]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.005
+      cos(recon_vs_sid          ) = +0.047
+      cos(recon_vs_grl          ) = -0.003
+      cos(recon_vs_grl_p        ) = -0.005
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.010
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.007
+      cos(grl_vs_grl_p          ) = +0.000
+  [grad_norms @2500]
+    recon             |g|=0.06781  ratio=1.000x recon
+    pr_raw            |g|=0.24382  ratio=3.596x recon
+    pr_weighted       |g|=0.19506  ratio=2.876x recon
+    sid_raw           |g|=2.58642  ratio=38.141x recon
+    sid_weighted      |g|=1.55185  ratio=22.885x recon
+    grl               |g|=1.23459  ratio=18.206x recon
+    grl_p             |g|=2.56241  ratio=37.787x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00007   grl_p(z_P)=0.00086   (grl_p/grl = 12.3x  <- pooled-vs-dense dilution)
+    [grad_cos @2500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.014
+      cos(recon_vs_grl          ) = -0.000
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.007
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.006
+      cos(grl_vs_grl_p          ) = +0.000
+  step   2500/2500  recon=0.1172  pr=0.3101  sid=5.4082  grl=5.4972(acc=0.000)  grl_p=1.5279(per=0.481)  dead=3.1%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.28e-05
+  [val] step=2500  recon=0.1198  pr=0.3481  | z_L PR=0.086 SID=0.003  | z_P PR=0.469 SID=0.030
+
+[stage 2] done.  Best disent_score=1.0677  → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/diag_job2_balance_diag/stage2_best.pt
+
+[done]  best checkpoint → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/diag_job2_balance_diag/stage2_best.pt
+
+=== diagnostic finished Tue 23 Jun 13:33:28 BST 2026 ===
+Next: interpret persistent conflicts and norm imbalance jointly.
+Do not choose PCGrad, clipping, or discriminator changes from one threshold.

@@ -1,0 +1,210 @@
+=== Probe-seed sweep on job2_dense_gradnorm: probe_seed=42 ===  Tue 23 Jun 11:43:33 BST 2026
+NVIDIA A100-SXM4-80GB
+[diag_probe] run=diag_job2_dense_gradnorm_probe_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job2_dense_gradnorm/stage2_best.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job2_dense_gradnorm/stage2_best.pt
+[diag_probe] sources=['z_L', 'z_P']  tasks=['pr', 'sid']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=8
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job2_dense_gradnorm/stage2_best.pt  (step=12000  val=0.5279)
+[diag_probe] skipped 2 shape-mismatched/stale keys (e.g. ['grl_head.context_conv.weight', 'grl_head.context_conv.bias']) — fine, probe does not use adversarial heads
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/job2_dense_gradnorm/stage2_best.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=stats
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> PR ...
+[pr_data] g2p_en loaded for OOV words
+      [pr z_L] step 250/10000  dev PER=0.083  (best 0.083, bad 0/8)
+      [pr z_L] step 500/10000  dev PER=0.076  (best 0.076, bad 0/8)
+      [pr z_L] step 750/10000  dev PER=0.073  (best 0.073, bad 0/8)
+      [pr z_L] step 1000/10000  dev PER=0.068  (best 0.068, bad 0/8)
+      [pr z_L] step 1250/10000  dev PER=0.068  (best 0.068, bad 0/8)
+      [pr z_L] step 1500/10000  dev PER=0.071  (best 0.068, bad 1/8)
+      [pr z_L] step 1750/10000  dev PER=0.072  (best 0.068, bad 2/8)
+      [pr z_L] step 2000/10000  dev PER=0.073  (best 0.068, bad 3/8)
+      [pr z_L] step 2250/10000  dev PER=0.071  (best 0.068, bad 4/8)
+      [pr z_L] step 2500/10000  dev PER=0.065  (best 0.065, bad 0/8)
+      [pr z_L] step 2750/10000  dev PER=0.067  (best 0.065, bad 1/8)
+      [pr z_L] step 3000/10000  dev PER=0.064  (best 0.064, bad 0/8)
+      [pr z_L] step 3250/10000  dev PER=0.068  (best 0.064, bad 1/8)
+      [pr z_L] step 3500/10000  dev PER=0.065  (best 0.064, bad 2/8)
+      [pr z_L] step 3750/10000  dev PER=0.066  (best 0.064, bad 3/8)
+      [pr z_L] step 4000/10000  dev PER=0.067  (best 0.064, bad 4/8)
+      [pr z_L] step 4250/10000  dev PER=0.067  (best 0.064, bad 5/8)
+      [pr z_L] step 4500/10000  dev PER=0.065  (best 0.064, bad 6/8)
+      [pr z_L] step 4750/10000  dev PER=0.073  (best 0.064, bad 7/8)
+      [pr z_L] step 5000/10000  dev PER=0.070  (best 0.064, bad 8/8)
+    z_L -> PR               PER test=0.067  (val 0.064)
+      [mdl z_L/pr] block 1/7  slice=[31, 62)  block_nats=58620.4  running_kbits=110.82
+      [mdl z_L/pr] block 2/7  slice=[62, 125)  block_nats=75195.5  running_kbits=219.31
+      [mdl z_L/pr] block 3/7  slice=[125, 250)  block_nats=77800.4  running_kbits=331.55
+      [mdl z_L/pr] block 4/7  slice=[250, 500)  block_nats=14901.2  running_kbits=353.05
+      [mdl z_L/pr] block 5/7  slice=[500, 1000)  block_nats=28654.0  running_kbits=394.39
+      [mdl z_L/pr] block 6/7  slice=[1000, 2000)  block_nats=47946.4  running_kbits=463.56
+      [mdl z_L/pr] block 7/7  slice=[2000, 4000)  block_nats=88740.8  running_kbits=591.59
+    z_L -> PR               MDL kbits=591.59 / uniform=3107.50  compression=81.0%  (n=4000, 8 blocks)
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_L] step 250/10000  dev acc=0.006  (best 0.006, bad 0/8)
+      [sid z_L] step 500/10000  dev acc=0.008  (best 0.008, bad 0/8)
+      [sid z_L] step 750/10000  dev acc=0.010  (best 0.010, bad 0/8)
+      [sid z_L] step 1000/10000  dev acc=0.014  (best 0.014, bad 0/8)
+      [sid z_L] step 1250/10000  dev acc=0.022  (best 0.022, bad 0/8)
+      [sid z_L] step 1500/10000  dev acc=0.008  (best 0.022, bad 1/8)
+      [sid z_L] step 1750/10000  dev acc=0.008  (best 0.022, bad 2/8)
+      [sid z_L] step 2000/10000  dev acc=0.040  (best 0.040, bad 0/8)
+      [sid z_L] step 2250/10000  dev acc=0.032  (best 0.040, bad 1/8)
+      [sid z_L] step 2500/10000  dev acc=0.028  (best 0.040, bad 2/8)
+      [sid z_L] step 2750/10000  dev acc=0.048  (best 0.048, bad 0/8)
+      [sid z_L] step 3000/10000  dev acc=0.050  (best 0.050, bad 0/8)
+      [sid z_L] step 3250/10000  dev acc=0.038  (best 0.050, bad 1/8)
+      [sid z_L] step 3500/10000  dev acc=0.050  (best 0.050, bad 2/8)
+      [sid z_L] step 3750/10000  dev acc=0.042  (best 0.050, bad 3/8)
+      [sid z_L] step 4000/10000  dev acc=0.040  (best 0.050, bad 4/8)
+      [sid z_L] step 4250/10000  dev acc=0.048  (best 0.050, bad 5/8)
+      [sid z_L] step 4500/10000  dev acc=0.056  (best 0.056, bad 0/8)
+      [sid z_L] step 4750/10000  dev acc=0.040  (best 0.056, bad 1/8)
+      [sid z_L] step 5000/10000  dev acc=0.052  (best 0.056, bad 2/8)
+      [sid z_L] step 5250/10000  dev acc=0.056  (best 0.056, bad 3/8)
+      [sid z_L] step 5500/10000  dev acc=0.076  (best 0.076, bad 0/8)
+      [sid z_L] step 5750/10000  dev acc=0.062  (best 0.076, bad 1/8)
+      [sid z_L] step 6000/10000  dev acc=0.058  (best 0.076, bad 2/8)
+      [sid z_L] step 6250/10000  dev acc=0.064  (best 0.076, bad 3/8)
+      [sid z_L] step 6500/10000  dev acc=0.064  (best 0.076, bad 4/8)
+      [sid z_L] step 6750/10000  dev acc=0.096  (best 0.096, bad 0/8)
+      [sid z_L] step 7000/10000  dev acc=0.094  (best 0.096, bad 1/8)
+      [sid z_L] step 7250/10000  dev acc=0.070  (best 0.096, bad 2/8)
+      [sid z_L] step 7500/10000  dev acc=0.078  (best 0.096, bad 3/8)
+      [sid z_L] step 7750/10000  dev acc=0.086  (best 0.096, bad 4/8)
+      [sid z_L] step 8000/10000  dev acc=0.094  (best 0.096, bad 5/8)
+      [sid z_L] step 8250/10000  dev acc=0.104  (best 0.104, bad 0/8)
+      [sid z_L] step 8500/10000  dev acc=0.120  (best 0.120, bad 0/8)
+      [sid z_L] step 8750/10000  dev acc=0.108  (best 0.120, bad 1/8)
+      [sid z_L] step 9000/10000  dev acc=0.140  (best 0.140, bad 0/8)
+      [sid z_L] step 9250/10000  dev acc=0.140  (best 0.140, bad 1/8)
+      [sid z_L] step 9500/10000  dev acc=0.148  (best 0.148, bad 0/8)
+      [sid z_L] step 9750/10000  dev acc=0.144  (best 0.148, bad 1/8)
+      [sid z_L] step 10000/10000  dev acc=0.140  (best 0.148, bad 2/8)
+    z_L -> SID              acc test=0.126  (val 0.148)
+      [mdl z_L/sid] block 1/7  slice=[31, 62)  block_nats=1090.2  running_kbits=1.82
+      [mdl z_L/sid] block 2/7  slice=[62, 125)  block_nats=1925.2  running_kbits=4.60
+      [mdl z_L/sid] block 3/7  slice=[125, 250)  block_nats=3971.9  running_kbits=10.33
+      [mdl z_L/sid] block 4/7  slice=[250, 500)  block_nats=4773.5  running_kbits=17.21
+      [mdl z_L/sid] block 5/7  slice=[500, 1000)  block_nats=5283.6  running_kbits=24.84
+      [mdl z_L/sid] block 6/7  slice=[1000, 2000)  block_nats=4819.1  running_kbits=31.79
+      [mdl z_L/sid] block 7/7  slice=[2000, 4000)  block_nats=4704.5  running_kbits=38.58
+    z_L -> SID              MDL kbits=38.58 / uniform=31.89  compression=0.0%  (n=4000, 8 blocks)
+  training probe: z_P -> PR ...
+      [pr z_P] step 250/10000  dev PER=0.937  (best 0.937, bad 0/8)
+      [pr z_P] step 500/10000  dev PER=0.787  (best 0.787, bad 0/8)
+      [pr z_P] step 750/10000  dev PER=0.639  (best 0.639, bad 0/8)
+      [pr z_P] step 1000/10000  dev PER=0.582  (best 0.582, bad 0/8)
+      [pr z_P] step 1250/10000  dev PER=0.561  (best 0.561, bad 0/8)
+      [pr z_P] step 1500/10000  dev PER=0.541  (best 0.541, bad 0/8)
+      [pr z_P] step 1750/10000  dev PER=0.538  (best 0.538, bad 0/8)
+      [pr z_P] step 2000/10000  dev PER=0.533  (best 0.533, bad 0/8)
+      [pr z_P] step 2250/10000  dev PER=0.533  (best 0.533, bad 1/8)
+      [pr z_P] step 2500/10000  dev PER=0.533  (best 0.533, bad 2/8)
+      [pr z_P] step 2750/10000  dev PER=0.536  (best 0.533, bad 3/8)
+      [pr z_P] step 3000/10000  dev PER=0.531  (best 0.531, bad 0/8)
+      [pr z_P] step 3250/10000  dev PER=0.525  (best 0.525, bad 0/8)
+      [pr z_P] step 3500/10000  dev PER=0.533  (best 0.525, bad 1/8)
+      [pr z_P] step 3750/10000  dev PER=0.530  (best 0.525, bad 2/8)
+      [pr z_P] step 4000/10000  dev PER=0.529  (best 0.525, bad 3/8)
+      [pr z_P] step 4250/10000  dev PER=0.534  (best 0.525, bad 4/8)
+      [pr z_P] step 4500/10000  dev PER=0.528  (best 0.525, bad 5/8)
+      [pr z_P] step 4750/10000  dev PER=0.525  (best 0.525, bad 6/8)
+      [pr z_P] step 5000/10000  dev PER=0.528  (best 0.525, bad 7/8)
+      [pr z_P] step 5250/10000  dev PER=0.528  (best 0.525, bad 8/8)
+    z_P -> PR               PER test=0.531  (val 0.525)
+      [mdl z_P/pr] block 1/7  slice=[31, 62)  block_nats=28301.3  running_kbits=65.03
+      [mdl z_P/pr] block 2/7  slice=[62, 125)  block_nats=63405.9  running_kbits=156.51
+      [mdl z_P/pr] block 3/7  slice=[125, 250)  block_nats=92824.2  running_kbits=290.43
+      [mdl z_P/pr] block 4/7  slice=[250, 500)  block_nats=140533.3  running_kbits=493.17
+      [mdl z_P/pr] block 5/7  slice=[500, 1000)  block_nats=189142.9  running_kbits=766.05
+      [mdl z_P/pr] block 6/7  slice=[1000, 2000)  block_nats=267180.8  running_kbits=1151.51
+      [mdl z_P/pr] block 7/7  slice=[2000, 4000)  block_nats=482992.0  running_kbits=1848.32
+    z_P -> PR               MDL kbits=1848.32 / uniform=3129.10  compression=40.9%  (n=4000, 8 blocks)
+  training probe: z_P -> SID ...
+      [sid z_P] step 250/10000  dev acc=0.238  (best 0.238, bad 0/8)
+      [sid z_P] step 500/10000  dev acc=0.466  (best 0.466, bad 0/8)
+      [sid z_P] step 750/10000  dev acc=0.616  (best 0.616, bad 0/8)
+      [sid z_P] step 1000/10000  dev acc=0.718  (best 0.718, bad 0/8)
+      [sid z_P] step 1250/10000  dev acc=0.800  (best 0.800, bad 0/8)
+      [sid z_P] step 1500/10000  dev acc=0.834  (best 0.834, bad 0/8)
+      [sid z_P] step 1750/10000  dev acc=0.868  (best 0.868, bad 0/8)
+      [sid z_P] step 2000/10000  dev acc=0.874  (best 0.874, bad 0/8)
+      [sid z_P] step 2250/10000  dev acc=0.890  (best 0.890, bad 0/8)
+      [sid z_P] step 2500/10000  dev acc=0.932  (best 0.932, bad 0/8)
+      [sid z_P] step 2750/10000  dev acc=0.938  (best 0.938, bad 0/8)
+      [sid z_P] step 3000/10000  dev acc=0.916  (best 0.938, bad 1/8)
+      [sid z_P] step 3250/10000  dev acc=0.918  (best 0.938, bad 2/8)
+      [sid z_P] step 3500/10000  dev acc=0.944  (best 0.944, bad 0/8)
+      [sid z_P] step 3750/10000  dev acc=0.932  (best 0.944, bad 1/8)
+      [sid z_P] step 4000/10000  dev acc=0.948  (best 0.948, bad 0/8)
+      [sid z_P] step 4250/10000  dev acc=0.958  (best 0.958, bad 0/8)
+      [sid z_P] step 4500/10000  dev acc=0.954  (best 0.958, bad 1/8)
+      [sid z_P] step 4750/10000  dev acc=0.948  (best 0.958, bad 2/8)
+      [sid z_P] step 5000/10000  dev acc=0.950  (best 0.958, bad 3/8)
+      [sid z_P] step 5250/10000  dev acc=0.960  (best 0.960, bad 0/8)
+      [sid z_P] step 5500/10000  dev acc=0.958  (best 0.960, bad 1/8)
+      [sid z_P] step 5750/10000  dev acc=0.968  (best 0.968, bad 0/8)
+      [sid z_P] step 6000/10000  dev acc=0.964  (best 0.968, bad 1/8)
+      [sid z_P] step 6250/10000  dev acc=0.962  (best 0.968, bad 2/8)
+      [sid z_P] step 6500/10000  dev acc=0.966  (best 0.968, bad 3/8)
+      [sid z_P] step 6750/10000  dev acc=0.966  (best 0.968, bad 4/8)
+      [sid z_P] step 7000/10000  dev acc=0.968  (best 0.968, bad 5/8)
+      [sid z_P] step 7250/10000  dev acc=0.968  (best 0.968, bad 6/8)
+      [sid z_P] step 7500/10000  dev acc=0.974  (best 0.974, bad 0/8)
+      [sid z_P] step 7750/10000  dev acc=0.972  (best 0.974, bad 1/8)
+      [sid z_P] step 8000/10000  dev acc=0.970  (best 0.974, bad 2/8)
+      [sid z_P] step 8250/10000  dev acc=0.968  (best 0.974, bad 3/8)
+      [sid z_P] step 8500/10000  dev acc=0.970  (best 0.974, bad 4/8)
+      [sid z_P] step 8750/10000  dev acc=0.972  (best 0.974, bad 5/8)
+      [sid z_P] step 9000/10000  dev acc=0.972  (best 0.974, bad 6/8)
+      [sid z_P] step 9250/10000  dev acc=0.972  (best 0.974, bad 7/8)
+      [sid z_P] step 9500/10000  dev acc=0.972  (best 0.974, bad 8/8)
+    z_P -> SID              acc test=0.970  (val 0.974)
+      [mdl z_P/sid] block 1/7  slice=[31, 62)  block_nats=621.2  running_kbits=1.14
+      [mdl z_P/sid] block 2/7  slice=[62, 125)  block_nats=1805.6  running_kbits=3.75
+      [mdl z_P/sid] block 3/7  slice=[125, 250)  block_nats=3270.6  running_kbits=8.47
+      [mdl z_P/sid] block 4/7  slice=[250, 500)  block_nats=4009.3  running_kbits=14.25
+      [mdl z_P/sid] block 5/7  slice=[500, 1000)  block_nats=2853.1  running_kbits=18.37
+      [mdl z_P/sid] block 6/7  slice=[1000, 2000)  block_nats=2119.3  running_kbits=21.42
+      [mdl z_P/sid] block 7/7  slice=[2000, 4000)  block_nats=2119.1  running_kbits=24.48
+    z_P -> SID              MDL kbits=24.48 / uniform=31.89  compression=23.2%  (n=4000, 8 blocks)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_job2_dense_gradnorm_probe_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_L              0.067         0.126
+  z_P              0.531         0.970
+==================================================================
+
+================================================================================
+  MDL CODELENGTH (probe-budget-free) - diag_job2_dense_gradnorm_probe_seed42
+================================================================================
+  Source    Task     kbits ↓     uniform    compr% ↑       n
+  --------  ----  ----------  ----------  ----------  ------
+  z_L       PR        591.59     3107.50        81.0    4000
+  z_L       SID        38.58       31.89         0.0    4000
+  z_P       PR       1848.32     3129.10        40.9    4000
+  z_P       SID        24.48       31.89        23.2    4000
+================================================================================
+
+Finished probe_seed=42: Tue 23 Jun 14:30:54 BST 2026

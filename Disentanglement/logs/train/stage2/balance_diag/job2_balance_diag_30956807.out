@@ -1,0 +1,20 @@
+=== JOB2 BALANCING DIAGNOSTIC (grad cosines) ===  Tue 23 Jun 12:21:37 BST 2026
+NVIDIA A100-SXM4-80GB
+Steps=2500  grad_log_every=50  →  expect ~50 grad-cosine snapshots
+Cosine output: grep '\[grad_cos' on the .out file
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=2500  α=0.8  β=0.6  grl=1.0  ρ=0.0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=19,510,154  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.8  β=0.6  grl=1.0  ρ=0.0  grl_p=0.5  hard_gumbel=True  spear_ln=True  dann_full_disc=True
+[stage 2] steps=2500  batch=16
+[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + (1 - grl_p_per)  — in-training head proxies, NOT a probe; run diag_probe/ for the authoritative leakage signal.
+[dis_data] g2p_en loaded for OOV words
+  step      1/2500  recon=0.3663  pr=19.3898  sid=5.5117  grl=5.5277(acc=0.002)  grl_p=19.3890(per=2.301)  dead=0.0%  L/P/U=3072/1024/1024  actL/P/U=160/64/32  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-07
