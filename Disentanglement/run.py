@@ -221,6 +221,27 @@ def _parse_args():
     p.add_argument("--grad_clip",     type=float, default=cfg.grad_clip,
                    help="Global gradient clipping max norm for stage1/stage2.")
 
+    # Dual-invariance (v1)
+    p.add_argument("--dual_invariance", action="store_true", default=cfg.dual_invariance,
+                   help="Enable dual-invariance losses (L_inv_L, L_inv_P, L_var).")
+    p.add_argument("--inv_L_weight",        type=float, default=cfg.inv_L_weight)
+    p.add_argument("--inv_P_weight",        type=float, default=cfg.inv_P_weight)
+    p.add_argument("--inv_var_weight",      type=float, default=cfg.inv_var_weight)
+    p.add_argument("--inv_var_gamma",       type=float, default=cfg.inv_var_gamma)
+    p.add_argument("--pair_alpha_arctic_w", type=float, default=cfg.pair_alpha_arctic_w)
+    p.add_argument("--pair_alpha_pert_w",   type=float, default=cfg.pair_alpha_pert_w)
+    p.add_argument("--pair_beta_libri_w",   type=float, default=cfg.pair_beta_libri_w)
+    p.add_argument("--pairs_alpha_per_step", type=int,  default=cfg.pairs_alpha_per_step)
+    p.add_argument("--pairs_beta_per_step",  type=int,  default=cfg.pairs_beta_per_step)
+    p.add_argument("--inv_L_interp_frames", type=int,   default=cfg.inv_L_interp_frames)
+    p.add_argument("--arctic_root",         default=str(cfg.arctic_root))
+    p.add_argument("--vctk_root",           default=str(cfg.vctk_root))
+    p.add_argument("--esd_root",            default=str(cfg.esd_root))
+    p.add_argument("--gumbel_tau_start",    type=float, default=cfg.gumbel_tau_start)
+    p.add_argument("--gumbel_tau_end",      type=float, default=cfg.gumbel_tau_end)
+    # --hard_gumbel_routing / --no-hard_gumbel_routing is already defined above
+    # (BooleanOptionalAction); use that to pick hard vs soft mode.
+
     # paths
     p.add_argument("--checkpoint_dir", default=str(cfg.checkpoint_dir))
     p.add_argument("--runs_dir",       default=str(cfg.runs_dir))
@@ -334,6 +355,22 @@ def _parse_args():
     cfg.n_disc_steps          = args.n_disc_steps
     cfg.grad_log_every        = args.grad_log_every
     cfg.grad_clip             = args.grad_clip
+    cfg.dual_invariance       = bool(args.dual_invariance)
+    cfg.inv_L_weight          = args.inv_L_weight
+    cfg.inv_P_weight          = args.inv_P_weight
+    cfg.inv_var_weight        = args.inv_var_weight
+    cfg.inv_var_gamma         = args.inv_var_gamma
+    cfg.pair_alpha_arctic_w   = args.pair_alpha_arctic_w
+    cfg.pair_alpha_pert_w     = args.pair_alpha_pert_w
+    cfg.pair_beta_libri_w     = args.pair_beta_libri_w
+    cfg.pairs_alpha_per_step  = args.pairs_alpha_per_step
+    cfg.pairs_beta_per_step   = args.pairs_beta_per_step
+    cfg.inv_L_interp_frames   = args.inv_L_interp_frames
+    cfg.arctic_root           = Path(args.arctic_root)
+    cfg.vctk_root             = Path(args.vctk_root)
+    cfg.esd_root              = Path(args.esd_root)
+    cfg.gumbel_tau_start      = args.gumbel_tau_start
+    cfg.gumbel_tau_end        = args.gumbel_tau_end
     cfg.checkpoint_dir        = Path(args.checkpoint_dir)
     cfg.runs_dir              = Path(args.runs_dir)
     cfg.log_dir               = Path(args.log_dir)

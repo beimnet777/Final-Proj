@@ -253,6 +253,40 @@ class DISConfig:
     runs_dir:       Path = _DIS_DIR / "runs"
     log_dir:        Path = _DIS_DIR / "logs"
 
+    # ---------------------------------------------------------------- Dual-invariance (v1)
+    # Master switch.  When ON, training adds:
+    #   L_inv_L: frame-aligned cosine between z_L of pair-alpha utterances
+    #            (same content, paralinguistic varies — natural pairs from
+    #            CMU ARCTIC or on-the-fly speaker-perturbation of LibriSpeech)
+    #   L_inv_P: scale-normalised L2 between stats-pool(z_P) of pair-beta
+    #            utterances (different content, same speaker+session — within
+    #            LibriSpeech chapter)
+    #   L_var  : VICReg-style per-dim variance floor on z_L and z_P
+    # Recommended companion settings: n_routes=2 (drop z_U), grl_weight=0,
+    # grl_phoneme_weight=0, hard_gumbel_routing chosen via --hard_gumbel_routing.
+    dual_invariance:        bool  = False
+    # Per-loss weights
+    inv_L_weight:           float = 1.0
+    inv_P_weight:           float = 1.0
+    inv_var_weight:         float = 0.1
+    inv_var_gamma:          float = 1.0
+    # Pair sampling weights (relative; normalised internally)
+    pair_alpha_arctic_w:    float = 0.6
+    pair_alpha_pert_w:      float = 0.4    # synthetic-perturbation LibriSpeech
+    pair_beta_libri_w:      float = 1.0
+    # Pairs per step (each pair = 2 utterances forwarded)
+    pairs_alpha_per_step:   int   = 8
+    pairs_beta_per_step:    int   = 8
+    # Frame-aligned interp target length for L_inv_L
+    inv_L_interp_frames:    int   = 200
+    # Corpus paths (under <repo>/Probing/data by default)
+    arctic_root: Path = _DIS_DIR.parent / "Probing" / "data" / "CMU_ARCTIC"
+    vctk_root:   Path = _DIS_DIR.parent / "Probing" / "data" / "VCTK"
+    esd_root:    Path = _DIS_DIR.parent / "Probing" / "data" / "ESD"
+    # Gumbel-tau annealing schedule for hard routing (linear from start to end
+    # over [0, tau_anneal_steps]; 0 means no annealing — hold at start).
+    gumbel_tau_anneal_steps: int = 0
+
     # ---------------------------------------------------------------- Misc
     seed:   int  = 42
     device: str  = "cuda"

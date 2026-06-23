@@ -21,8 +21,13 @@ from torch.optim.lr_scheduler import LambdaLR
 
 from config import DISConfig
 from model import DISModel, build_dis_model
-from data.dataset import make_stage1_dataloaders, make_stage2_dataloaders
-from losses import recon_loss, ctc_pr_loss, sid_ce_loss, sid_ce_loss_frames, route_loss, routing_spec_loss, decor_loss, ub_loss
+from data.dataset import make_stage1_dataloaders, make_stage2_dataloaders, _local_examples
+from losses import (
+    recon_loss, ctc_pr_loss, sid_ce_loss, sid_ce_loss_frames,
+    route_loss, routing_spec_loss, decor_loss, ub_loss,
+    inv_L_frame_cosine_loss, inv_P_stats_pool_loss,
+    variance_floor_loss, effective_rank, bucket_diag,
+)
 from tb_logger import DISLogger
 
 
@@ -694,6 +699,48 @@ def run_stage1(cfg: DISConfig) -> Path:
 
 # ================================================================ Stage 2
 
+def _build_dual_inv_loaders(cfg):
+    """Build pair-alpha + pair-beta dataloaders for dual-invariance training.
+
+    Returns (pa_loader, pb_loader) or (None, None) if disabled.
+    """
+    if not getattr(cfg, 'dual_invariance', False):
+        return None, None
+    from data.parallel_datasets import (ARCTICIndex, LibrispeechChapterIndex,
+                                         PairAlphaDataset, PairBetaDataset, collate_pairs)
+    from torch.utils.data import DataLoader
+
+    arctic_idx = ARCTICIndex(cfg.arctic_root)
+    if len(arctic_idx) == 0:
+        print(f"[dual_inv] WARN: ARCTIC empty at {cfg.arctic_root} (pair-alpha will rely on perturb only)")
+        arctic_idx = None
+
+    if not getattr(cfg, 'local_data', False):
+        raise RuntimeError("dual_invariance requires --local_data (LibriSpeech on disk)")
+    libri_examples = _local_examples(cfg, "train.100", n=None)
+    if not libri_examples:
+        raise RuntimeError(f"dual_invariance: no LibriSpeech examples found under {cfg.librispeech_root}")
+    libri_chapters = LibrispeechChapterIndex(libri_examples)
+    if len(libri_chapters) == 0:
+        raise RuntimeError("dual_invariance: LibriSpeech chapter index empty (need ≥2 utts per chapter)")
+
+    perturb_kwargs = {
+        "f0_range":     (cfg.inv_f0_low,     cfg.inv_f0_high),
+        "formant_range": (cfg.inv_formant_low, cfg.inv_formant_high),
+    }
+    weights_alpha = {"arctic": cfg.pair_alpha_arctic_w, "perturb": cfg.pair_alpha_pert_w}
+    pa_ds = PairAlphaDataset(arctic_idx, libri_examples, cfg.sample_rate,
+                              weights_alpha, perturb_kwargs=perturb_kwargs,
+                              rng_seed=cfg.seed, epoch_size=10**9)
+    pb_ds = PairBetaDataset(libri_chapters, cfg.sample_rate,
+                             rng_seed=cfg.seed + 1, epoch_size=10**9)
+    pa = DataLoader(pa_ds, batch_size=cfg.pairs_alpha_per_step,
+                    num_workers=cfg.num_workers, collate_fn=collate_pairs, shuffle=False)
+    pb = DataLoader(pb_ds, batch_size=cfg.pairs_beta_per_step,
+                    num_workers=cfg.num_workers, collate_fn=collate_pairs, shuffle=False)
+    return pa, pb
+
+
 def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     """Full disentanglement training.  Optionally loads SAE from stage1_ckpt."""
     _set_seed(cfg.seed)
@@ -816,6 +863,24 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     best_metric    = float("inf")
     best_ckpt      = cfg.checkpoint_dir / "stage2_best.pt"
     train_iter     = iter(train_dl)
+
+    # Dual-invariance pair loaders (None when disabled)
+    pa_loader, pb_loader = _build_dual_inv_loaders(cfg)
+    dual_inv_on    = pa_loader is not None and pb_loader is not None
+    pa_iter        = iter(pa_loader) if pa_loader is not None else None
+    pb_iter        = iter(pb_loader) if pb_loader is not None else None
+    inv_L_w        = float(getattr(cfg, 'inv_L_weight',   0.0)) if dual_inv_on else 0.0
+    inv_P_w        = float(getattr(cfg, 'inv_P_weight',   0.0)) if dual_inv_on else 0.0
+    inv_var_w      = float(getattr(cfg, 'inv_var_weight', 0.0)) if dual_inv_on else 0.0
+    inv_var_g      = float(getattr(cfg, 'inv_var_gamma',  1.0))
+    inv_L_frames   = int(getattr(cfg, 'inv_L_interp_frames', 200))
+    if dual_inv_on:
+        n_routes_eff = int(getattr(cfg, 'n_routes', 3))
+        hard_route   = bool(getattr(cfg, 'hard_gumbel_routing', False))
+        print(f"[stage 2] dual-invariance ON: inv_L_w={inv_L_w}  inv_P_w={inv_P_w}  "
+              f"inv_var_w={inv_var_w}  gamma={inv_var_g}  interp_frames={inv_L_frames}")
+        print(f"[stage 2] routing: n_routes={n_routes_eff}  hard_gumbel={hard_route}  "
+              f"tau {cfg.gumbel_tau_start} -> {cfg.gumbel_tau_end}")
     no_routing     = getattr(cfg, 'no_routing', False)
     fixed_blocks   = getattr(cfg, 'fixed_blocks', False)
     n_routes       = getattr(cfg, 'n_routes', 3)
@@ -1012,6 +1077,53 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 m_grl, m_grl_p, m_grl_u, m_grl_pu = (eff_grl_weight, eff_grl_p_weight,
                                                      eff_grl_u_w, eff_grl_p_u_w)
                 m_aux = cfg.aux_k_coef
+            # ---- Dual-invariance: pair-alpha (L) + pair-beta (P) + variance floor ----
+            l_inv_L = l_recon.new_zeros(())
+            l_inv_P = l_recon.new_zeros(())
+            l_var   = l_recon.new_zeros(())
+            if dual_inv_on:
+                try:
+                    pa = next(pa_iter)
+                except StopIteration:
+                    pa_iter = iter(pa_loader); pa = next(pa_iter)
+                try:
+                    pb = next(pb_iter)
+                except StopIteration:
+                    pb_iter = iter(pb_loader); pb = next(pb_iter)
+                # Pair α (z_L invariance)
+                out_pa_a = model(pa["audio_a"].to(device, non_blocking=True),
+                                  pa["len_a"].to(device,   non_blocking=True),
+                                  stage=2, grl_lambda=0.0)
+                out_pa_b = model(pa["audio_b"].to(device, non_blocking=True),
+                                  pa["len_b"].to(device,   non_blocking=True),
+                                  stage=2, grl_lambda=0.0)
+                l_inv_L = inv_L_frame_cosine_loss(
+                    out_pa_a["z_L"], out_pa_a["out_lengths"],
+                    out_pa_b["z_L"], out_pa_b["out_lengths"],
+                    target_frames=inv_L_frames,
+                )
+                # Pair β (z_P invariance)
+                out_pb_a = model(pb["audio_a"].to(device, non_blocking=True),
+                                  pb["len_a"].to(device,   non_blocking=True),
+                                  stage=2, grl_lambda=0.0)
+                out_pb_b = model(pb["audio_b"].to(device, non_blocking=True),
+                                  pb["len_b"].to(device,   non_blocking=True),
+                                  stage=2, grl_lambda=0.0)
+                l_inv_P = inv_P_stats_pool_loss(
+                    out_pb_a["z_P"], out_pb_a["out_lengths"],
+                    out_pb_b["z_P"], out_pb_b["out_lengths"],
+                )
+                # Variance floor on main-batch z_L, z_P, weighted by routing mask
+                # so we only penalise the dims the router put in this bucket
+                # (otherwise hard routing makes ~half of dims mechanically zero
+                # and the loss falsely flags collapse).
+                if inv_var_w > 0:
+                    _mL = out.get("m_L"); _mP = out.get("m_P")
+                    l_var = (variance_floor_loss(out["z_L"], out["out_lengths"],
+                                                  gamma=inv_var_g, weight=_mL) +
+                             variance_floor_loss(out["z_P"], out["out_lengths"],
+                                                  gamma=inv_var_g, weight=_mP))
+
             total      = (m_recon            * l_recon
                           + m_pr             * l_pr
                           + m_sid            * l_sid
@@ -1023,6 +1135,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + eff_grl_pros_w   * l_pros_grl
                           + eff_grl_pros_u_w * l_pros_grl_u
                           + eff_inv_w        * l_inv
+                          + inv_L_w          * l_inv_L
+                          + inv_P_w          * l_inv_P
+                          + inv_var_w        * l_var
                           + cfg.rho          * l_route
                           + spec_w           * l_spec
                           + eff_ub_w         * l_ub
@@ -1181,6 +1296,52 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 if grl_pros_w > 0 or grl_pros_u_w > 0:
                     pros_str += f"  grlPr={l_pros_grl.item():.3f}/{l_pros_grl_u.item():.3f}"
             inv_str   = f"  inv={l_inv.item():.4f}" if invariance_on else ""
+            dual_inv_str = ""
+            if dual_inv_on:
+                with torch.no_grad():
+                    # Bucket-restricted diagnostics: only the dims the router
+                    # assigned to this view (avoids false collapse alarms when
+                    # half of dims are mechanically zero in hard routing).
+                    _mL = out.get("m_L"); _mP = out.get("m_P")
+                    _maskL = (_mL > 0.5) if _mL is not None else None
+                    _maskP = (_mP > 0.5) if _mP is not None else None
+                    diag_L = bucket_diag(out["z_L"], out["out_lengths"], _maskL, gamma=inv_var_g)
+                    diag_P = bucket_diag(out["z_P"], out["out_lengths"], _maskP, gamma=inv_var_g)
+                    _eL = effective_rank(out["z_L"], out["out_lengths"], max_frames=1024)
+                    _eP = effective_rank(out["z_P"], out["out_lengths"], max_frames=1024)
+                    # Pair-source mix: count last pa batch's source tags
+                    _srcs = pa.get("sources", []) if isinstance(pa, dict) else []
+                    _n = max(1, len(_srcs))
+                    _f_arctic = sum(1 for s in _srcs if s == "arctic") / _n
+                    _f_pert   = sum(1 for s in _srcs if s == "perturb") / _n
+                losses["inv_L"]                 = l_inv_L.item()
+                losses["inv_P"]                 = l_inv_P.item()
+                losses["inv_var"]               = l_var.item()
+                losses["var/zL_p10_std"]        = diag_L["p10_std"]
+                losses["var/zP_p10_std"]        = diag_P["p10_std"]
+                losses["var/zL_frac_blw_g"]     = diag_L["frac_blw_g"]
+                losses["var/zP_frac_blw_g"]     = diag_P["frac_blw_g"]
+                losses["var/zL_k_active"]       = diag_L["k_active"]
+                losses["var/zP_k_active"]       = diag_P["k_active"]
+                losses["inv/zL_utt_norm_mean"]  = diag_L["utt_norm_mean"]
+                losses["inv/zL_utt_norm_std"]   = diag_L["utt_norm_std"]
+                losses["inv/zP_utt_norm_mean"]  = diag_P["utt_norm_mean"]
+                losses["inv/zP_utt_norm_std"]   = diag_P["utt_norm_std"]
+                losses["eff_rank/zL"]           = _eL
+                losses["eff_rank/zP"]           = _eP
+                losses["pair_mix/alpha_arctic"] = _f_arctic
+                losses["pair_mix/alpha_pert"]   = _f_pert
+                dual_inv_str = (
+                    f"  inv_L={l_inv_L.item():.4f}  inv_P={l_inv_P.item():.4f}"
+                    f"  var={l_var.item():.4f}"
+                    f"  k[L/P]={diag_L['k_active']}/{diag_P['k_active']}"
+                    f"  Zσ10[L/P]={diag_L['p10_std']:.2f}/{diag_P['p10_std']:.2f}"
+                    f"  blw[L/P]={diag_L['frac_blw_g']:.2f}/{diag_P['frac_blw_g']:.2f}"
+                    f"  uN[L/P]={diag_L['utt_norm_mean']:.2f}±{diag_L['utt_norm_std']:.2f}/"
+                    f"{diag_P['utt_norm_mean']:.2f}±{diag_P['utt_norm_std']:.2f}"
+                    f"  eR[L/P]={_eL:.0f}/{_eP:.0f}"
+                    f"  mix[arc/pert]={_f_arctic:.2f}/{_f_pert:.2f}"
+                )
             vib_str   = f"  vib={l_vib.item():.4f}(w={eff_vib_w:.1e})" if vib_w > 0 else ""
             n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
             dead_frac = n_dead / cfg.K
@@ -1201,7 +1362,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 f"  pr={l_pr.item():.4f}"
                 f"  sid={l_sid.item():.4f}"
                 f"  grl={l_grl.item():.4f}(acc={grl_acc:.3f}{grl_true_str})"
-                f"{grl_p_str}{u_str}{pros_str}{inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
+                f"{grl_p_str}{u_str}{pros_str}{inv_str}{dual_inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
                 f"  L/P/U={n_L}/{n_P}/{n_U}"
                 f"  actL/P/U={act_L.item():.0f}/{act_P.item():.0f}/{act_U.item():.0f}"
                 f"  H={entropy:.3f}"
