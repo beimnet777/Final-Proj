@@ -313,10 +313,19 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
 
     sae_params = [p for p in model.sae.parameters() if p.requires_grad]
 
-    def _norm(loss, retain):
+    def _grad_vec(loss, retain):
+        """Return (flat_grad_vector, ||g||) on the shared SAE trunk for `loss`.
+        Vector is float32 on the same device; None if no SAE param received grad."""
         grads = torch.autograd.grad(loss, sae_params, retain_graph=retain,
                                     allow_unused=True, create_graph=False)
-        return float(sum(g.norm(2).item()**2 for g in grads if g is not None) ** 0.5)
+        parts = [g.detach().float().flatten() for g in grads if g is not None]
+        if not parts:
+            return None, 0.0
+        flat = torch.cat(parts)
+        return flat, float(flat.norm(2).item())
+
+    def _norm(loss, retain):
+        return _grad_vec(loss, retain)[1]
 
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
     with ctx:
@@ -378,12 +387,30 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         if _routing_active:
             loss_terms.append(("route", cfg.rho * l_route, False))
 
+        flat_vecs: Dict[str, torch.Tensor] = {}
         for name, loss, retain in loss_terms:
-            raw[name] = _norm(loss, retain)
+            v, n = _grad_vec(loss, retain)
+            raw[name] = n
+            if v is not None and n > 1e-12:
+                flat_vecs[name] = v
         if not _routing_active:
             raw["route"] = 0.0
         if _grl_p_w == 0:
             raw["grl_p"] = 0.0
+
+        # Pairwise cosines between per-loss gradients on the shared SAE trunk.
+        # cos>0: tasks agree on which params to move; cos<0: they fight on the
+        # same params and the sum-then-step optimizer cancels signal.
+        cos_pairs: Dict[str, float] = {}
+        names_in_order = [n for n in ("recon", "pr", "sid", "grl", "grl_p", "route")
+                          if n in flat_vecs]
+        for i, a in enumerate(names_in_order):
+            va = flat_vecs[a]
+            na = va.norm().clamp(min=1e-12)
+            for b in names_in_order[i + 1:]:
+                vb = flat_vecs[b]
+                nb = vb.norm().clamp(min=1e-12)
+                cos_pairs[f"{a}_vs_{b}"] = float((va @ vb / (na * nb)).item())
 
     grl_w  = eff_grl_weight if eff_grl_weight >= 0 else cfg.grl_weight
     _grl_p = getattr(cfg, 'grl_phoneme_weight', 0.0)
@@ -407,10 +434,17 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
     ratio_pf = (pf_grl_p / pf_grl) if pf_grl > 1e-12 else float("nan")
     lines.append(f"    per-frame |dL/dz[t]|:  grl(z_L)={pf_grl:.5f}   grl_p(z_P)={pf_grl_p:.5f}"
                  f"   (grl_p/grl = {ratio_pf:.1f}x  <- pooled-vs-dense dilution)")
+    if cos_pairs:
+        lines.append(f"    [grad_cos @{step}]  cos<0 = tasks fight on the same SAE params")
+        for pair, c in cos_pairs.items():
+            tag = "  conflict" if c < -0.05 else ("  aligned" if c > 0.05 else "")
+            lines.append(f"      cos({pair:<22s}) = {c:+.3f}{tag}")
     print("\n".join(lines))
     norms["grl_perframe"] = pf_grl
     norms["grl_p_perframe"] = pf_grl_p
     tb.log_grad_norms(step, norms)
+    if cos_pairs:
+        tb.log_grad_cosines(step, cos_pairs)
 
 
 def _masked_mse(a: torch.Tensor, b: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:

@@ -41,6 +41,12 @@ _LAYOUT = {
         "Weighted |g| per loss": ["Multiline", ["grad_norms/recon","grad_norms/pr_weighted","grad_norms/sid_weighted","grad_norms/grl","grad_norms/route"]],
         "Ratio to recon (raw)":  ["Multiline", ["grad_norms/ratio_pr","grad_norms/ratio_sid","grad_norms/ratio_grl","grad_norms/ratio_route"]],
     },
+    "Gradient Conflict": {
+        "Recon vs tasks":   ["Multiline", ["grad_cos/recon_vs_pr","grad_cos/recon_vs_sid","grad_cos/recon_vs_grl","grad_cos/recon_vs_grl_p"]],
+        "PR vs SID":        ["Multiline", ["grad_cos/pr_vs_sid"]],
+        "Task vs adversary":["Multiline", ["grad_cos/pr_vs_grl","grad_cos/sid_vs_grl","grad_cos/pr_vs_grl_p","grad_cos/sid_vs_grl_p"]],
+        "Adversary vs adversary":["Multiline", ["grad_cos/grl_vs_grl_p"]],
+    },
 }
 
 
@@ -102,6 +108,11 @@ class DISLogger:
             for k in ("pr_raw", "sid_raw", "grl", "route"):
                 if k in norms:
                     self._add(f"grad_norms/ratio_{k.replace('_raw','')}", norms[k] / recon, step)
+
+    def log_grad_cosines(self, step: int, cosines: Dict[str, float]) -> None:
+        """Pairwise gradient cosines between per-loss gradients on the shared SAE trunk."""
+        for k, v in cosines.items():
+            self._add(f"grad_cos/{k}", v, step)
 
     def flush(self) -> None:
         if self._writer is not None:
