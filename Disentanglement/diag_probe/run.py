@@ -111,6 +111,11 @@ def _parse_args():
     # compression-over-uniform.  No effect on the existing leakage table.
     p.add_argument("--mdl_probe", action=argparse.BooleanOptionalAction, default=False,
                    help="Also run a prequential MDL probe per (source, task).")
+    p.add_argument("--mdl_only", action=argparse.BooleanOptionalAction, default=False,
+                   help="Skip the standard accuracy/PER probe and report only MDL "
+                        "codelength.  Implies --mdl_probe.  Use when the standard probe "
+                        "numbers are already on file and only the probe-budget-free "
+                        "metric is needed (~70%% cheaper per source/task pair).")
     p.add_argument("--mdl_steps_per_block", type=int, default=500,
                    help="Probe optimisation steps per MDL block (warm-started across blocks).")
     p.add_argument("--mdl_max_train_examples", type=int, default=4000,
@@ -166,6 +171,12 @@ def main() -> None:
         tasks.append("prosody")
     elif not args.prosody and "prosody" in tasks:
         tasks.remove("prosody")
+    # --mdl_only implies --mdl_probe (the MDL run is the whole point).
+    if args.mdl_only:
+        args.mdl_probe = True
+        if "prosody" in tasks:
+            print("[diag_probe] --mdl_only: prosody not supported by MDL probe, dropping.")
+            tasks.remove("prosody")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -346,43 +357,44 @@ def main() -> None:
                 results[src]["prosody_e_val"]  = ve
                 print(f"    {label:<22s}  F0 r={f0c:.3f}  E r={ec:.3f}  (val F0 {vf0:.3f}, E {ve:.3f})", flush=True)
                 continue
-            if task == "sid":
-                sid_cls = (base_probe._SIDProbeStats if args.sid_probe_arch == "stats"
-                           else base_probe._SIDProbe)
-                probe = sid_cls(dims[src], cfg.num_speakers).to(device)
-                # Cache dev/test features once (frozen model) → cheap repeated evals.
-                val_cache  = base_probe._cache_features(src, sid_val_dl,  model, device, use_bf16, has_routing, "sid")
-                test_cache = base_probe._cache_features(src, sid_test_dl, model, device, use_bf16, has_routing, "sid")
-                best_val = base_probe._train_sid_probe(
-                    probe, src, sid_train_dl, model, device, use_bf16, has_routing,
-                    steps=args.probe_steps, lr=args.sid_probe_lr,
-                    warmup_steps=args.probe_warmup_steps,
-                    grad_clip=args.probe_grad_clip,
-                    val_cache=val_cache, val_every=args.probe_val_every,
-                    patience=args.probe_patience,
-                )
-                val_score  = (best_val if best_val is not None
-                              else base_probe._eval_sid_probe_cached(probe, val_cache, device))
-                test_score = base_probe._eval_sid_probe_cached(probe, test_cache, device)
-            else:
-                probe = base_probe._PRProbe(dims[src], pr_vocab_size).to(device)
-                val_cache  = base_probe._cache_features(src, pr_val_dl,  model, device, use_bf16, has_routing, "pr")
-                test_cache = base_probe._cache_features(src, pr_test_dl, model, device, use_bf16, has_routing, "pr")
-                best_val = base_probe._train_pr_probe(
-                    probe, src, pr_train_dl, model, device, use_bf16, has_routing,
-                    steps=args.probe_steps, lr=args.pr_probe_lr,
-                    warmup_steps=args.probe_warmup_steps,
-                    grad_clip=args.probe_grad_clip,
-                    val_cache=val_cache, tokenizer=pr_tokenizer,
-                    val_every=args.probe_val_every, patience=args.probe_patience,
-                )
-                val_score  = (best_val if best_val is not None
-                              else base_probe._eval_pr_probe_cached(probe, val_cache, pr_tokenizer, device))
-                test_score = base_probe._eval_pr_probe_cached(probe, test_cache, pr_tokenizer, device)
-            results[src][task] = test_score          # reported metric = TEST
-            results[src][task + "_val"] = val_score
-            unit = "PER" if task == "pr" else "acc"
-            print(f"    {label:<22s}  {unit} test={test_score:.3f}  (val {val_score:.3f})", flush=True)
+            if not args.mdl_only:
+                if task == "sid":
+                    sid_cls = (base_probe._SIDProbeStats if args.sid_probe_arch == "stats"
+                               else base_probe._SIDProbe)
+                    probe = sid_cls(dims[src], cfg.num_speakers).to(device)
+                    # Cache dev/test features once (frozen model) → cheap repeated evals.
+                    val_cache  = base_probe._cache_features(src, sid_val_dl,  model, device, use_bf16, has_routing, "sid")
+                    test_cache = base_probe._cache_features(src, sid_test_dl, model, device, use_bf16, has_routing, "sid")
+                    best_val = base_probe._train_sid_probe(
+                        probe, src, sid_train_dl, model, device, use_bf16, has_routing,
+                        steps=args.probe_steps, lr=args.sid_probe_lr,
+                        warmup_steps=args.probe_warmup_steps,
+                        grad_clip=args.probe_grad_clip,
+                        val_cache=val_cache, val_every=args.probe_val_every,
+                        patience=args.probe_patience,
+                    )
+                    val_score  = (best_val if best_val is not None
+                                  else base_probe._eval_sid_probe_cached(probe, val_cache, device))
+                    test_score = base_probe._eval_sid_probe_cached(probe, test_cache, device)
+                else:
+                    probe = base_probe._PRProbe(dims[src], pr_vocab_size).to(device)
+                    val_cache  = base_probe._cache_features(src, pr_val_dl,  model, device, use_bf16, has_routing, "pr")
+                    test_cache = base_probe._cache_features(src, pr_test_dl, model, device, use_bf16, has_routing, "pr")
+                    best_val = base_probe._train_pr_probe(
+                        probe, src, pr_train_dl, model, device, use_bf16, has_routing,
+                        steps=args.probe_steps, lr=args.pr_probe_lr,
+                        warmup_steps=args.probe_warmup_steps,
+                        grad_clip=args.probe_grad_clip,
+                        val_cache=val_cache, tokenizer=pr_tokenizer,
+                        val_every=args.probe_val_every, patience=args.probe_patience,
+                    )
+                    val_score  = (best_val if best_val is not None
+                                  else base_probe._eval_pr_probe_cached(probe, val_cache, pr_tokenizer, device))
+                    test_score = base_probe._eval_pr_probe_cached(probe, test_cache, pr_tokenizer, device)
+                results[src][task] = test_score          # reported metric = TEST
+                results[src][task + "_val"] = val_score
+                unit = "PER" if task == "pr" else "acc"
+                print(f"    {label:<22s}  {unit} test={test_score:.3f}  (val {val_score:.3f})", flush=True)
 
             if args.mdl_probe:
                 # Prequential MDL (Voita & Titov 2020): codelength under a
@@ -411,27 +423,33 @@ def main() -> None:
 
     has_prosody = "prosody" in tasks
     width = 66 + (28 if has_prosody else 0)
-    print(f"\n{'=' * width}")
-    print(f"  DIAGNOSTIC PROBE RESULTS - {args.run_name}")
-    print(f"{'=' * width}")
-    header = f"  {'Source':<8s}  {'PR (PER↓)':>12s}  {'SID (acc↑)':>12s}"
-    if has_prosody:
-        header += f"  {'F0 (r↑)':>12s}  {'E (r↑)':>12s}"
-    print(header)
-    dashes = f"  {'-' * 8}  {'-' * 12}  {'-' * 12}"
-    if has_prosody:
-        dashes += f"  {'-' * 12}  {'-' * 12}"
-    print(dashes)
-    for src in sources:
-        per = results[src].get("pr", float("nan"))
-        acc = results[src].get("sid", float("nan"))
-        row = f"  {src:<8s}  {per:>12.3f}  {acc:>12.3f}"
+    if args.mdl_only:
+        # Skip the standard-probe summary table; the MDL table below is the
+        # only output relevant in this mode.
+        print(f"\n[diag_probe] --mdl_only: standard accuracy/PER probe skipped; "
+              f"see existing logs for those numbers.")
+    else:
+        print(f"\n{'=' * width}")
+        print(f"  DIAGNOSTIC PROBE RESULTS - {args.run_name}")
+        print(f"{'=' * width}")
+        header = f"  {'Source':<8s}  {'PR (PER↓)':>12s}  {'SID (acc↑)':>12s}"
         if has_prosody:
-            f0c = results[src].get("prosody_f0", float("nan"))
-            ec  = results[src].get("prosody_e", float("nan"))
-            row += f"  {f0c:>12.3f}  {ec:>12.3f}"
-        print(row)
-    print(f"{'=' * width}\n")
+            header += f"  {'F0 (r↑)':>12s}  {'E (r↑)':>12s}"
+        print(header)
+        dashes = f"  {'-' * 8}  {'-' * 12}  {'-' * 12}"
+        if has_prosody:
+            dashes += f"  {'-' * 12}  {'-' * 12}"
+        print(dashes)
+        for src in sources:
+            per = results[src].get("pr", float("nan"))
+            acc = results[src].get("sid", float("nan"))
+            row = f"  {src:<8s}  {per:>12.3f}  {acc:>12.3f}"
+            if has_prosody:
+                f0c = results[src].get("prosody_f0", float("nan"))
+                ec  = results[src].get("prosody_e", float("nan"))
+                row += f"  {f0c:>12.3f}  {ec:>12.3f}"
+            print(row)
+        print(f"{'=' * width}\n")
 
     if args.mdl_probe:
         mwidth = 80
