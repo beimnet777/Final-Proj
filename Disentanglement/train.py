@@ -695,6 +695,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += "  dann_full_disc=True"
     print(f"[stage 2] α={cfg.alpha}  β={cfg.beta}  grl={cfg.grl_weight}  ρ={cfg.rho}{delay_str}{extra_str}")
     print(f"[stage 2] steps={cfg.stage2_steps}  batch={cfg.batch_size}")
+    print("[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + "
+          "(1 - grl_p_per)  — in-training head proxies, NOT a probe; "
+          "run diag_probe/ for the authoritative leakage signal.")
 
     model.train()
     use_bf16_init = cfg.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
@@ -1180,22 +1183,39 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 f"{bucket_str}"
             )
             tb.log_val(step, val_metrics)
-            # Stage 2 optimizes disentanglement, not reconstruction.  recon is
-            # *lowest* early — before the task/adversary losses reshape z_t — so
-            # selecting "best" by recon returns an undertrained checkpoint (for
-            # projection runs it picks step ~1000, where the views are near init
-            # and only *look* disentangled because nothing is encoded yet).
-            # Select by a disentanglement score instead: low phoneme error in
-            # z_L + high speaker accuracy in z_P (both lower-is-better).  These
-            # are in-training head metrics — a coarse proxy, but monotone enough
-            # within a run to avoid the recon trap.  Per-step checkpoints are
-            # still saved, so the recon-best is recoverable if ever needed.
-            disent_score = val_metrics["per"] + (1.0 - val_metrics["sid_acc"])
+            # Selection criterion.  recon-best is undertrained (lowest before the
+            # task/adversary losses reshape z_t).  The previous criterion was
+            # per + (1 - sid_acc) — only the two *main-task* head outputs.  That
+            # was shown in the June 23 2026 pending-sweep analysis to select
+            # checkpoints whose final probe-recoverable z_L SID disagreed
+            # wildly with the val-time number (e.g. seed 7: val 0.008, final
+            # 0.704), because the criterion never looked at the adversary heads
+            # at all.  Include them when present so the selection at least
+            # *sees* the in-training leakage proxies:
+            #   z_L PR        ↓  (per)            phoneme in z_L                main task
+            #   z_P SID       ↑  (sid_acc)        speaker in z_P                main task
+            #   z_L SID       ↓  (grl_acc)        speaker leakage into z_L      adversary
+            #   z_P PR        ↑  (grl_p_per)      phoneme leakage into z_P      adversary
+            # All four terms enter as "lower is better".  Missing adversaries
+            # default to neutral (0) so runs without that head are not penalised
+            # and the criterion remains backwards-compatible with old configs.
+            # Still a coarse proxy, NOT a held-out probe: the diagnostic probe
+            # in diag_probe/ is the only authoritative signal.  Per-step
+            # checkpoints are still saved so recon-best is recoverable.
+            disent_score = (
+                val_metrics["per"]
+                + (1.0 - val_metrics["sid_acc"])
+                + val_metrics.get("grl_acc", 0.0)
+                + (1.0 - val_metrics.get("grl_p_per", 1.0))
+            )
             if disent_score < best_metric:
                 best_metric = disent_score
                 _save_checkpoint(best_ckpt, model, optimizer, scheduler, step, best_metric)
-                print(f"  ✓ best checkpoint (disent={best_metric:.4f}  "
-                      f"PER={val_metrics['per']:.3f} sid={val_metrics['sid_acc']:.3f}) → {best_ckpt}")
+                parts = (f"PER={val_metrics['per']:.3f} "
+                         f"sid={val_metrics['sid_acc']:.3f} "
+                         f"grl_acc={val_metrics.get('grl_acc', float('nan')):.3f} "
+                         f"grl_p_per={val_metrics.get('grl_p_per', float('nan')):.3f}")
+                print(f"  ✓ best checkpoint (disent={best_metric:.4f}  {parts}) → {best_ckpt}")
             _save_checkpoint(cfg.checkpoint_dir / f"stage2_step{step}.pt",
                              model, optimizer, scheduler, step, best_metric)
             tb.flush()

@@ -699,6 +699,232 @@ def _eval_sid_probe_cached(probe, cache, device) -> float:
     return correct / max(total, 1)
 
 
+# ---------------------------------------------------------------- MDL / codelength probe
+#
+# Prequential MDL probe in the sense of Voita & Titov (2020, EMNLP).  The cached
+# train features are partitioned into nested prefixes by the fractions below.
+# For each prefix boundary t_i:
+#   * the probe trained on examples [0, t_{i-1}) is evaluated on the slice
+#     [t_{i-1}, t_i); its NLL (in nats) contributes to the running codelength,
+#   * the probe is then trained on the prefix [0, t_i) for `steps_per_block`
+#     optimisation steps (warm-started from the previous block).
+# Block 0 is uncoded (no prior probe) and is paid for under a uniform prior
+# (log K nats per example for SID; mean-target-length * log V for PR).
+# Total codelength (nats) ≤ uniform-baseline (the "compression" the probe
+# achieves over the prior).  Reported as kbits and bits/example, with a
+# compression ratio (uniform - probe) / uniform.
+
+_DEFAULT_MDL_FRACTIONS = (0.0, 0.0078125, 0.015625, 0.03125, 0.0625, 0.125, 0.25, 0.5, 1.0)
+
+
+def _mdl_boundaries_by_examples(n_examples: int,
+                                fractions=_DEFAULT_MDL_FRACTIONS) -> List[int]:
+    bnd = [int(round(f * n_examples)) for f in fractions]
+    bnd[0] = 0
+    bnd[-1] = n_examples
+    out = [bnd[0]]
+    for b in bnd[1:]:
+        if b > out[-1]:
+            out.append(b)
+    return out
+
+
+def _cache_train_features(src_key, train_dl, model, device, use_bf16, has_routing,
+                          task: str, max_examples: int):
+    """Train-set version of `_cache_features`.  Caches features + labels on CPU
+    so MDL passes do not re-run the (frozen) encoder."""
+    model.eval()
+    cache = []
+    seen = 0
+    for audios, audio_lens, targets, target_lens, last in train_dl:
+        feats = _extract_representations(
+            model, audios, audio_lens, device, use_bf16, has_routing
+        )
+        entry = {
+            "z":           feats[src_key].detach().to("cpu"),
+            "out_lengths": feats["out_lengths"].detach().to("cpu"),
+            "B":           int(feats[src_key].shape[0]),
+        }
+        if task == "sid":
+            entry["speaker_ids"] = last.detach().to("cpu")
+        else:  # pr
+            entry["targets"]     = targets.detach().to("cpu")
+            entry["target_lens"] = target_lens.detach().to("cpu")
+        cache.append(entry)
+        seen += entry["B"]
+        if max_examples > 0 and seen >= max_examples:
+            break
+    return cache, seen
+
+
+def _example_index(cache) -> List[tuple]:
+    """Flatten cache into [(batch_idx, within_batch_idx)] in cache order."""
+    out: List[tuple] = []
+    for bi, e in enumerate(cache):
+        for ei in range(e["B"]):
+            out.append((bi, ei))
+    return out
+
+
+def _train_probe_on_prefix(probe, cache, prefix_examples: int, task: str,
+                           steps: int, lr: float, device, num_classes: int) -> None:
+    """Train (or continue training) `probe` on the first `prefix_examples` items
+    of the cached train set, drawing batches uniformly at random."""
+    if prefix_examples <= 0 or steps <= 0:
+        return
+    # restrict to whole cached batches that fit inside the prefix
+    cum = 0
+    prefix_batches = 0
+    for e in cache:
+        if cum + e["B"] <= prefix_examples:
+            cum += e["B"]; prefix_batches += 1
+        else:
+            break
+    if prefix_batches == 0:
+        prefix_batches = 1  # fall back to at least one batch
+    trainable = [p for p in probe.parameters() if p.requires_grad]
+    opt = AdamW(trainable, lr=lr, weight_decay=1e-4)
+    probe.train()
+    rng = np.random.default_rng(0)
+    if task == "sid":
+        loss_fn = nn.CrossEntropyLoss(reduction="mean")
+        for _ in range(steps):
+            bi = int(rng.integers(0, prefix_batches))
+            e = cache[bi]
+            z    = e["z"].to(device, non_blocking=True)
+            lens = e["out_lengths"].to(device, non_blocking=True)
+            sid  = e["speaker_ids"].to(device, non_blocking=True)
+            opt.zero_grad(set_to_none=True)
+            loss = loss_fn(probe(z, lens), sid)
+            loss.backward()
+            opt.step()
+    else:  # pr
+        ctc = nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
+        for _ in range(steps):
+            bi = int(rng.integers(0, prefix_batches))
+            e = cache[bi]
+            z       = e["z"].to(device, non_blocking=True)
+            lens    = e["out_lengths"].to(device, non_blocking=True)
+            tgt     = e["targets"].to(device, non_blocking=True)
+            tgt_len = e["target_lens"].to(device, non_blocking=True)
+            opt.zero_grad(set_to_none=True)
+            log_probs = probe(z)
+            loss = ctc(log_probs.permute(1, 0, 2), tgt, lens, tgt_len)
+            loss.backward()
+            opt.step()
+
+
+@torch.no_grad()
+def _eval_probe_nll_on_slice(probe, cache, lo: int, hi: int, task: str, device):
+    """Evaluate per-example NLL (in nats) on the example-range [lo, hi).
+    Returns (sum_nll_nats, num_examples)."""
+    probe.eval()
+    sum_nll = 0.0
+    n_examples = 0
+    # Walk cache, find batches that overlap [lo, hi)
+    cum = 0
+    for e in cache:
+        b_start, b_end = cum, cum + e["B"]
+        cum = b_end
+        if b_end <= lo or b_start >= hi:
+            continue
+        lo_i = max(0, lo - b_start)
+        hi_i = min(e["B"], hi - b_start)
+        if hi_i <= lo_i:
+            continue
+        z    = e["z"][lo_i:hi_i].to(device, non_blocking=True)
+        lens = e["out_lengths"][lo_i:hi_i].to(device, non_blocking=True)
+        if task == "sid":
+            sid = e["speaker_ids"][lo_i:hi_i].to(device, non_blocking=True)
+            logits = probe(z, lens)
+            nll = F.cross_entropy(logits, sid, reduction="sum")
+            sum_nll += float(nll.item())
+            n_examples += sid.size(0)
+        else:  # pr
+            tgt     = e["targets"][lo_i:hi_i].to(device, non_blocking=True)
+            tgt_len = e["target_lens"][lo_i:hi_i].to(device, non_blocking=True)
+            log_probs = probe(z)  # (B, T, V)
+            ctc = nn.CTCLoss(blank=0, reduction="sum", zero_infinity=True)
+            nll = ctc(log_probs.permute(1, 0, 2), tgt, lens, tgt_len)
+            sum_nll += float(nll.item())
+            n_examples += tgt.size(0)
+    return sum_nll, n_examples
+
+
+def _uniform_baseline_nats(cache, lo: int, hi: int, task: str, num_classes: int) -> float:
+    """Codelength under the uninformative prior over the slice [lo, hi).
+    SID: log(num_speakers) per example.  PR: log(V) * mean target length per example."""
+    if hi <= lo:
+        return 0.0
+    if task == "sid":
+        return float(hi - lo) * float(np.log(max(num_classes, 1)))
+    # PR: sum of target lengths in [lo, hi)
+    total_phones = 0
+    cum = 0
+    for e in cache:
+        b_start, b_end = cum, cum + e["B"]
+        cum = b_end
+        if b_end <= lo or b_start >= hi:
+            continue
+        lo_i = max(0, lo - b_start)
+        hi_i = min(e["B"], hi - b_start)
+        total_phones += int(e["target_lens"][lo_i:hi_i].sum().item())
+    return float(total_phones) * float(np.log(max(num_classes, 1)))
+
+
+def run_mdl_probe(src_key: str, task: str, in_dim: int, num_classes: int,
+                  train_dl, model, device, use_bf16: bool, has_routing: bool,
+                  lr: float, steps_per_block: int, max_train_examples: int,
+                  sid_probe_arch: str = "stats") -> Dict[str, float]:
+    """End-to-end prequential MDL probe.  Returns a dict with codelength /
+    uniform / compression-ratio for one (src, task) pair."""
+    if task == "sid":
+        probe_cls = _SIDProbeStats if sid_probe_arch == "stats" else _SIDProbe
+        probe = probe_cls(in_dim, num_classes).to(device)
+    elif task == "pr":
+        probe = _PRProbe(in_dim, num_classes).to(device)
+    else:
+        raise ValueError(f"MDL probe supports sid|pr, got {task}")
+
+    cache, n = _cache_train_features(
+        src_key, train_dl, model, device, use_bf16, has_routing, task, max_train_examples
+    )
+    if n == 0:
+        return {"codelength_nats": float("nan"), "uniform_nats": float("nan"),
+                "compression": float("nan"), "n_examples": 0}
+
+    bnd = _mdl_boundaries_by_examples(n)
+    code_nats = 0.0
+    unif_nats = 0.0
+    # Block 0: [0, bnd[1]) — predicted with uniform prior.
+    code_nats += _uniform_baseline_nats(cache, 0, bnd[1], task, num_classes)
+    unif_nats += _uniform_baseline_nats(cache, 0, bnd[1], task, num_classes)
+    # Train probe on prefix [0, bnd[1]).
+    _train_probe_on_prefix(probe, cache, bnd[1], task, steps_per_block, lr, device, num_classes)
+
+    for i in range(1, len(bnd) - 1):
+        lo, hi = bnd[i], bnd[i + 1]
+        # Evaluate the current probe on the next slice.
+        sum_nll, _ = _eval_probe_nll_on_slice(probe, cache, lo, hi, task, device)
+        code_nats += sum_nll
+        unif_nats += _uniform_baseline_nats(cache, lo, hi, task, num_classes)
+        # Now include this slice in the training prefix and keep training.
+        _train_probe_on_prefix(probe, cache, hi, task, steps_per_block, lr, device, num_classes)
+        print(f"      [mdl {src_key}/{task}] block {i}/{len(bnd)-2}  "
+              f"slice=[{lo}, {hi})  block_nats={sum_nll:.1f}  "
+              f"running_kbits={code_nats / np.log(2) / 1000:.2f}", flush=True)
+
+    return {
+        "codelength_nats":  code_nats,
+        "uniform_nats":     unif_nats,
+        "codelength_kbits": code_nats / float(np.log(2)) / 1000.0,
+        "uniform_kbits":    unif_nats / float(np.log(2)) / 1000.0,
+        "compression":      0.0 if unif_nats <= 0 else max(0.0, 1.0 - code_nats / unif_nats),
+        "n_examples":       n,
+        "n_blocks":         len(bnd) - 1,
+    }
+
+
 def _greedy_pr_decode(log_probs: torch.Tensor, lengths: torch.Tensor, tokenizer, blank_id: int = 0) -> List[str]:
     preds = log_probs.argmax(dim=-1)
     out: List[str] = []

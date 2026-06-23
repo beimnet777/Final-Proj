@@ -106,6 +106,15 @@ def _parse_args():
     p.add_argument("--sid_probe_arch", choices=("linear", "stats"), default="linear",
                    help="SID probe: 'linear'=projector->mean-pool->linear (SUPERB-style; blind to "
                         "instance-normed features), 'stats'=projector->ReLU->mean+std pool->linear.")
+    # Prequential MDL probe (Voita & Titov 2020, EMNLP).  Runs in addition to
+    # the standard accuracy/PER probe and reports codelength in kbits and
+    # compression-over-uniform.  No effect on the existing leakage table.
+    p.add_argument("--mdl_probe", action=argparse.BooleanOptionalAction, default=False,
+                   help="Also run a prequential MDL probe per (source, task).")
+    p.add_argument("--mdl_steps_per_block", type=int, default=500,
+                   help="Probe optimisation steps per MDL block (warm-started across blocks).")
+    p.add_argument("--mdl_max_train_examples", type=int, default=4000,
+                   help="Cap on cached train examples for the MDL probe (keeps memory bounded).")
     p.add_argument("--probe_warmup_steps", type=int, default=0)
     p.add_argument("--probe_grad_clip", type=float, default=1.0)
     p.add_argument("--spear_layernorm", action="store_true",
@@ -375,6 +384,31 @@ def main() -> None:
             unit = "PER" if task == "pr" else "acc"
             print(f"    {label:<22s}  {unit} test={test_score:.3f}  (val {val_score:.3f})", flush=True)
 
+            if args.mdl_probe:
+                # Prequential MDL (Voita & Titov 2020): codelength under a
+                # sequence of probes trained on growing prefixes, evaluated on
+                # the next slice.  Reported in kbits and compression-over-
+                # uniform; orthogonal to the accuracy number above.
+                num_cls   = cfg.num_speakers if task == "sid" else pr_vocab_size
+                mdl_lr    = args.sid_probe_lr if task == "sid" else args.pr_probe_lr
+                mdl_train = sid_train_dl     if task == "sid" else pr_train_dl
+                mdl = base_probe.run_mdl_probe(
+                    src_key=src, task=task, in_dim=dims[src], num_classes=num_cls,
+                    train_dl=mdl_train, model=model, device=device,
+                    use_bf16=use_bf16, has_routing=has_routing,
+                    lr=mdl_lr, steps_per_block=args.mdl_steps_per_block,
+                    max_train_examples=args.mdl_max_train_examples,
+                    sid_probe_arch=args.sid_probe_arch,
+                )
+                results[src][task + "_mdl_kbits"]      = mdl["codelength_kbits"]
+                results[src][task + "_mdl_uniform_kbits"] = mdl["uniform_kbits"]
+                results[src][task + "_mdl_compression"] = mdl["compression"]
+                results[src][task + "_mdl_n"]          = mdl["n_examples"]
+                print(f"    {label:<22s}  MDL kbits={mdl['codelength_kbits']:.2f} / "
+                      f"uniform={mdl['uniform_kbits']:.2f}  "
+                      f"compression={mdl['compression']*100:.1f}%  "
+                      f"(n={mdl['n_examples']}, {mdl['n_blocks']} blocks)", flush=True)
+
     has_prosody = "prosody" in tasks
     width = 66 + (28 if has_prosody else 0)
     print(f"\n{'=' * width}")
@@ -398,6 +432,27 @@ def main() -> None:
             row += f"  {f0c:>12.3f}  {ec:>12.3f}"
         print(row)
     print(f"{'=' * width}\n")
+
+    if args.mdl_probe:
+        mwidth = 80
+        print(f"{'=' * mwidth}")
+        print(f"  MDL CODELENGTH (probe-budget-free) - {args.run_name}")
+        print(f"{'=' * mwidth}")
+        print(f"  {'Source':<8s}  {'Task':<4s}  {'kbits ↓':>10s}  "
+              f"{'uniform':>10s}  {'compr% ↑':>10s}  {'n':>6s}")
+        print(f"  {'-'*8}  {'-'*4}  {'-'*10}  {'-'*10}  {'-'*10}  {'-'*6}")
+        for src in sources:
+            for task in ("pr", "sid"):
+                k = task + "_mdl_kbits"
+                if k not in results[src]:
+                    continue
+                kb = results[src][k]
+                ub = results[src].get(task + "_mdl_uniform_kbits", float("nan"))
+                cp = 100.0 * results[src].get(task + "_mdl_compression", 0.0)
+                n  = results[src].get(task + "_mdl_n", 0)
+                print(f"  {src:<8s}  {task.upper():<4s}  {kb:>10.2f}  "
+                      f"{ub:>10.2f}  {cp:>10.1f}  {n:>6d}")
+        print(f"{'=' * mwidth}\n")
 
 
 if __name__ == "__main__":
