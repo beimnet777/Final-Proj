@@ -203,6 +203,8 @@ def _parse_args():
     # schedule
     p.add_argument("--total_steps",   type=int,   default=cfg.total_steps)
     p.add_argument("--stage2_steps",  type=int,   default=cfg.stage2_steps)
+    p.add_argument("--stage2_schedule_steps", type=int, default=cfg.stage2_schedule_steps,
+                   help="Stage-2 LR/DANN schedule horizon (0 = use --stage2_steps).")
     p.add_argument("--warmup_steps",  type=int,   default=cfg.warmup_steps)
     p.add_argument("--batch_size",    type=int,   default=cfg.batch_size)
     p.add_argument("--lr",            type=float, default=cfg.lr)
@@ -316,6 +318,7 @@ def _parse_args():
     cfg.vib_zL_layernorm      = args.vib_zL_layernorm
     cfg.total_steps           = args.total_steps
     cfg.stage2_steps          = args.stage2_steps
+    cfg.stage2_schedule_steps = args.stage2_schedule_steps
     cfg.warmup_steps          = args.warmup_steps
     cfg.batch_size            = args.batch_size
     cfg.lr                    = args.lr

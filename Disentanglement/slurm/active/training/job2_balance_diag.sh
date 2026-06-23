@@ -27,10 +27,9 @@
 #   the canonical Job-2.  Checkpoints go to a throwaway dir.
 #
 # DESIGN CHOICES
-#   * 2500 steps  = warmup (500) + 2000 post-warmup steps.  Enough to cross
-#     the GRL ramp and see steady-state conflict, not a full training run.
-#   * grad_log_every=50  = 50× denser than the production config; cosines
-#     are cheap (one extra dot-product per loss pair per snapshot).  Yields
+#   * 2500 executed steps with a 12000-step schedule horizon. This reproduces
+#     canonical Job-2 LR/DANN values through step 2500 without a full run.
+#   * grad_log_every=50 = 10× denser than the production config. Yields
 #     ~50 cosine snapshots — enough to draw a clean trace.
 #   * Same alpha/beta/grl_weight/grl_phoneme_weight/disc as Job 2 so the
 #     measured conflict reflects exactly the dynamics we are trying to
@@ -66,7 +65,7 @@ BLOCKS=(--fixed_blocks --per_block_topk --K_L 3072 --K_P 1024 --K_U 1024 \
 
 echo "=== JOB2 BALANCING DIAGNOSTIC (grad cosines) ===  $(date)"
 nvidia-smi --query-gpu=name --format=csv,noheader
-echo "Steps=2500  grad_log_every=50  →  expect ~50 grad-cosine snapshots"
+echo "Steps=2500  schedule_horizon=12000  grad_log_every=50"
 echo "Cosine output: grep '\[grad_cos' on the .out file"
 
 ${PYTHON} -u run.py \
@@ -76,14 +75,12 @@ ${PYTHON} -u run.py \
     --local_data --train_split_dir train-clean-100 --spear_layernorm \
     --alpha 0.8 --beta 0.6 --grl_weight 1.0 --grl_phoneme_weight 0.5 \
     --grl_delay_steps 0 --dann_full_discriminator --lr_disc 1e-3 --n_disc_steps 3 --rho 0.0 \
-    --stage2_steps 2500 --warmup_steps 500 \
+    --stage2_steps 2500 --stage2_schedule_steps 12000 --warmup_steps 500 \
     --lr 1e-4 --lr_min 1e-6 --lr_heads 1e-4 --grad_log_every 50 \
     --checkpoint_dir "${CKPT_DIR}" --runs_dir "${DIS_DIR}/runs/${RUN_NAME}" \
     --log_dir "${DIS_DIR}/logs" --seed 42
 
 echo
 echo "=== diagnostic finished $(date) ==="
-echo "Next: read grad cosines and pick Step 2 mechanism."
-echo "  conflict (cos<-0.05) between recon ↔ adv  →  PCGrad"
-echo "  norms differ >5x between any two losses    →  per-task gradient clip"
-echo "  adv cos with disc updates is unstable       →  two-timescale (slow disc_lr)"
+echo "Next: interpret persistent conflicts and norm imbalance jointly."
+echo "Do not choose PCGrad, clipping, or discriminator changes from one threshold."

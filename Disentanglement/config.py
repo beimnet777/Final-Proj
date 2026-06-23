@@ -234,6 +234,8 @@ class DISConfig:
     warmup_steps:    int = 500
     total_steps:     int = 6_000    # stage 1
     stage2_steps:    int = 0        # filled at launch (TBD)
+    # Optional Stage-2 LR/DANN horizon. 0 means use stage2_steps.
+    stage2_schedule_steps: int = 0
     log_every:       int = 100
     grad_log_every:  int = 500
     ckpt_every:      int = 1_000

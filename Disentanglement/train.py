@@ -312,17 +312,24 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
     )
 
     sae_params = [p for p in model.sae.parameters() if p.requires_grad]
+    shared_param = model.sae.enc_weight
+    shared_idx = next(i for i, p in enumerate(sae_params) if p is shared_param)
 
     def _grad_vec(loss, retain):
-        """Return (flat_grad_vector, ||g||) on the shared SAE trunk for `loss`.
-        Vector is float32 on the same device; None if no SAE param received grad."""
+        """Return (encoder-gradient vector, full-SAE gradient norm).
+
+        Historical norm values cover all SAE parameters. Cosines use only the
+        shared encoder matrix, avoiding unequal vectors when reconstruction also
+        updates the decoder.
+        """
         grads = torch.autograd.grad(loss, sae_params, retain_graph=retain,
                                     allow_unused=True, create_graph=False)
-        parts = [g.detach().float().flatten() for g in grads if g is not None]
-        if not parts:
-            return None, 0.0
-        flat = torch.cat(parts)
-        return flat, float(flat.norm(2).item())
+        norm_parts = [g.detach().float().pow(2).sum() for g in grads if g is not None]
+        full_norm = float(torch.stack(norm_parts).sum().sqrt().item()) if norm_parts else 0.0
+        shared_grad = grads[shared_idx]
+        shared_vec = (shared_grad.detach().float().flatten()
+                      if shared_grad is not None else None)
+        return shared_vec, full_norm
 
     def _norm(loss, retain):
         return _grad_vec(loss, retain)[1]
@@ -398,7 +405,7 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         if _grl_p_w == 0:
             raw["grl_p"] = 0.0
 
-        # Pairwise cosines between per-loss gradients on the shared SAE trunk.
+        # Pairwise cosines between per-loss gradients on the shared SAE encoder.
         # cos>0: tasks agree on which params to move; cos<0: they fight on the
         # same params and the sum-then-step optimizer cancels signal.
         cos_pairs: Dict[str, float] = {}
@@ -435,7 +442,7 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
     lines.append(f"    per-frame |dL/dz[t]|:  grl(z_L)={pf_grl:.5f}   grl_p(z_P)={pf_grl_p:.5f}"
                  f"   (grl_p/grl = {ratio_pf:.1f}x  <- pooled-vs-dense dilution)")
     if cos_pairs:
-        lines.append(f"    [grad_cos @{step}]  cos<0 = tasks fight on the same SAE params")
+        lines.append(f"    [grad_cos @{step}]  shared=sae.enc_weight; cos<0 = conflict")
         for pair, c in cos_pairs.items():
             tag = "  conflict" if c < -0.05 else ("  aligned" if c > 0.05 else "")
             lines.append(f"      cos({pair:<22s}) = {c:+.3f}{tag}")
@@ -728,7 +735,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     if getattr(cfg, 'dann_full_discriminator', False):
         extra_str += "  dann_full_disc=True"
     print(f"[stage 2] α={cfg.alpha}  β={cfg.beta}  grl={cfg.grl_weight}  ρ={cfg.rho}{delay_str}{extra_str}")
-    print(f"[stage 2] steps={cfg.stage2_steps}  batch={cfg.batch_size}")
+    schedule_steps = int(getattr(cfg, "stage2_schedule_steps", 0) or cfg.stage2_steps)
+    if schedule_steps < cfg.stage2_steps:
+        raise ValueError("stage2_schedule_steps must be 0 or >= stage2_steps")
+    print(f"[stage 2] steps={cfg.stage2_steps}  schedule_steps={schedule_steps}  "
+          f"batch={cfg.batch_size}")
     print("[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + "
           "(1 - grl_p_per)  — in-training head proxies, NOT a probe; "
           "run diag_probe/ for the authoritative leakage signal.")
@@ -785,7 +796,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     if vib_params:
         param_groups.append({"params": vib_params, "lr": cfg.lr})
     optimizer = AdamW(param_groups, weight_decay=cfg.weight_decay)
-    scheduler = _make_scheduler(optimizer, cfg.warmup_steps, cfg.stage2_steps, cfg.lr, cfg.lr_min)
+    scheduler = _make_scheduler(optimizer, cfg.warmup_steps, schedule_steps, cfg.lr, cfg.lr_min)
 
     use_bf16 = cfg.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     scaler   = torch.amp.GradScaler("cuda", enabled=(not use_bf16))
@@ -855,7 +866,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             batch = next(train_iter)
 
         # ---- temperature + DANN ramp
-        model.routing.tau = _gumbel_tau(step, cfg.stage2_steps,
+        model.routing.tau = _gumbel_tau(step, schedule_steps,
                                         cfg.gumbel_tau_start, cfg.gumbel_tau_end)
         # Delayed linear ramp for the IB capacity penalty (specialize first, then prune).
         if ub_w > 0 and ub_ramp_end > ub_ramp_start:
@@ -865,7 +876,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         # VIB KL ramp (let z_L form before compressing)
         eff_vib_w = (vib_w * min(1.0, step / vib_ramp_end)) if (vib_w > 0 and vib_ramp_end > 0) else vib_w
         grl_active        = (cfg.grl_delay_steps == 0 or step >= cfg.grl_delay_steps)
-        ramp              = _dann_lambda(step, cfg.stage2_steps) if grl_active else 0.0
+        ramp              = _dann_lambda(step, schedule_steps) if grl_active else 0.0
         if dann_fix:
             # Canonical DANN: heads train at full strength; the per-adversary
             # weights act only on the reversed (encoder-side) gradient via lambda.
