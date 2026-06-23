@@ -3,7 +3,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
-#SBATCH --time=02:30:00
+#SBATCH --time=07:00:00
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
@@ -15,7 +15,8 @@
 # MDL-only probe across the 4 high-value checkpoints from the June 23 pending
 # sweep.  Skips the 10k-step standard accuracy probe (those numbers already
 # live in the original training logs) and runs ONLY the Voita-&-Titov-2020
-# prequential MDL codelength, which is probe-budget-free by construction.
+# prequential MDL codelength using an optimisation budget matched approximately
+# to the standard 10k-step probe.
 #
 # Targets (rationale in "Pending-Sweep Analysis - June 23 2026"):
 #   0  job2_dense_gradnorm_seed7                  z_L SID = 0.704 outlier  → does MDL agree info is there?
@@ -26,8 +27,12 @@
 # Skipped (low value): dense_gn_shuf, gn_nodense, inv_only_nr — those results
 # are explained by the val-probe vs. final-probe gap; MDL would just confirm.
 #
+# Eight prequential training phases × 1250 updates = approximately 10k probe
+# updates per source/task pair. This does not make MDL budget-independent, but
+# removes the previous 500-step-per-phase undertraining concern.
+#
 # NOTE: --array=0-3 with no `%N` throttle → all 4 tasks scheduled CONCURRENTLY.
-# Wall clock = ~1 task's runtime (~1.5 h), total GPU-h ~6.  probe_seed=42 is
+# probe_seed=42 is
 # held constant to match the existing cross-checkpoint comparisons; the
 # parallel probe_seed_sweep_job2.sh handles probe-seed variance separately.
 
@@ -67,7 +72,7 @@ ${PYTHON} -u diag_probe/run.py \
     --run_name "mdl_${RUN_NAME}" \
     "${BLOCKS[@]}" --spear_layernorm \
     --sources "z_L,z_P" --tasks "pr,sid" --sid_probe_arch stats \
-    --mdl_only --mdl_steps_per_block 500 --mdl_max_train_examples 4000 \
+    --mdl_only --mdl_steps_per_block 1250 --mdl_max_train_examples 4000 \
     --pr_probe_lr 5e-4 --sid_probe_lr 1e-3 \
     --seed 42
 

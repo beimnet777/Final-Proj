@@ -113,11 +113,11 @@ def _parse_args():
                    help="Also run a prequential MDL probe per (source, task).")
     p.add_argument("--mdl_only", action=argparse.BooleanOptionalAction, default=False,
                    help="Skip the standard accuracy/PER probe and report only MDL "
-                        "codelength.  Implies --mdl_probe.  Use when the standard probe "
-                        "numbers are already on file and only the probe-budget-free "
-                        "metric is needed (~70%% cheaper per source/task pair).")
-    p.add_argument("--mdl_steps_per_block", type=int, default=500,
-                   help="Probe optimisation steps per MDL block (warm-started across blocks).")
+                        "codelength. Implies --mdl_probe. Use when standard probe "
+                        "numbers already exist and only the matched-protocol "
+                        "prequential metric is needed.")
+    p.add_argument("--mdl_steps_per_block", type=int, default=1250,
+                   help="Probe optimisation steps per MDL block (8 phases x 1250 ~= 10k updates).")
     p.add_argument("--mdl_max_train_examples", type=int, default=4000,
                    help="Cap on cached train examples for the MDL probe (keeps memory bounded).")
     p.add_argument("--probe_warmup_steps", type=int, default=0)
@@ -454,7 +454,7 @@ def main() -> None:
     if args.mdl_probe:
         mwidth = 80
         print(f"{'=' * mwidth}")
-        print(f"  MDL CODELENGTH (probe-budget-free) - {args.run_name}")
+        print(f"  MDL CODELENGTH (prequential, fixed optimisation protocol) - {args.run_name}")
         print(f"{'=' * mwidth}")
         print(f"  {'Source':<8s}  {'Task':<4s}  {'kbits ↓':>10s}  "
               f"{'uniform':>10s}  {'compr% ↑':>10s}  {'n':>6s}")

@@ -3,7 +3,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
-#SBATCH --time=06:00:00
+#SBATCH --time=10:00:00
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
@@ -62,9 +62,9 @@ ${PYTHON} -u diag_probe/run.py \
     --run_name "diag_${RUN_NAME}_probe_seed${PROBE_SEED}" \
     "${BLOCKS[@]}" --spear_layernorm \
     --sources "z_L,z_P" --tasks "pr,sid" --sid_probe_arch stats \
-    --probe_steps 10000 --probe_val_every 250 --probe_patience 8 \
+    --probe_steps 10000 --probe_val_every 250 --probe_patience 0 \
     --pr_max_examples 0 --pr_probe_lr 5e-4 --sid_probe_lr 1e-3 \
-    --mdl_probe --mdl_steps_per_block 500 --mdl_max_train_examples 4000 \
+    --mdl_probe --mdl_steps_per_block 1250 --mdl_max_train_examples 4000 \
     --seed "${PROBE_SEED}"
 
 echo "Finished probe_seed=${PROBE_SEED}: $(date)"
