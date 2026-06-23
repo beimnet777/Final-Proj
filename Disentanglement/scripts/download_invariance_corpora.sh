@@ -21,9 +21,9 @@ echo "DATA_ROOT=${DATA_ROOT}"
 echo "(LibriSpeech expected at ${DATA_ROOT}/LibriSpeech)"
 echo ""
 
-# Pick downloader
+# Pick downloader.  Errors stay visible (no --quiet) and verbose retries.
 if command -v wget >/dev/null 2>&1; then
-    DL="wget --quiet --show-progress -c -O"
+    DL="wget --show-progress --tries=3 --timeout=60 -c -O"
 else
     DL="curl -fL --retry 3 --retry-delay 5 -C - -o"
 fi
@@ -32,7 +32,13 @@ fi
 ARCTIC_DIR="${DATA_ROOT}/CMU_ARCTIC"
 mkdir -p "${ARCTIC_DIR}"
 ARCTIC_SPEAKERS=(awb bdl clb jmk ksp rms slt)
-ARCTIC_URL_BASE="http://festvox.org/cmu_arctic/cmu_arctic/packed"
+# Canonical Festvox path is /cmu_arctic/packed/.  Try a couple of mirrors in
+# order; first one to deliver an archive wins.
+ARCTIC_URL_BASES=(
+    "http://www.festvox.org/cmu_arctic/packed"
+    "http://festvox.org/cmu_arctic/packed"
+    "http://festvox.org/cmu_arctic/cmu_arctic/packed"
+)
 
 echo "=== CMU ARCTIC (7 speakers, ~7 GB total) ==="
 for spk in "${ARCTIC_SPEAKERS[@]}"; do
@@ -42,13 +48,32 @@ for spk in "${ARCTIC_SPEAKERS[@]}"; do
         echo "  [skip] ${spk}: already extracted"
         continue
     fi
-    if [[ ! -f "${archive}" ]]; then
-        echo "  [get ] ${spk}"
-        ${DL} "${archive}" "${ARCTIC_URL_BASE}/cmu_us_${spk}_arctic-0.95-release.tar.bz2" || {
-            echo "  [fail] ${spk} download"; continue; }
+    if [[ ! -s "${archive}" ]]; then
+        rm -f "${archive}"
+        got=0
+        for base in "${ARCTIC_URL_BASES[@]}"; do
+            url="${base}/cmu_us_${spk}_arctic-0.95-release.tar.bz2"
+            echo "  [get ] ${spk}  <-  ${url}"
+            if ${DL} "${archive}" "${url}"; then
+                got=1; break
+            else
+                echo "  [warn] ${spk}: download from ${base} failed"
+                rm -f "${archive}"
+            fi
+        done
+        if [[ "${got}" -ne 1 ]]; then
+            echo "  [fail] ${spk}: all mirrors failed — skipping"
+            continue
+        fi
     fi
-    echo "  [tar ] ${spk}"
-    tar -xjf "${archive}" -C "${ARCTIC_DIR}" && rm -f "${archive}"
+    if [[ -s "${archive}" ]]; then
+        echo "  [tar ] ${spk}"
+        if tar -xjf "${archive}" -C "${ARCTIC_DIR}"; then
+            rm -f "${archive}"
+        else
+            echo "  [fail] ${spk}: tar extract failed (archive may be HTML error page) — keeping ${archive} for inspection"
+        fi
+    fi
 done
 echo "ARCTIC done.  Layout: ${ARCTIC_DIR}/cmu_us_<speaker>_arctic/{wav,etc/txt.done.data}"
 echo ""
