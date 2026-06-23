@@ -64,6 +64,10 @@ class DISConfig:
     grl_delay_steps:     int   = 0     # steps before GRL is switched on (0 = no delay)
     grl_frame_level:     bool  = False  # speaker adversary predicts per-frame (dense gradient) vs utterance mean-pool
     grl_attention_pool:  bool  = False  # speaker adversary pools z_L with attentive statistics (weighted mean+std) instead of flat mean → stronger discriminator
+    # Match the strong diagnostic SID probe exactly: projector -> ReLU ->
+    # masked mean+std pooling -> speaker classifier.  This is stronger than
+    # flat mean-pooling without adding attention as a second confound.
+    grl_stats_pool:      bool  = False
     # Dense speaker adversary: per-frame speaker prediction (like grl_p's per-frame
     # phoneme head) but with a temporal conv so each frame has local context — gives
     # z_L a DENSE per-frame removal gradient instead of one diluted pooled gradient.

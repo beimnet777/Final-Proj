@@ -91,6 +91,8 @@ def _parse_args():
     p.add_argument("--grl_attention_pool", action="store_true", default=cfg.grl_attention_pool,
                    help="Speaker GRL pools z_L with attentive statistics (weighted mean+std) instead of "
                         "flat mean — a stronger speaker discriminator.")
+    p.add_argument("--grl_stats_pool", action="store_true", default=cfg.grl_stats_pool,
+                   help="Speaker GRL uses diagnostic-style stats pooling: projector->ReLU->mean+std->linear.")
     p.add_argument("--grl_dense_context", action="store_true", default=cfg.grl_dense_context,
                    help="Speaker GRL predicts per-frame (dense) with a temporal conv for context — "
                         "gives z_L a dense per-frame removal gradient like grl_p.")
@@ -216,6 +218,8 @@ def _parse_args():
     p.add_argument("--n_disc_steps",  type=int,   default=cfg.n_disc_steps,
                    help="discriminator updates per encoder update (GAN n_critic)")
     p.add_argument("--grad_log_every",type=int,   default=cfg.grad_log_every)
+    p.add_argument("--grad_clip",     type=float, default=cfg.grad_clip,
+                   help="Global gradient clipping max norm for stage1/stage2.")
 
     # paths
     p.add_argument("--checkpoint_dir", default=str(cfg.checkpoint_dir))
@@ -256,6 +260,7 @@ def _parse_args():
     cfg.grl_delay_steps       = args.grl_delay_steps
     cfg.grl_frame_level       = args.grl_frame_level
     cfg.grl_attention_pool    = args.grl_attention_pool
+    cfg.grl_stats_pool        = args.grl_stats_pool
     cfg.grl_dense_context     = args.grl_dense_context
     cfg.grl_context_kernel    = args.grl_context_kernel
     cfg.grl_grad_norm         = args.grl_grad_norm
@@ -328,6 +333,7 @@ def _parse_args():
     cfg.lr_disc               = args.lr_disc
     cfg.n_disc_steps          = args.n_disc_steps
     cfg.grad_log_every        = args.grad_log_every
+    cfg.grad_clip             = args.grad_clip
     cfg.checkpoint_dir        = Path(args.checkpoint_dir)
     cfg.runs_dir              = Path(args.runs_dir)
     cfg.log_dir               = Path(args.log_dir)

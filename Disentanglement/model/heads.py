@@ -185,6 +185,10 @@ class GRLHead(nn.Module):
         # discriminator concentrate on the most speaker-informative frames →
         # a much stronger adversary than a flat mean-pool.
         self.attention_pool = bool(getattr(cfg, "grl_attention_pool", False))
+        # stats_pool=True: match the diagnostic SID-stats probe exactly after
+        # the projector: ReLU -> masked mean+std -> classifier.  This tests
+        # whether the training adversary can remove what the leakage probe sees.
+        self.stats_pool     = bool(getattr(cfg, "grl_stats_pool", False))
         # dense_context=True: per-frame speaker prediction (like grl_p) but with a
         # temporal conv for local context, so each frame gets its OWN removal
         # gradient (dense) instead of one diluted pooled gradient over T frames.
@@ -195,6 +199,7 @@ class GRLHead(nn.Module):
         self.grad_norm_target = float(getattr(cfg, "grl_grad_norm_target", 1.0))
         if self.attention_pool:
             self.attn = nn.Sequential(nn.Linear(P, P), nn.Tanh(), nn.Linear(P, 1))
+        if self.attention_pool or self.stats_pool:
             self.fc   = nn.Linear(2 * P, cfg.num_speakers)        # [weighted mean ; weighted std]
         else:
             self.fc   = nn.Linear(P, cfg.num_speakers)
@@ -237,5 +242,11 @@ class GRLHead(nn.Module):
             std  = (var + 1e-5).sqrt()                            # (B, P)
             return self.fc(torch.cat([mean, std], dim=-1))
         fmask  = mask.float()
+        if self.stats_pool:
+            n    = lengths.float().clamp(min=1).unsqueeze(1)
+            mean = (z_proj * fmask).sum(1) / n
+            var  = (((z_proj - mean.unsqueeze(1)) ** 2) * fmask).sum(1) / n
+            std  = (var + 1e-5).sqrt()
+            return self.fc(torch.cat([mean, std], dim=-1))
         z_mean = (z_proj * fmask).sum(1) / lengths.float().unsqueeze(1).clamp(min=1)
         return self.fc(z_mean)

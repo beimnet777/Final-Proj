@@ -730,6 +730,14 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += "  spear_ln=True"
     if getattr(cfg, 'grl_frame_level', False):
         extra_str += "  grl_frame_level=True"
+    if getattr(cfg, 'grl_stats_pool', False):
+        extra_str += "  grl_stats_pool=True"
+    if getattr(cfg, 'grl_attention_pool', False):
+        extra_str += "  grl_attention_pool=True"
+    if getattr(cfg, 'grl_dense_context', False):
+        extra_str += f"  grl_dense_context=True(k={cfg.grl_context_kernel})"
+    if getattr(cfg, 'grl_grad_norm', False):
+        extra_str += f"  grl_grad_norm={cfg.grl_grad_norm_target}"
     if getattr(cfg, 'instance_norm_zL', False):
         extra_str += "  instance_norm_zL=True"
     if getattr(cfg, 'dann_full_discriminator', False):
@@ -739,7 +747,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     if schedule_steps < cfg.stage2_steps:
         raise ValueError("stage2_schedule_steps must be 0 or >= stage2_steps")
     print(f"[stage 2] steps={cfg.stage2_steps}  schedule_steps={schedule_steps}  "
-          f"batch={cfg.batch_size}")
+          f"batch={cfg.batch_size}  grad_clip={cfg.grad_clip}")
     print("[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + "
           "(1 - grl_p_per)  — in-training head proxies, NOT a probe; "
           "run diag_probe/ for the authoritative leakage signal.")
