@@ -110,6 +110,14 @@ def _parse_args():
     p.add_argument("--pr_probe_arch", choices=("linear", "mlp"), default="linear",
                    help="PR probe: 'linear'=projector->linear (SUPERB-style); "
                         "'mlp'=projector->ReLU->linear (SUPERB + one ReLU).")
+    p.add_argument("--sid_dataset", choices=("libri", "arctic"), default="libri",
+                   help="SID probe data source. 'libri'=LibriSpeech 251 speakers (default, leakage); "
+                        "'arctic'=CMU ARCTIC 18 speakers (matched-distribution check for invariance runs).")
+    p.add_argument("--arctic_root", type=str,
+                   default="../Probing/data/CMU_ARCTIC",
+                   help="ARCTIC root containing cmu_us_<spk>_arctic/wav/arctic_*.wav (used when --sid_dataset arctic).")
+    p.add_argument("--arctic_sid_seed", type=int, default=42,
+                   help="Seed for the random per-speaker utterance split when --sid_dataset arctic.")
     # Prequential MDL probe (Voita & Titov 2020, EMNLP).  Runs in addition to
     # the standard accuracy/PER probe and reports codelength in kbits and
     # compression-over-uniform.  No effect on the existing leakage table.
@@ -249,6 +257,21 @@ def main() -> None:
         print("[diag_probe] PR task not requested — skipping PR dataloaders.")
     # SID: closed-set — same speakers, split by utterance into train / val / test.
     _, sid_train_dl, sid_val_dl, sid_test_dl = make_stage2_dataloaders(cfg)
+    # Optional override: matched-distribution probe on ARCTIC's 18 speakers.
+    sid_num_classes_override = None
+    if args.sid_dataset == "arctic":
+        from Disentanglement.data.arctic_sid import make_arctic_sid_dataloaders
+        sid_num_classes_override, sid_train_dl, sid_val_dl, sid_test_dl = (
+            make_arctic_sid_dataloaders(
+                arctic_root=args.arctic_root,
+                sample_rate=cfg.sample_rate,
+                batch_size=cfg.batch_size,
+                eval_batch_size=cfg.eval_batch_size,
+                num_workers=cfg.num_workers,
+                seed=args.arctic_sid_seed,
+            )
+        )
+        print(f"[diag_probe] SID dataset = ARCTIC ({sid_num_classes_override} speakers, seed {args.arctic_sid_seed})")
 
     if args.stage2_ckpt:
         tmp = torch.load(args.stage2_ckpt, map_location="cpu", weights_only=False)
@@ -380,7 +403,8 @@ def main() -> None:
                                "mlp":   base_probe._SIDProbeMLP,
                                "linear": base_probe._SIDProbe}
                     sid_cls = sid_map.get(args.sid_probe_arch, base_probe._SIDProbe)
-                    probe = sid_cls(dims[src], cfg.num_speakers).to(device)
+                    n_sid = sid_num_classes_override if sid_num_classes_override is not None else cfg.num_speakers
+                    probe = sid_cls(dims[src], n_sid).to(device)
                     # Cache dev/test features once (frozen model) → cheap repeated evals.
                     val_cache  = base_probe._cache_features(src, sid_val_dl,  model, device, use_bf16, has_routing, "sid")
                     test_cache = base_probe._cache_features(src, sid_test_dl, model, device, use_bf16, has_routing, "sid")
@@ -424,7 +448,8 @@ def main() -> None:
                 # sequence of probes trained on growing prefixes, evaluated on
                 # the next slice.  Reported in kbits and compression-over-
                 # uniform; orthogonal to the accuracy number above.
-                num_cls   = cfg.num_speakers if task == "sid" else pr_vocab_size
+                num_cls   = ((sid_num_classes_override if sid_num_classes_override is not None else cfg.num_speakers)
+                             if task == "sid" else pr_vocab_size)
                 mdl_lr    = args.sid_probe_lr if task == "sid" else args.pr_probe_lr
                 if task == "pr" and pr_train_dl is None:
                     raise RuntimeError("PR MDL requested but PR dataloader was not built.")
