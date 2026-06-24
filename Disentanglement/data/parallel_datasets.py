@@ -50,11 +50,20 @@ class ARCTICIndex:
     """
 
     _SPK_RE = re.compile(r"cmu_us_([a-z0-9]+)_arctic")
+    _TXT_RE = re.compile(r'^\s*\(\s*(\S+)\s+"(.*)"\s*\)\s*$')
+
+    @staticmethod
+    def _norm_text(t: str) -> str:
+        return " ".join(re.sub(r"[^a-z0-9 ]", "", t.lower()).split())
 
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         # prompt_id -> {speaker: wav_path}
         self.prompts: Dict[str, Dict[str, Path]] = {}
+        # prompt_id -> {speaker: normalized text} (empty {} if no transcript known)
+        self.texts: Dict[str, Dict[str, str]] = {}
+        # filled by pair_pool() on first call
+        self.n_pairs_dropped_text_mismatch: int = 0
         if not self.root.exists():
             self.speakers: List[str] = []
             return
@@ -73,20 +82,42 @@ class ARCTICIndex:
             for wav in sorted(wav_dir.glob("arctic_*.wav")):
                 pid = wav.stem
                 self.prompts.setdefault(pid, {})[spk] = wav
+            txt_file = spk_dir / "etc" / "txt.done.data"
+            if txt_file.is_file():
+                for line in txt_file.read_text().splitlines():
+                    m2 = self._TXT_RE.match(line)
+                    if not m2:
+                        continue
+                    pid, text = m2.group(1), m2.group(2)
+                    self.texts.setdefault(pid, {})[spk] = self._norm_text(text)
         self.speakers = sorted(speakers)
 
     def __len__(self) -> int:
         return len(self.prompts)
 
     def pair_pool(self) -> List[Tuple[str, str, str, Path, Path]]:
-        """All cross-speaker pairs as (prompt_id, spk_a, spk_b, path_a, path_b)."""
+        """All cross-speaker pairs as (prompt_id, spk_a, spk_b, path_a, path_b).
+
+        Pairs whose two speakers disagree on the prompt's normalized transcript
+        are dropped (e.g. awb recorded a different prompt set than the canonical
+        speakers starting at ~arctic_a0074, so awb<->{others} pairs for those
+        prompt-ids would mis-train pair-α invariance).  Pairs are kept when both
+        sides have no transcript on disk (legacy festvox layout).
+        """
         pool: List[Tuple[str, str, str, Path, Path]] = []
+        dropped = 0
         for pid, by_spk in self.prompts.items():
             spks = sorted(by_spk.keys())
+            tx = self.texts.get(pid, {})
             for i in range(len(spks)):
                 for j in range(i + 1, len(spks)):
                     sa, sb = spks[i], spks[j]
+                    ta, tb = tx.get(sa), tx.get(sb)
+                    if ta is not None and tb is not None and ta != tb:
+                        dropped += 1
+                        continue
                     pool.append((pid, sa, sb, by_spk[sa], by_spk[sb]))
+        self.n_pairs_dropped_text_mismatch = dropped
         return pool
 
 
