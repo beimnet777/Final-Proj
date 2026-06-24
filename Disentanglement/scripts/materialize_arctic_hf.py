@@ -2,8 +2,12 @@
 that Disentanglement.data.parallel_datasets.ARCTICIndex expects:
 
     <out_root>/cmu_us_<spk>_arctic/
-        wav/<file>.wav                 # 16 kHz mono int16
-        etc/txt.done.data              # ( <file> "<transcript>" )
+        wav/arctic_<promptid>.wav      # 16 kHz mono int16
+        etc/txt.done.data              # ( arctic_<promptid> "<transcript>" )
+
+HF parquet `file` column is `<spk>-<promptid>.wav` (e.g. "awb-a0001.wav").
+We strip the speaker prefix and prepend "arctic_" so the prompt-id is shared
+across speakers (festvox convention) — this is what makes pair-α work.
 
 Reads parquet shards directly with pyarrow + soundfile (no `datasets` library
 round-trip needed, and works whether or not the HF cache exists).
@@ -31,6 +35,15 @@ import soundfile as sf
 TARGET_SR = 16_000
 
 
+def _prompt_id(file_field: str, spk: str) -> str:
+    """Map HF parquet `file` field "<spk>-<promptid>.wav" -> "arctic_<promptid>"."""
+    stem = file_field[:-4] if file_field.endswith(".wav") else file_field
+    prefix = f"{spk}-"
+    if stem.startswith(prefix):
+        stem = stem[len(prefix):]
+    return f"arctic_{stem}"
+
+
 def materialize_speaker(parquet_path: Path, spk: str, out_root: Path) -> tuple[int, int]:
     spk_dir = out_root / f"cmu_us_{spk}_arctic"
     wav_dir = spk_dir / "wav"
@@ -43,18 +56,19 @@ def materialize_speaker(parquet_path: Path, spk: str, out_root: Path) -> tuple[i
     texts = table.column("text").to_pylist()
     audios = table.column("audio").to_pylist()
 
+    pids = [_prompt_id(f, spk) for f in files]
     expected = len(files)
-    existing = sum(1 for f in files if (wav_dir / f"{f}.wav").exists())
+    existing = sum(1 for pid in pids if (wav_dir / f"{pid}.wav").exists())
     if existing == expected and (etc_dir / "txt.done.data").exists():
         return (expected, 0)
 
     written = 0
     txt_lines = []
-    for fname, text, aud in zip(files, texts, audios):
+    for pid, text, aud in zip(pids, texts, audios):
         # HF Audio column: {"bytes": <encoded bytes or None>, "path": <str or None>}
         # The bytes are the original wav file contents.
-        wav_out = wav_dir / f"{fname}.wav"
-        txt_lines.append(f'( {fname} "{text}" )')
+        wav_out = wav_dir / f"{pid}.wav"
+        txt_lines.append(f'( {pid} "{text}" )')
         if wav_out.exists():
             continue
         if aud is None or aud.get("bytes") is None:
