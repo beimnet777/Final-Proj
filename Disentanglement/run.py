@@ -218,6 +218,7 @@ def _parse_args():
     p.add_argument("--n_disc_steps",  type=int,   default=cfg.n_disc_steps,
                    help="discriminator updates per encoder update (GAN n_critic)")
     p.add_argument("--grad_log_every",type=int,   default=cfg.grad_log_every)
+    p.add_argument("--log_every",     type=int,   default=cfg.log_every)
     p.add_argument("--grad_clip",     type=float, default=cfg.grad_clip,
                    help="Global gradient clipping max norm for stage1/stage2.")
 
@@ -352,6 +353,7 @@ def _parse_args():
     cfg.lr_disc               = args.lr_disc
     cfg.n_disc_steps          = args.n_disc_steps
     cfg.grad_log_every        = args.grad_log_every
+    cfg.log_every             = args.log_every
     cfg.grad_clip             = args.grad_clip
     cfg.dual_invariance       = bool(args.dual_invariance)
     cfg.inv_L_weight          = args.inv_L_weight
