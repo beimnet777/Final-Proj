@@ -180,9 +180,6 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    global_pr_data = __import__("pr_data")
-    _prioritize_import_paths()  # pr_data prepends Probing/; restore Disentanglement first.
-    base_probe._pr_data = global_pr_data
     from model import build_dis_model
     from train import _load_stage1_checkpoint
     from data.dataset import make_stage2_dataloaders
@@ -228,15 +225,24 @@ def main() -> None:
     use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 
     # PR: SUPERB 74-phone — train-clean-100 → train, dev-clean → val, test-clean → test.
-    pr_cfg = PRConfig()
-    pr_cfg.data_cache_dir = cfg.librispeech_cache_dir
-    pr_cfg.librispeech_lexicon = cfg.lexicon_path
-    pr_cfg.batch_size = cfg.batch_size
-    pr_cfg.eval_batch_size = cfg.eval_batch_size
-    pr_cfg.num_workers = cfg.num_workers
-    pr_cfg.max_examples = args.pr_max_examples
-    pr_tokenizer, pr_train_dl, pr_val_dl, pr_test_dl = global_pr_data.make_pr_dataloaders(pr_cfg)
-    pr_vocab_size = pr_cfg.vocab_size
+    # Build lazily so SID-only recovery probes do not touch PR data.
+    pr_tokenizer = pr_train_dl = pr_val_dl = pr_test_dl = None
+    pr_vocab_size = cfg.vocab_size
+    if "pr" in tasks:
+        global_pr_data = __import__("pr_data")
+        _prioritize_import_paths()  # pr_data prepends Probing/; restore Disentanglement first.
+        base_probe._pr_data = global_pr_data
+        pr_cfg = PRConfig()
+        pr_cfg.data_cache_dir = cfg.librispeech_cache_dir
+        pr_cfg.librispeech_lexicon = cfg.lexicon_path
+        pr_cfg.batch_size = cfg.batch_size
+        pr_cfg.eval_batch_size = cfg.eval_batch_size
+        pr_cfg.num_workers = cfg.num_workers
+        pr_cfg.max_examples = args.pr_max_examples
+        pr_tokenizer, pr_train_dl, pr_val_dl, pr_test_dl = global_pr_data.make_pr_dataloaders(pr_cfg)
+        pr_vocab_size = pr_cfg.vocab_size
+    else:
+        print("[diag_probe] PR task not requested — skipping PR dataloaders.")
     # SID: closed-set — same speakers, split by utterance into train / val / test.
     _, sid_train_dl, sid_val_dl, sid_test_dl = make_stage2_dataloaders(cfg)
 
@@ -244,6 +250,10 @@ def main() -> None:
         tmp = torch.load(args.stage2_ckpt, map_location="cpu", weights_only=False)
         state = tmp["model_state"]
         cfg.num_speakers = state["sid_head.fc.weight"].shape[0]
+        if "pr_head.fc.weight" in state:
+            cfg.vocab_size = state["pr_head.fc.weight"].shape[0]
+            if "pr" not in tasks:
+                pr_vocab_size = cfg.vocab_size
         ckpt_K = state["sae.enc_weight"].shape[0]
         if ckpt_K != cfg.K:
             print(f"[diag_probe] K overridden from checkpoint: {cfg.K} -> {ckpt_K}")
@@ -318,7 +328,10 @@ def main() -> None:
     results: Dict[str, Dict[str, float]] = {}
 
     print(f"\n[diag_probe] speakers={cfg.num_speakers}  pr_vocab={pr_vocab_size}  D={cfg.D}  K={cfg.K}")
-    print("[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean")
+    if "pr" in tasks:
+        print("[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean")
+    else:
+        print("[diag_probe] PR: skipped")
     print(f"[diag_probe] SID: closed-set utterance split (val/test held out); probe arch={args.sid_probe_arch}")
     print("[diag_probe] reported metric = TEST (val shown in parentheses)\n")
 
@@ -377,6 +390,8 @@ def main() -> None:
                                   else base_probe._eval_sid_probe_cached(probe, val_cache, device))
                     test_score = base_probe._eval_sid_probe_cached(probe, test_cache, device)
                 else:
+                    if pr_train_dl is None or pr_val_dl is None or pr_test_dl is None or pr_tokenizer is None:
+                        raise RuntimeError("PR task requested but PR dataloaders were not built.")
                     probe = base_probe._PRProbe(dims[src], pr_vocab_size).to(device)
                     val_cache  = base_probe._cache_features(src, pr_val_dl,  model, device, use_bf16, has_routing, "pr")
                     test_cache = base_probe._cache_features(src, pr_test_dl, model, device, use_bf16, has_routing, "pr")
@@ -403,6 +418,8 @@ def main() -> None:
                 # uniform; orthogonal to the accuracy number above.
                 num_cls   = cfg.num_speakers if task == "sid" else pr_vocab_size
                 mdl_lr    = args.sid_probe_lr if task == "sid" else args.pr_probe_lr
+                if task == "pr" and pr_train_dl is None:
+                    raise RuntimeError("PR MDL requested but PR dataloader was not built.")
                 mdl_train = sid_train_dl     if task == "sid" else pr_train_dl
                 mdl = base_probe.run_mdl_probe(
                     src_key=src, task=task, in_dim=dims[src], num_classes=num_cls,
