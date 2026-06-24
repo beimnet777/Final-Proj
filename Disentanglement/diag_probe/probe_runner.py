@@ -125,6 +125,26 @@ class _SIDProbeStats(nn.Module):
         return self.linear(torch.cat([mean, std], dim=-1))
 
 
+class _SIDProbeMLP(nn.Module):
+    """SUPERB-style SID with one ReLU non-linearity between projection and classifier.
+
+    Layout: projector(linear) -> ReLU -> masked mean-pool -> linear.
+    Compared to _SIDProbe: same pooling, adds a non-linearity (so the probe
+    can read interactions a pure-linear head misses).
+    Compared to _SIDProbeStats: no std pool, smaller (P-dim, not 2P-dim) head.
+    """
+
+    def __init__(self, in_dim: int, num_speakers: int, proj_dim: int = 256) -> None:
+        super().__init__()
+        self.projector = nn.Linear(in_dim, proj_dim)
+        self.linear = nn.Linear(proj_dim, num_speakers)
+
+    def forward(self, x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+        x = torch.relu(self.projector(x))
+        x = _mean_pool(x, lengths)
+        return self.linear(x)
+
+
 class _PRProbe(nn.Module):
     """SUPERB-style PR CTC probe: frame projection -> linear -> log-softmax."""
 
@@ -135,6 +155,20 @@ class _PRProbe(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.projector(x)
+        x = self.linear(x)
+        return F.log_softmax(x, dim=-1)
+
+
+class _PRProbeMLP(nn.Module):
+    """PR CTC probe with one ReLU non-linearity between projection and classifier."""
+
+    def __init__(self, in_dim: int, vocab_size: int, proj_dim: int = 256) -> None:
+        super().__init__()
+        self.projector = nn.Linear(in_dim, proj_dim)
+        self.linear = nn.Linear(proj_dim, vocab_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = torch.relu(self.projector(x))
         x = self.linear(x)
         return F.log_softmax(x, dim=-1)
 
@@ -875,14 +909,17 @@ def _uniform_baseline_nats(cache, lo: int, hi: int, task: str, num_classes: int)
 def run_mdl_probe(src_key: str, task: str, in_dim: int, num_classes: int,
                   train_dl, model, device, use_bf16: bool, has_routing: bool,
                   lr: float, steps_per_block: int, max_train_examples: int,
-                  sid_probe_arch: str = "stats") -> Dict[str, float]:
+                  sid_probe_arch: str = "stats",
+                  pr_probe_arch: str = "linear") -> Dict[str, float]:
     """End-to-end prequential MDL probe.  Returns a dict with codelength /
     uniform / compression-ratio for one (src, task) pair."""
     if task == "sid":
-        probe_cls = _SIDProbeStats if sid_probe_arch == "stats" else _SIDProbe
+        sid_map = {"stats": _SIDProbeStats, "mlp": _SIDProbeMLP, "linear": _SIDProbe}
+        probe_cls = sid_map.get(sid_probe_arch, _SIDProbe)
         probe = probe_cls(in_dim, num_classes).to(device)
     elif task == "pr":
-        probe = _PRProbe(in_dim, num_classes).to(device)
+        pr_cls = _PRProbeMLP if pr_probe_arch == "mlp" else _PRProbe
+        probe = pr_cls(in_dim, num_classes).to(device)
     else:
         raise ValueError(f"MDL probe supports sid|pr, got {task}")
 

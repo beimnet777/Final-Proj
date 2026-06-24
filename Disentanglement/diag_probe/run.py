@@ -103,9 +103,13 @@ def _parse_args():
     p.add_argument("--prosody_probe_lr", type=float, default=5e-4)
     p.add_argument("--prosody_max_train", type=int, default=2000,
                    help="Utterances in the prosody probe train pool (bounds one-time pyin F0 cost).")
-    p.add_argument("--sid_probe_arch", choices=("linear", "stats"), default="linear",
+    p.add_argument("--sid_probe_arch", choices=("linear", "stats", "mlp"), default="linear",
                    help="SID probe: 'linear'=projector->mean-pool->linear (SUPERB-style; blind to "
-                        "instance-normed features), 'stats'=projector->ReLU->mean+std pool->linear.")
+                        "instance-normed features); 'stats'=projector->ReLU->mean+std pool->linear; "
+                        "'mlp'=projector->ReLU->mean-pool->linear (SUPERB + one ReLU).")
+    p.add_argument("--pr_probe_arch", choices=("linear", "mlp"), default="linear",
+                   help="PR probe: 'linear'=projector->linear (SUPERB-style); "
+                        "'mlp'=projector->ReLU->linear (SUPERB + one ReLU).")
     # Prequential MDL probe (Voita & Titov 2020, EMNLP).  Runs in addition to
     # the standard accuracy/PER probe and reports codelength in kbits and
     # compression-over-uniform.  No effect on the existing leakage table.
@@ -372,8 +376,10 @@ def main() -> None:
                 continue
             if not args.mdl_only:
                 if task == "sid":
-                    sid_cls = (base_probe._SIDProbeStats if args.sid_probe_arch == "stats"
-                               else base_probe._SIDProbe)
+                    sid_map = {"stats": base_probe._SIDProbeStats,
+                               "mlp":   base_probe._SIDProbeMLP,
+                               "linear": base_probe._SIDProbe}
+                    sid_cls = sid_map.get(args.sid_probe_arch, base_probe._SIDProbe)
                     probe = sid_cls(dims[src], cfg.num_speakers).to(device)
                     # Cache dev/test features once (frozen model) → cheap repeated evals.
                     val_cache  = base_probe._cache_features(src, sid_val_dl,  model, device, use_bf16, has_routing, "sid")
@@ -392,7 +398,9 @@ def main() -> None:
                 else:
                     if pr_train_dl is None or pr_val_dl is None or pr_test_dl is None or pr_tokenizer is None:
                         raise RuntimeError("PR task requested but PR dataloaders were not built.")
-                    probe = base_probe._PRProbe(dims[src], pr_vocab_size).to(device)
+                    pr_cls = (base_probe._PRProbeMLP if args.pr_probe_arch == "mlp"
+                              else base_probe._PRProbe)
+                    probe = pr_cls(dims[src], pr_vocab_size).to(device)
                     val_cache  = base_probe._cache_features(src, pr_val_dl,  model, device, use_bf16, has_routing, "pr")
                     test_cache = base_probe._cache_features(src, pr_test_dl, model, device, use_bf16, has_routing, "pr")
                     best_val = base_probe._train_pr_probe(
@@ -428,6 +436,7 @@ def main() -> None:
                     lr=mdl_lr, steps_per_block=args.mdl_steps_per_block,
                     max_train_examples=args.mdl_max_train_examples,
                     sid_probe_arch=args.sid_probe_arch,
+                    pr_probe_arch=args.pr_probe_arch,
                 )
                 results[src][task + "_mdl_kbits"]      = mdl["codelength_kbits"]
                 results[src][task + "_mdl_uniform_kbits"] = mdl["uniform_kbits"]
