@@ -237,10 +237,8 @@ def _parse_args():
     p.add_argument("--arctic_root",         default=str(cfg.arctic_root))
     p.add_argument("--vctk_root",           default=str(cfg.vctk_root))
     p.add_argument("--esd_root",            default=str(cfg.esd_root))
-    p.add_argument("--gumbel_tau_start",    type=float, default=cfg.gumbel_tau_start)
-    p.add_argument("--gumbel_tau_end",      type=float, default=cfg.gumbel_tau_end)
-    # --hard_gumbel_routing / --no-hard_gumbel_routing is already defined above
-    # (BooleanOptionalAction); use that to pick hard vs soft mode.
+    # NOTE: --gumbel_tau_start / --gumbel_tau_end / --hard_gumbel_routing are
+    # already defined in the routing block above; do not re-add (argparse conflict).
 
     # paths
     p.add_argument("--checkpoint_dir", default=str(cfg.checkpoint_dir))
