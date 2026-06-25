@@ -169,6 +169,25 @@ def _parse_args():
                    help="anti-prosody adversary on z_L (push F0/energy → z_P)")
     p.add_argument("--grl_prosody_u_weight", type=float, default=cfg.grl_prosody_u_weight,
                    help="anti-prosody adversary on z_U (push F0/energy → z_P)")
+    p.add_argument("--emotion", action=argparse.BooleanOptionalAction, default=cfg.emotion,
+                   help="enable IEMOCAP auxiliary emotion training: z_P predicts emotion, z_L can be adversarially emotion-invariant")
+    p.add_argument("--emotion_weight", type=float, default=cfg.emotion_weight,
+                   help="weight on the z_P emotion classification task")
+    p.add_argument("--grl_emotion_weight", type=float, default=cfg.grl_emotion_weight,
+                   help="anti-emotion adversary on z_L")
+    p.add_argument("--emotion_every", type=int, default=cfg.emotion_every,
+                   help="run one IEMOCAP auxiliary batch every N Libri batches")
+    p.add_argument("--emotion_grl_ramp_end", type=int, default=cfg.emotion_grl_ramp_end,
+                   help="linearly warm up the z_L emotion adversary over this many steps")
+    p.add_argument("--emotion_aux_loss_clip", type=float, default=cfg.emotion_aux_loss_clip,
+                   help="cap the total IEMOCAP auxiliary contribution by scaling it down")
+    p.add_argument("--iemocap_root", default=str(cfg.iemocap_root),
+                   help="path to extracted IEMOCAP_full_release")
+    p.add_argument("--iemocap_fold", type=int, default=cfg.iemocap_fold,
+                   help="held-out IEMOCAP session/fold, 1..5")
+    p.add_argument("--iemocap_batch_size", type=int, default=cfg.iemocap_batch_size)
+    p.add_argument("--iemocap_eval_batch_size", type=int, default=cfg.iemocap_eval_batch_size)
+    p.add_argument("--iemocap_val_fraction", type=float, default=cfg.iemocap_val_fraction)
     p.add_argument("--decor_weight",        type=float, default=cfg.decor_weight)
     p.add_argument("--ub_weight",           type=float, default=cfg.ub_weight)
     p.add_argument("--ub_ramp_start",       type=int,   default=cfg.ub_ramp_start)
@@ -324,6 +343,17 @@ def _parse_args():
     cfg.prosody_weight        = args.prosody_weight
     cfg.grl_prosody_weight    = args.grl_prosody_weight
     cfg.grl_prosody_u_weight  = args.grl_prosody_u_weight
+    cfg.emotion               = bool(args.emotion)
+    cfg.emotion_weight        = args.emotion_weight
+    cfg.grl_emotion_weight    = args.grl_emotion_weight
+    cfg.emotion_every         = args.emotion_every
+    cfg.emotion_grl_ramp_end  = args.emotion_grl_ramp_end
+    cfg.emotion_aux_loss_clip = args.emotion_aux_loss_clip
+    cfg.iemocap_root          = Path(args.iemocap_root)
+    cfg.iemocap_fold          = args.iemocap_fold
+    cfg.iemocap_batch_size    = args.iemocap_batch_size
+    cfg.iemocap_eval_batch_size = args.iemocap_eval_batch_size
+    cfg.iemocap_val_fraction  = args.iemocap_val_fraction
     cfg.decor_weight          = args.decor_weight
     cfg.ub_weight             = args.ub_weight
     cfg.ub_ramp_start         = args.ub_ramp_start

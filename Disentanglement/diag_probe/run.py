@@ -79,7 +79,7 @@ def _parse_args():
     p.add_argument("--sources", default="z_t,z_L,z_P",
                    help="Comma-separated sources. Default excludes fixed h_t.")
     p.add_argument("--tasks", default="pr,sid",
-                   help="Comma-separated tasks from {pr,sid}. Prosody is toggled by --prosody.")
+                   help="Comma-separated tasks from {pr,sid,emotion}. Prosody is toggled by --prosody.")
     p.add_argument("--prosody", action=argparse.BooleanOptionalAction, default=cfg.prosody,
                    help="Master switch: add the per-frame log-F0 + log-energy prosody probe "
                         "(off by default — experiments run without prosody unless this is set).")
@@ -101,6 +101,14 @@ def _parse_args():
     p.add_argument("--pr_probe_lr", type=float, default=5e-4)
     p.add_argument("--sid_probe_lr", type=float, default=1e-3)
     p.add_argument("--prosody_probe_lr", type=float, default=5e-4)
+    p.add_argument("--emotion", action=argparse.BooleanOptionalAction, default=False,
+                   help="add the IEMOCAP emotion probe")
+    p.add_argument("--emotion_probe_lr", type=float, default=5e-4)
+    p.add_argument("--iemocap_root", default=str(cfg.iemocap_root),
+                   help="path to extracted IEMOCAP_full_release for emotion probing")
+    p.add_argument("--iemocap_fold", type=int, default=cfg.iemocap_fold)
+    p.add_argument("--iemocap_batch_size", type=int, default=cfg.iemocap_batch_size)
+    p.add_argument("--iemocap_eval_batch_size", type=int, default=cfg.iemocap_eval_batch_size)
     p.add_argument("--prosody_max_train", type=int, default=2000,
                    help="Utterances in the prosody probe train pool (bounds one-time pyin F0 cost).")
     p.add_argument("--sid_probe_arch", choices=("linear", "stats", "mlp"), default="linear",
@@ -164,6 +172,8 @@ def _parse_args():
     p.add_argument("--topk_L", type=int, default=cfg.topk_L)
     p.add_argument("--topk_P", type=int, default=cfg.topk_P)
     p.add_argument("--topk_U", type=int, default=cfg.topk_U)
+    p.add_argument("--gumbel_tau_start", type=float, default=cfg.gumbel_tau_start,
+                   help="Accepted for parity with training scripts; eval uses tau_end for soft routing.")
     p.add_argument("--gumbel_tau_end", type=float, default=0.1,
                    help="Soft-routing eval temperature — match training's final tau.")
     p.add_argument("--n_routes", type=int, default=cfg.n_routes,
@@ -176,21 +186,26 @@ def main() -> None:
     _set_seed(args.seed)
     sources = _parse_sources(args.sources)
     tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
-    bad_tasks = [t for t in tasks if t not in ("pr", "sid", "prosody")]
+    bad_tasks = [t for t in tasks if t not in ("pr", "sid", "prosody", "emotion")]
     if bad_tasks:
-        raise ValueError(f"Unknown task(s): {bad_tasks}. Valid: ('pr', 'sid', 'prosody')")
+        raise ValueError(f"Unknown task(s): {bad_tasks}. Valid: ('pr', 'sid', 'prosody', 'emotion')")
     # The --prosody switch is authoritative: --prosody adds it, --no-prosody removes
     # it (even if listed in --tasks).  Default off → experiments run without prosody.
     if args.prosody and "prosody" not in tasks:
         tasks.append("prosody")
     elif not args.prosody and "prosody" in tasks:
         tasks.remove("prosody")
+    if args.emotion and "emotion" not in tasks:
+        tasks.append("emotion")
     # --mdl_only implies --mdl_probe (the MDL run is the whole point).
     if args.mdl_only:
         args.mdl_probe = True
         if "prosody" in tasks:
             print("[diag_probe] --mdl_only: prosody not supported by MDL probe, dropping.")
             tasks.remove("prosody")
+        if "emotion" in tasks:
+            print("[diag_probe] --mdl_only: emotion not supported by MDL probe, dropping.")
+            tasks.remove("emotion")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -203,6 +218,7 @@ def main() -> None:
     cfg.spear_layernorm = bool(args.spear_layernorm)
     cfg.instance_norm_zL = bool(args.instance_norm_zL)
     cfg.hard_gumbel_routing = bool(args.hard_gumbel_routing)
+    cfg.gumbel_tau_start = args.gumbel_tau_start
     cfg.gumbel_tau_end = args.gumbel_tau_end
     cfg.n_routes = args.n_routes
     cfg.fixed_blocks = bool(args.fixed_blocks)
@@ -216,6 +232,11 @@ def main() -> None:
     cfg.projection_hidden          = args.projection_hidden
     cfg.projection_u_dim           = args.projection_u_dim
     cfg.prosody = bool(args.prosody)
+    cfg.emotion = bool(args.emotion or "emotion" in tasks)
+    cfg.iemocap_root = Path(args.iemocap_root)
+    cfg.iemocap_fold = args.iemocap_fold
+    cfg.iemocap_batch_size = args.iemocap_batch_size
+    cfg.iemocap_eval_batch_size = args.iemocap_eval_batch_size
     cfg.K_L, cfg.K_P, cfg.K_U = args.K_L, args.K_P, args.K_U
     cfg.topk_L, cfg.topk_P, cfg.topk_U = args.topk_L, args.topk_P, args.topk_U
     cfg.librispeech_cache_dir = Path(args.librispeech_cache_dir)
@@ -260,6 +281,10 @@ def main() -> None:
         print("[diag_probe] PR task not requested — skipping PR dataloaders.")
     # SID: closed-set — same speakers, split by utterance into train / val / test.
     _, sid_train_dl, sid_val_dl, sid_test_dl = make_stage2_dataloaders(cfg)
+    emo_train_dl = emo_val_dl = emo_test_dl = None
+    if "emotion" in tasks:
+        from data.iemocap_emotion import make_iemocap_emotion_dataloaders
+        emo_train_dl, emo_val_dl, emo_test_dl = make_iemocap_emotion_dataloaders(cfg)
     # Optional override: matched-distribution probe on ARCTIC's 18 speakers.
     sid_num_classes_override = None
     if args.sid_dataset == "arctic":
@@ -363,6 +388,8 @@ def main() -> None:
     else:
         print("[diag_probe] PR: skipped")
     print(f"[diag_probe] SID: closed-set utterance split (val/test held out); probe arch={args.sid_probe_arch}")
+    if "emotion" in tasks:
+        print(f"[diag_probe] Emotion: IEMOCAP fold={cfg.iemocap_fold}  root={cfg.iemocap_root}")
     print("[diag_probe] reported metric = TEST (val shown in parentheses)\n")
 
     # Prosody: build the audio+target train pool ONCE (pyin F0 is slow; this caches
@@ -380,6 +407,29 @@ def main() -> None:
         for task in tasks:
             label = f"{src} -> {task.upper()}"
             print(f"  training probe: {label} ...", flush=True)
+            if task == "emotion":
+                if emo_train_dl is None or emo_val_dl is None or emo_test_dl is None:
+                    raise RuntimeError("Emotion task requested but IEMOCAP dataloaders were not built.")
+                probe = base_probe._EmotionProbeStats(dims[src], cfg.emotion_num_classes).to(device)
+                val_cache = base_probe._cache_emotion_features(
+                    src, emo_val_dl, model, device, use_bf16, has_routing)
+                test_cache = base_probe._cache_emotion_features(
+                    src, emo_test_dl, model, device, use_bf16, has_routing)
+                best_val = base_probe._train_emotion_probe(
+                    probe, src, emo_train_dl, model, device, use_bf16, has_routing,
+                    steps=args.probe_steps, lr=args.emotion_probe_lr,
+                    warmup_steps=args.probe_warmup_steps,
+                    grad_clip=args.probe_grad_clip,
+                    val_cache=val_cache, val_every=args.probe_val_every,
+                    patience=args.probe_patience,
+                )
+                val_score = (best_val if best_val is not None
+                             else base_probe._eval_emotion_probe_cached(probe, val_cache, device))
+                test_score = base_probe._eval_emotion_probe_cached(probe, test_cache, device)
+                results[src]["emotion"] = test_score
+                results[src]["emotion_val"] = val_score
+                print(f"    {label:<22s}  acc test={test_score:.3f}  (val {val_score:.3f})", flush=True)
+                continue
             if task == "prosody":
                 probe = base_probe._ProsodyProbe(dims[src]).to(device)
                 val_cache  = base_probe._cache_features(src, sid_val_dl,  model, device, use_bf16, has_routing, "prosody")
@@ -476,7 +526,8 @@ def main() -> None:
                       f"(n={mdl['n_examples']}, {mdl['n_blocks']} blocks)", flush=True)
 
     has_prosody = "prosody" in tasks
-    width = 66 + (28 if has_prosody else 0)
+    has_emotion = "emotion" in tasks
+    width = 66 + (28 if has_prosody else 0) + (15 if has_emotion else 0)
     if args.mdl_only:
         # Skip the standard-probe summary table; the MDL table below is the
         # only output relevant in this mode.
@@ -489,10 +540,14 @@ def main() -> None:
         header = f"  {'Source':<8s}  {'PR (PER↓)':>12s}  {'SID (acc↑)':>12s}"
         if has_prosody:
             header += f"  {'F0 (r↑)':>12s}  {'E (r↑)':>12s}"
+        if has_emotion:
+            header += f"  {'EMO (acc↑)':>12s}"
         print(header)
         dashes = f"  {'-' * 8}  {'-' * 12}  {'-' * 12}"
         if has_prosody:
             dashes += f"  {'-' * 12}  {'-' * 12}"
+        if has_emotion:
+            dashes += f"  {'-' * 12}"
         print(dashes)
         for src in sources:
             per = results[src].get("pr", float("nan"))
@@ -502,6 +557,9 @@ def main() -> None:
                 f0c = results[src].get("prosody_f0", float("nan"))
                 ec  = results[src].get("prosody_e", float("nan"))
                 row += f"  {f0c:>12.3f}  {ec:>12.3f}"
+            if has_emotion:
+                emo = results[src].get("emotion", float("nan"))
+                row += f"  {emo:>12.3f}"
             print(row)
         print(f"{'=' * width}\n")
 

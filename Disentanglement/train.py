@@ -93,7 +93,9 @@ def _load_stage1_checkpoint(path: Path, model: DISModel, cfg: DISConfig) -> None
     missing, unexpected = model.load_state_dict(sae_state, strict=False)
     non_sae_missing = [k for k in missing if not k.startswith(
         ("routing.", "proj_L.", "proj_P.", "up_L.", "up_P.", "proj_U.", "up_U.",
-         "pr_head.", "sid_head.", "grl_head.", "pr_grl_head.", "encoder._spear."))]
+         "pr_head.", "sid_head.", "grl_head.", "pr_grl_head.",
+         "prosody_head.", "prosody_grl_head.", "prosody_grl_head_u.",
+         "emotion_head.", "emotion_grl_head.", "encoder._spear."))]
     if non_sae_missing:
         print(f"[train] WARNING: unexpected missing SAE keys: {non_sae_missing}")
     print(f"[train] loaded {len(sae_state)} SAE tensors from {path}  (step={ckpt['step']}  val={ckpt['best_metric']:.4f})")
@@ -174,6 +176,22 @@ def _random_speaker_targets(
 
 
 @torch.no_grad()
+def _class_correct(logits: torch.Tensor, labels: torch.Tensor):
+    pred = logits.argmax(dim=-1)
+    return int((pred == labels).sum().item()), int(labels.numel())
+
+
+def _cap_loss_by_scaling(loss: torch.Tensor, cap: float):
+    """Scale a loss down to at most `cap` without zeroing its gradient direction."""
+    cap = float(cap or 0.0)
+    if cap <= 0:
+        return loss, loss.detach().new_tensor(1.0)
+    detached = loss.detach().clamp_min(1e-8)
+    scale = torch.clamp(detached.new_tensor(cap) / detached, max=1.0)
+    return loss * scale, scale
+
+
+@torch.no_grad()
 def _ctc_errors(logits: torch.Tensor, targets: torch.Tensor,
                 input_lengths: torch.Tensor, target_lengths: torch.Tensor):
     """(edit-distance, ref-length) for a CTC adversary head via greedy decode."""
@@ -224,7 +242,7 @@ def _eval_stage2(model, val_dl, device, use_bf16) -> Dict[str, float]:
         speaker_ids = speaker_ids.to(device)
 
         with ctx:
-            out = model(audios, audio_lengths, stage=2, grl_lambda=0.0)
+            out = model(audios, audio_lengths, stage=2, grl_lambda=0.0, emit_emotion=False)
             r   = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
             pr  = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
 
@@ -268,6 +286,49 @@ def _eval_stage2(model, val_dl, device, use_bf16) -> Dict[str, float]:
     if grlp_d  > 0: metrics["grl_p_per"]   = grlp_n  / grlp_d   # phoneme still readable from z_P
     if grlu_t  > 0: metrics["grl_u_acc"]   = grlu_c  / grlu_t   # speaker still readable from z_U
     if grlpu_d > 0: metrics["grl_p_u_per"] = grlpu_n / grlpu_d  # phoneme still readable from z_U
+    return metrics
+
+
+@torch.no_grad()
+def _eval_emotion(model, val_dl, device, use_bf16) -> Dict[str, float]:
+    model.eval()
+    loss_total, n_batches = 0.0, 0
+    correct, total = 0, 0
+    grl_loss_total, grl_batches = 0.0, 0
+    grl_correct, grl_total = 0, 0
+    ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
+
+    for audios, audio_lengths, labels in val_dl:
+        audios = audios.to(device, non_blocking=True)
+        audio_lengths = audio_lengths.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+        with ctx:
+            out = model(audios, audio_lengths, stage=2, grl_lambda=0.0,
+                        grl_p_lambda=0.0, grl_emotion_lambda=0.0,
+                        emit_emotion=True)
+            loss = F.cross_entropy(out["emotion_logits"], labels)
+            if "emotion_grl_logits" in out:
+                grl_loss = F.cross_entropy(out["emotion_grl_logits"], labels)
+            else:
+                grl_loss = None
+        loss_total += loss.item()
+        n_batches += 1
+        c, t = _class_correct(out["emotion_logits"], labels)
+        correct += c; total += t
+        if grl_loss is not None:
+            grl_loss_total += grl_loss.item()
+            grl_batches += 1
+            c, t = _class_correct(out["emotion_grl_logits"], labels)
+            grl_correct += c; grl_total += t
+
+    model.train()
+    metrics = {
+        "emotion_loss": loss_total / max(n_batches, 1),
+        "emotion_acc": correct / max(total, 1),
+    }
+    if grl_batches > 0:
+        metrics["emotion_zL_loss"] = grl_loss_total / grl_batches
+        metrics["emotion_zL_acc"] = grl_correct / max(grl_total, 1)
     return metrics
 
 
@@ -347,7 +408,7 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
                            any(p.requires_grad for p in model.routing.parameters()))
 
         out     = model(audios, audio_lengths, stage=2, grl_lambda=grl_lam,
-                        grl_p_lambda=grl_p_lam)
+                        grl_p_lambda=grl_p_lam, emit_emotion=False)
         l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
         l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
         l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
@@ -747,6 +808,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     device = torch.device(cfg.device)
 
     tokenizer, train_dl, val_dl, _test_dl = make_stage2_dataloaders(cfg)
+    emo_train_dl = emo_val_dl = emo_test_dl = None
+    if getattr(cfg, 'emotion', False):
+        from data.iemocap_emotion import make_iemocap_emotion_dataloaders
+        emo_train_dl, emo_val_dl, emo_test_dl = make_iemocap_emotion_dataloaders(cfg)
 
     model = build_dis_model(cfg)
     if stage1_ckpt is not None:
@@ -813,6 +878,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     if hasattr(model, 'prosody_head'):
         print(f"[stage 2] prosody on: prosody_weight={cfg.prosody_weight}  "
               f"anti-prosody grl_L={cfg.grl_prosody_weight}  grl_U={cfg.grl_prosody_u_weight}")
+    if hasattr(model, 'emotion_head'):
+        print(f"[stage 2] emotion on: emotion_weight={cfg.emotion_weight}  "
+              f"anti-emotion grl_L={cfg.grl_emotion_weight}  every={cfg.emotion_every} "
+              f"aux_clip={cfg.emotion_aux_loss_clip}  iemocap_fold={cfg.iemocap_fold}")
 
     projection_mode = getattr(cfg, 'projection_disentanglement', False)
 
@@ -834,15 +903,18 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         prosody_adv_params += list(model.prosody_grl_head.parameters())
     if hasattr(model, 'prosody_grl_head_u'):
         prosody_adv_params += list(model.prosody_grl_head_u.parameters())
+    emotion_task_params = list(model.emotion_head.parameters()) if hasattr(model, 'emotion_head') else []
+    emotion_adv_params = list(model.emotion_grl_head.parameters()) if hasattr(model, 'emotion_grl_head') else []
     disc_params  = (list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters())
-                    + u_adv_params + prosody_adv_params)
+                    + u_adv_params + prosody_adv_params + emotion_adv_params)
     lr_disc_eff  = cfg.lr_disc if getattr(cfg, 'lr_disc', 0.0) > 0 else cfg.lr_heads
     param_groups = [
         {"params": list(model.sae.parameters()),         "lr": cfg.lr},
         {"params": routing_params,                       "lr": cfg.lr_routing},
         {"params": (list(model.pr_head.parameters()) +
                     list(model.sid_head.parameters()) +
-                    prosody_task_params),                "lr": cfg.lr_heads},
+                    prosody_task_params +
+                    emotion_task_params),                "lr": cfg.lr_heads},
         {"params": disc_params,                          "lr": lr_disc_eff},
     ]
     if projection_params:
@@ -906,6 +978,13 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     prosody_w      = getattr(cfg, 'prosody_weight', 0.0)            # z_P prosody task
     grl_pros_w     = getattr(cfg, 'grl_prosody_weight', 0.0)        # anti-prosody on z_L
     grl_pros_u_w   = getattr(cfg, 'grl_prosody_u_weight', 0.0)      # anti-prosody on z_U
+    emotion_on     = hasattr(model, 'emotion_head') and emo_train_dl is not None
+    emotion_w      = getattr(cfg, 'emotion_weight', 0.0)
+    grl_emo_w      = getattr(cfg, 'grl_emotion_weight', 0.0)
+    emotion_every  = max(1, int(getattr(cfg, 'emotion_every', 8)))
+    emotion_grl_ramp_end = int(getattr(cfg, 'emotion_grl_ramp_end', 0))
+    emotion_aux_clip = float(getattr(cfg, 'emotion_aux_loss_clip', 0.0))
+    emo_train_iter = iter(emo_train_dl) if emotion_on else None
     aux_k_on       = model.sae.aux_k > 0
     ub_w           = getattr(cfg, 'ub_weight', 0.0)
     ub_ramp_start  = getattr(cfg, 'ub_ramp_start', 0)
@@ -917,6 +996,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                       list(model.pr_head.parameters()) + list(model.sid_head.parameters()) +
                       list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters()) +
                       u_adv_params + prosody_task_params + prosody_adv_params +
+                      emotion_task_params + emotion_adv_params +
                       ([model.vib_logvar] if hasattr(model, 'vib_logvar') else []))
 
     # ---- GradNorm: learn the managed task weights online (replaces fixed weights) ----
@@ -971,6 +1051,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         # Invariance weight ramp (let z_L form content before stripping speaker)
         eff_inv_w = (inv_w * min(1.0, step / inv_ramp_end)) if (invariance_on and inv_ramp_end > 0) else inv_w
         grl_pros_u_lam = grl_pros_u_w * ramp
+        emo_grl_ramp = (min(1.0, step / max(1, emotion_grl_ramp_end))
+                        if emotion_grl_ramp_end > 0 else 1.0)
+        grl_emo_lam = grl_emo_w * ramp * emo_grl_ramp
+        run_emotion_aux = emotion_on and (step % emotion_every == 0)
 
         if step % cfg.grad_log_every == 0:
             _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
@@ -987,6 +1071,17 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             _random_speaker_targets(speaker_ids, cfg.num_speakers, cfg.seed, step)
             if shuffle_grl_labels else speaker_ids
         )
+        emo_audios = emo_lengths = emo_labels = None
+        if run_emotion_aux:
+            try:
+                emo_batch = next(emo_train_iter)
+            except StopIteration:
+                emo_train_iter = iter(emo_train_dl)
+                emo_batch = next(emo_train_iter)
+            emo_audios, emo_lengths, emo_labels = emo_batch
+            emo_audios = emo_audios.to(device, non_blocking=True)
+            emo_lengths = emo_lengths.to(device, non_blocking=True)
+            emo_labels = emo_labels.to(device, non_blocking=True)
 
         optimizer.zero_grad(set_to_none=True)
         ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
@@ -995,12 +1090,14 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                             grl_p_lambda=grl_p_lam,
                             grl_u_lambda=grl_u_lam, grl_p_u_lambda=grl_p_u_lam,
                             grl_prosody_lambda=grl_pros_lam,
-                            grl_prosody_u_lambda=grl_pros_u_lam)
+                            grl_prosody_u_lambda=grl_pros_u_lam,
+                            emit_emotion=False)
             # Invariance: z_L of the speaker-perturbed copy must match z_L of the
             # original (frame-aligned) — a dense per-frame speaker-removal signal.
             l_inv = out["z_L"].new_zeros(())
             if invariance_on and pert_audios is not None:
-                out_p = model(pert_audios, audio_lengths, stage=2, grl_lambda=0.0)
+                out_p = model(pert_audios, audio_lengths, stage=2, grl_lambda=0.0,
+                              emit_emotion=False)
                 l_inv = _invariance_loss(out["z_L"], out_p["z_L"], out["out_lengths"])
             l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
             l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
@@ -1093,10 +1190,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 # Pair α (z_L invariance)
                 out_pa_a = model(pa["audio_a"].to(device, non_blocking=True),
                                   pa["len_a"].to(device,   non_blocking=True),
-                                  stage=2, grl_lambda=0.0)
+                                  stage=2, grl_lambda=0.0, emit_emotion=False)
                 out_pa_b = model(pa["audio_b"].to(device, non_blocking=True),
                                   pa["len_b"].to(device,   non_blocking=True),
-                                  stage=2, grl_lambda=0.0)
+                                  stage=2, grl_lambda=0.0, emit_emotion=False)
                 l_inv_L = inv_L_frame_cosine_loss(
                     out_pa_a["z_L"], out_pa_a["out_lengths"],
                     out_pa_b["z_L"], out_pa_b["out_lengths"],
@@ -1105,10 +1202,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 # Pair β (z_P invariance)
                 out_pb_a = model(pb["audio_a"].to(device, non_blocking=True),
                                   pb["len_a"].to(device,   non_blocking=True),
-                                  stage=2, grl_lambda=0.0)
+                                  stage=2, grl_lambda=0.0, emit_emotion=False)
                 out_pb_b = model(pb["audio_b"].to(device, non_blocking=True),
                                   pb["len_b"].to(device,   non_blocking=True),
-                                  stage=2, grl_lambda=0.0)
+                                  stage=2, grl_lambda=0.0, emit_emotion=False)
                 l_inv_P = inv_P_stats_pool_loss(
                     out_pb_a["z_P"], out_pb_a["out_lengths"],
                     out_pb_b["z_P"], out_pb_b["out_lengths"],
@@ -1124,6 +1221,47 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                              variance_floor_loss(out["z_P"], out["out_lengths"],
                                                   gamma=inv_var_g, weight=_mP))
 
+            # ---- IEMOCAP auxiliary emotion/prosody batch (8 Libri : 1 IEMOCAP by default) ----
+            l_emo = l_emo_grl = l_emo_pros = l_emo_pros_grl = l_recon.new_zeros(())
+            l_emo_aux_raw = l_emo_aux = l_recon.new_zeros(())
+            emo_aux_scale = l_recon.detach().new_tensor(1.0)
+            emo_acc = emo_grl_acc = None
+            eff_grl_emo_w = 1.0 if grl_emo_w > 0 else 0.0
+            if run_emotion_aux and emo_audios is not None:
+                out_emo = model(
+                    emo_audios, emo_lengths, stage=2,
+                    grl_lambda=0.0,
+                    grl_p_lambda=0.0,
+                    grl_u_lambda=0.0,
+                    grl_p_u_lambda=0.0,
+                    grl_prosody_lambda=grl_pros_lam,
+                    grl_prosody_u_lambda=0.0,
+                    grl_emotion_lambda=grl_emo_lam,
+                    emit_emotion=True,
+                )
+                l_emo = F.cross_entropy(out_emo["emotion_logits"], emo_labels)
+                ec, et = _class_correct(out_emo["emotion_logits"], emo_labels)
+                emo_acc = ec / max(et, 1)
+                if "emotion_grl_logits" in out_emo:
+                    l_emo_grl = F.cross_entropy(out_emo["emotion_grl_logits"], emo_labels)
+                    gc, gt = _class_correct(out_emo["emotion_grl_logits"], emo_labels)
+                    emo_grl_acc = gc / max(gt, 1)
+                if prosody_on and "prosody_pred" in out_emo:
+                    e_f0, e_v, e_e = _prosody_targets_fast(
+                        emo_audios, emo_lengths, out_emo["out_lengths"])
+                    l_emo_pros = _prosody_train_loss(
+                        out_emo["prosody_pred"], e_f0, e_v, e_e, out_emo["out_lengths"])
+                    if "prosody_grl_pred" in out_emo:
+                        l_emo_pros_grl = _prosody_train_loss(
+                            out_emo["prosody_grl_pred"], e_f0, e_v, e_e, out_emo["out_lengths"])
+                l_emo_aux_raw = (
+                    emotion_w       * l_emo
+                    + eff_grl_emo_w * l_emo_grl
+                    + prosody_w     * l_emo_pros
+                    + eff_grl_pros_w * l_emo_pros_grl
+                )
+                l_emo_aux, emo_aux_scale = _cap_loss_by_scaling(l_emo_aux_raw, emotion_aux_clip)
+
             total      = (m_recon            * l_recon
                           + m_pr             * l_pr
                           + m_sid            * l_sid
@@ -1138,6 +1276,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + inv_L_w          * l_inv_L
                           + inv_P_w          * l_inv_P
                           + inv_var_w        * l_var
+                          + l_emo_aux
                           + cfg.rho          * l_route
                           + spec_w           * l_spec
                           + eff_ub_w         * l_ub
@@ -1234,6 +1373,21 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                        "sid": l_sid.item(), "grl": l_grl.item(),
                        "grl_p": l_grl_p.item(), "ub": l_ub.item(),
                        "route": l_route.item(), "total": total.item()}
+            if emotion_on:
+                losses.update({
+                    "emotion": l_emo.item(),
+                    "emotion_grl": l_emo_grl.item(),
+                    "emotion_pros": l_emo_pros.item(),
+                    "emotion_pros_grl": l_emo_pros_grl.item(),
+                    "emotion_aux_raw": l_emo_aux_raw.item(),
+                    "emotion_aux": l_emo_aux.item(),
+                    "emotion_aux_scale": float(emo_aux_scale.item()),
+                    "emotion_ran": 1.0 if run_emotion_aux else 0.0,
+                })
+                if emo_acc is not None:
+                    losses["emotion_acc"] = emo_acc
+                if emo_grl_acc is not None:
+                    losses["emotion_grl_acc"] = emo_grl_acc
 
             with torch.no_grad():
                 z_active = (out["z_t"] != 0).float()                 # (B, T, K)
@@ -1295,6 +1449,16 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 pros_str = f"  pros={l_pros.item():.4f}"
                 if grl_pros_w > 0 or grl_pros_u_w > 0:
                     pros_str += f"  grlPr={l_pros_grl.item():.3f}/{l_pros_grl_u.item():.3f}"
+            emo_str = ""
+            if emotion_on:
+                if run_emotion_aux:
+                    _ea = f"{emo_acc:.3f}" if emo_acc is not None else "na"
+                    _ega = f"{emo_grl_acc:.3f}" if emo_grl_acc is not None else "na"
+                    emo_str = (f"  emo={l_emo.item():.3f}(acc={_ea})"
+                               f"  grlE={l_emo_grl.item():.3f}(acc={_ega})"
+                               f"  emoAux={l_emo_aux_raw.item():.3f}x{float(emo_aux_scale.item()):.2f}")
+                else:
+                    emo_str = "  emo=skip"
             inv_str   = f"  inv={l_inv.item():.4f}" if invariance_on else ""
             dual_inv_str = ""
             if dual_inv_on:
@@ -1362,7 +1526,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 f"  pr={l_pr.item():.4f}"
                 f"  sid={l_sid.item():.4f}"
                 f"  grl={l_grl.item():.4f}(acc={grl_acc:.3f}{grl_true_str})"
-                f"{grl_p_str}{u_str}{pros_str}{inv_str}{dual_inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
+                f"{grl_p_str}{u_str}{pros_str}{emo_str}{inv_str}{dual_inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
                 f"  L/P/U={n_L}/{n_P}/{n_U}"
                 f"  actL/P/U={act_L.item():.0f}/{act_P.item():.0f}/{act_U.item():.0f}"
                 f"  H={entropy:.3f}"
@@ -1378,6 +1542,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
 
         if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
             val_metrics = _eval_stage2(model, val_dl, device, use_bf16)
+            if emotion_on and emo_val_dl is not None:
+                emo_val_metrics = _eval_emotion(model, emo_val_dl, device, use_bf16)
+                val_metrics.update(emo_val_metrics)
             # Per-bucket × per-task val readout (PR=PER↓, SID=acc↑), read straight off
             # the model heads — NOT a probe.  Build heads: z_L PR (pr_head), z_P SID
             # (sid_head).  Adversary heads (co-adapted proxy): z_L SID (grl_head),
@@ -1396,6 +1563,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 f"  pr={val_metrics['pr']:.4f}"
                 f"{bucket_str}"
             )
+            if "emotion_acc" in val_metrics:
+                emo_bucket = f"z_P emotion={val_metrics['emotion_acc']:.3f}"
+                if "emotion_zL_acc" in val_metrics:
+                    emo_bucket += f"  z_L emotion={val_metrics['emotion_zL_acc']:.3f}"
+                print(f"  [iemocap val] step={step}  {emo_bucket}")
             tb.log_val(step, val_metrics)
             # Selection criterion.  recon-best is undertrained (lowest before the
             # task/adversary losses reshape z_t).  The previous criterion was

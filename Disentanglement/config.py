@@ -141,6 +141,24 @@ class DISConfig:
     grl_prosody_weight:   float = 0.0   # on z_L
     grl_prosody_u_weight: float = 0.0   # on z_U
 
+    # ---------------------------------------------------------------- Emotion (IEMOCAP auxiliary factor)
+    # Emotion is trained from IEMOCAP as a sparse auxiliary task, not mixed into the
+    # Libri CTC/SID labels.  Every `emotion_every` Libri steps, one IEMOCAP batch
+    # teaches z_P to classify the standard 4-way emotion target while optional
+    # emotion-GRL pushes that label out of z_L.
+    emotion:              bool  = False
+    emotion_weight:       float = 0.0    # utterance-level z_P -> emotion CE
+    grl_emotion_weight:   float = 0.0    # utterance-level anti-emotion adversary on z_L
+    emotion_every:        int   = 8      # 8 Libri : 1 IEMOCAP update cadence
+    emotion_grl_ramp_end: int   = 2000   # warm up z_L anti-emotion pressure
+    emotion_aux_loss_clip: float = 5.0   # cap auxiliary contribution by scaling, preserving gradients
+    emotion_num_classes:  int   = 4
+    iemocap_root: Path = _DIS_DIR.parent / "Probing" / "data" / "IEMOCAP_full_release"
+    iemocap_fold: int = 5
+    iemocap_batch_size: int = 8
+    iemocap_eval_batch_size: int = 16
+    iemocap_val_fraction: float = 0.20
+
     # Adversaries on z_U (the residual): push BOTH factors out of U so it can't hoard
     # the phoneme/speaker info.  Unlike the z_L speaker-adv these have NO ceiling
     # (no task on U keeps the factors), so speaker→z_P and phonemes→z_L.

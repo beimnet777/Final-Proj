@@ -191,6 +191,26 @@ class _ProsodyProbe(nn.Module):
         return self.head(torch.relu(self.projector(x)))   # (B, T, 2)
 
 
+class _EmotionProbeStats(nn.Module):
+    """Utterance-level emotion probe: projection -> ReLU -> mean+std -> linear."""
+
+    def __init__(self, in_dim: int, num_classes: int, proj_dim: int = 256) -> None:
+        super().__init__()
+        self.projector = nn.Linear(in_dim, proj_dim)
+        self.linear = nn.Linear(2 * proj_dim, num_classes)
+
+    def forward(self, x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+        x = torch.relu(self.projector(x))
+        B, T, _ = x.shape
+        mask = (torch.arange(T, device=x.device).unsqueeze(0) < lengths.unsqueeze(1)
+                ).float().unsqueeze(-1)
+        n = lengths.float().clamp(min=1).unsqueeze(-1)
+        mean = (x * mask).sum(1) / n
+        var = (((x - mean.unsqueeze(1)) ** 2) * mask).sum(1) / n
+        std = (var + 1e-5).sqrt()
+        return self.linear(torch.cat([mean, std], dim=-1))
+
+
 # ---------------------------------------------------------------- prosody targets
 
 def _prosody_targets(audios, audio_lens, out_lengths, sr: int = 16_000):
@@ -495,6 +515,72 @@ def _train_sid_probe(
     return best_val if do_val else None
 
 
+def _train_emotion_probe(
+    probe: nn.Module,
+    src_key: str,
+    train_dl,
+    model,
+    device,
+    use_bf16: bool,
+    has_routing: bool,
+    steps: int,
+    lr: float,
+    warmup_steps: int,
+    grad_clip: float,
+    val_cache=None,
+    val_every: int = 0,
+    patience: int = 0,
+):
+    trainable = [p for p in probe.parameters() if p.requires_grad]
+    opt = AdamW(trainable, lr=lr, weight_decay=1e-4)
+    scheduler = _make_linear_schedule(opt, warmup_steps, steps)
+    ce_loss = nn.CrossEntropyLoss()
+    probe.train()
+    model.eval()
+    step = 0
+    do_val = val_cache is not None and val_every > 0
+    best_val: float = -1.0
+    best_state = None
+    bad = 0
+    stop = False
+
+    while step < steps and not stop:
+        for audios, audio_lens, labels in train_dl:
+            feats = _extract_representations(
+                model, audios, audio_lens, device, use_bf16, has_routing
+            )
+            labels = labels.to(device, non_blocking=True)
+
+            opt.zero_grad(set_to_none=True)
+            loss = ce_loss(probe(feats[src_key], feats["out_lengths"]), labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable, grad_clip)
+            opt.step()
+            scheduler.step()
+            step += 1
+
+            if do_val and step % val_every == 0:
+                acc = _eval_emotion_probe_cached(probe, val_cache, device)
+                probe.train()
+                if acc > best_val + 1e-4:
+                    best_val, bad = acc, 0
+                    best_state = {k: v.detach().cpu().clone()
+                                  for k, v in probe.state_dict().items()}
+                else:
+                    bad += 1
+                print(f"      [emo {src_key}] step {step}/{steps}  dev acc={acc:.3f}  "
+                      f"(best {best_val:.3f}, bad {bad}/{patience})", flush=True)
+                if patience > 0 and bad >= patience:
+                    stop = True
+                    break
+            if step >= steps:
+                break
+
+    if best_state is not None:
+        probe.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+    return best_val if do_val else None
+
+
 @torch.no_grad()
 def _build_prosody_pool(dl, model, device, use_bf16, has_routing, max_examples: int):
     """One pass over `dl`: cache audio + per-frame prosody targets on CPU so the
@@ -677,6 +763,20 @@ def _eval_sid_probe(
     return correct / max(total, 1)
 
 
+@torch.no_grad()
+def _eval_emotion_probe_cached(probe, cache, device) -> float:
+    probe.eval()
+    correct = total = 0
+    for e in cache:
+        z = e["z"].to(device)
+        lens = e["out_lengths"].to(device)
+        labels = e["labels"].to(device)
+        pred = probe(z, lens).argmax(-1)
+        correct += (pred == labels).sum().item()
+        total += labels.size(0)
+    return correct / max(total, 1)
+
+
 # ---------------------------------------------------------------- cached eval (no encoder re-run)
 @torch.no_grad()
 def _cache_features(src_key, dl, model, device, use_bf16, has_routing, task):
@@ -702,6 +802,22 @@ def _cache_features(src_key, dl, model, device, use_bf16, has_routing, task):
         else:
             entry["texts"] = last
         cache.append(entry)
+    return cache
+
+
+@torch.no_grad()
+def _cache_emotion_features(src_key, dl, model, device, use_bf16, has_routing):
+    model.eval()
+    cache = []
+    for audios, audio_lens, labels in dl:
+        feats = _extract_representations(
+            model, audios, audio_lens, device, use_bf16, has_routing
+        )
+        cache.append({
+            "z": feats[src_key].detach().to("cpu"),
+            "out_lengths": feats["out_lengths"].detach().to("cpu"),
+            "labels": labels.detach().to("cpu"),
+        })
     return cache
 
 

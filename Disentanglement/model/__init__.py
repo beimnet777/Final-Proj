@@ -25,7 +25,11 @@ import torch.nn as nn
 from .spear_encoder import SpearEncoder
 from .sae import SparseAutoencoder
 from .routing import RoutingModule
-from .heads import PRHead, SIDHead, GRLHead, PR_GRL_Head, ProsodyHead, Prosody_GRL_Head
+from .heads import (
+    PRHead, SIDHead, GRLHead, PR_GRL_Head,
+    ProsodyHead, Prosody_GRL_Head,
+    EmotionHead, Emotion_GRL_Head,
+)
 
 
 # ---------------------------------------------------------------- pooling
@@ -121,6 +125,11 @@ class DISModel(nn.Module):
                 self.prosody_grl_head = Prosody_GRL_Head(cfg)     # anti-prosody on z_L
             if getattr(cfg, 'grl_prosody_u_weight', 0.0) > 0:
                 self.prosody_grl_head_u = Prosody_GRL_Head(cfg)   # anti-prosody on z_U
+        # Emotion: utterance-level IEMOCAP CE on z_P, optional anti-emotion on z_L.
+        if getattr(cfg, 'emotion', False):
+            self.emotion_head = EmotionHead(cfg)
+            if getattr(cfg, 'grl_emotion_weight', 0.0) > 0:
+                self.emotion_grl_head = Emotion_GRL_Head(cfg)
         # Option A: fixed L/P/U index blocks — constant masks, routing disabled.
         if getattr(cfg, 'fixed_blocks', False):
             kL, kP = cfg.K_L, cfg.K_P
@@ -166,6 +175,8 @@ class DISModel(nn.Module):
         grl_p_u_lambda: float = 0.0,
         grl_prosody_lambda: float = 0.0,
         grl_prosody_u_lambda: float = 0.0,
+        grl_emotion_lambda: float = 0.0,
+        emit_emotion: bool = True,
     ) -> Dict[str, torch.Tensor]:
         # grl_p_lambda: separate reversal strength for the phoneme adversary on
         # z_P (canonical DANN folds per-adversary weights into the lambda).
@@ -191,7 +202,7 @@ class DISModel(nn.Module):
         if no_routing:
             h_hat    = self.sae.decode(z_t)
             z_t_pool = _mean_pool(z_t, out_lengths)
-            return {
+            out = {
                 "h_t": h_t, "h_hat": h_hat, "z_t": z_t,
                 "z_pre": z_pre, "out_lengths": out_lengths,
                 "z_L": z_t, "z_P": z_t, "z_P_bar": z_t_pool,
@@ -199,6 +210,12 @@ class DISModel(nn.Module):
                 "sid_logits":  self.sid_head(z_t_pool),
                 "grl_logits":  self.grl_head(z_t, out_lengths, grl_lambda),
             }
+            if emit_emotion and hasattr(self, 'emotion_head'):
+                out["emotion_logits"] = self.emotion_head(z_t, out_lengths)
+                if hasattr(self, 'emotion_grl_head'):
+                    out["emotion_grl_logits"] = self.emotion_grl_head(
+                        z_t, out_lengths, grl_emotion_lambda)
+            return out
 
         # ---- Projection disentanglement: learned views instead of unit routing ----
         if projection:
@@ -259,6 +276,11 @@ class DISModel(nn.Module):
                 out["vib_kl"] = vib_kl
             if grl_p > 0.0:
                 out["pr_grl_logits"] = self.pr_grl_head(z_P, grl_p_lambda)
+            if emit_emotion and hasattr(self, 'emotion_head'):
+                out["emotion_logits"] = self.emotion_head(z_P, out_lengths)
+                if hasattr(self, 'emotion_grl_head'):
+                    out["emotion_grl_logits"] = self.emotion_grl_head(
+                        z_L, out_lengths, grl_emotion_lambda)
             return out
 
         # ---- Option A: fixed-block supervised SAE (no routing) ----
@@ -316,6 +338,11 @@ class DISModel(nn.Module):
                     out["prosody_grl_pred"]   = self.prosody_grl_head(z_L_sp, grl_prosody_lambda)
                 if hasattr(self, 'prosody_grl_head_u'):
                     out["prosody_grl_u_pred"] = self.prosody_grl_head_u(z_U_sp, grl_prosody_u_lambda)
+            if emit_emotion and hasattr(self, 'emotion_head'):
+                out["emotion_logits"] = self.emotion_head(z_P_sp, out_lengths)
+                if hasattr(self, 'emotion_grl_head'):
+                    out["emotion_grl_logits"] = self.emotion_grl_head(
+                        z_L_sp, out_lengths, grl_emotion_lambda)
             if vib_kl is not None:
                 out["vib_kl"] = vib_kl
             return out
@@ -377,6 +404,12 @@ class DISModel(nn.Module):
                 out["prosody_grl_pred"]   = self.prosody_grl_head(z_L, grl_prosody_lambda)
             if hasattr(self, 'prosody_grl_head_u'):
                 out["prosody_grl_u_pred"] = self.prosody_grl_head_u(z_U_sp, grl_prosody_u_lambda)
+        # Emotion on z_P (+ optional anti-emotion adversary on z_L)
+        if emit_emotion and hasattr(self, 'emotion_head'):
+            out["emotion_logits"] = self.emotion_head(z_P, out_lengths)
+            if hasattr(self, 'emotion_grl_head'):
+                out["emotion_grl_logits"] = self.emotion_grl_head(
+                    z_L, out_lengths, grl_emotion_lambda)
 
         return out
 

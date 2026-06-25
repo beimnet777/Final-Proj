@@ -162,6 +162,48 @@ class Prosody_GRL_Head(nn.Module):
         return self.head(F.relu(self.projector(z)))       # (B, T, 2)
 
 
+# ---------------------------------------------------------------- Emotion head
+
+def _masked_mean_std(z: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    B, T, C = z.shape
+    mask = (torch.arange(T, device=z.device).unsqueeze(0) < lengths.unsqueeze(1)
+            ).float().unsqueeze(-1)
+    n = lengths.float().clamp(min=1).unsqueeze(-1)
+    mean = (z * mask).sum(1) / n
+    var = (((z - mean.unsqueeze(1)) ** 2) * mask).sum(1) / n
+    std = (var + 1e-5).sqrt()
+    return torch.cat([mean, std], dim=-1)
+
+
+class EmotionHead(nn.Module):
+    """Utterance-level emotion classifier on z_P using masked mean+std pooling."""
+
+    def __init__(self, cfg) -> None:
+        super().__init__()
+        P = 256
+        self.projector = nn.Linear(_head_input_dim(cfg), P)
+        self.fc = nn.Linear(2 * P, getattr(cfg, "emotion_num_classes", 4))
+
+    def forward(self, z_P: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+        z = F.relu(self.projector(z_P))
+        return self.fc(_masked_mean_std(z, lengths))
+
+
+class Emotion_GRL_Head(nn.Module):
+    """Adversarial emotion classifier on z_L with gradient reversal."""
+
+    def __init__(self, cfg) -> None:
+        super().__init__()
+        P = 256
+        self.projector = nn.Linear(_head_input_dim(cfg), P)
+        self.fc = nn.Linear(2 * P, getattr(cfg, "emotion_num_classes", 4))
+
+    def forward(self, z: torch.Tensor, lengths: torch.Tensor, lam: float) -> torch.Tensor:
+        z = gradient_reversal(z, lam)
+        z = F.relu(self.projector(z))
+        return self.fc(_masked_mean_std(z, lengths))
+
+
 # ---------------------------------------------------------------- GRL head
 
 class GRLHead(nn.Module):
