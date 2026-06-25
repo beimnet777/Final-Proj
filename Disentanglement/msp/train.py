@@ -1,0 +1,278 @@
+"""Standalone MSP-Podcast disentanglement trainer.
+
+Self-contained: imports the model/losses as read-only libraries but owns its loop.
+Every batch carries content + speaker + prosody + emotion, so all heads train each
+step — no IEMOCAP-every-8, no _cap_loss_by_scaling.  Gradient conflict on the shared
+SAE trunk is handled by PCGrad over the cooperative tasks (see grad_conflict.py).
+"""
+from __future__ import annotations
+
+import contextlib
+import math
+from collections import defaultdict
+from pathlib import Path
+from typing import Dict, Optional
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from model import build_dis_model
+from losses import recon_loss, ctc_pr_loss, sid_ce_loss, route_loss, routing_spec_loss
+
+from .data import make_msp_dataloaders, EMOTION_NAMES
+from .grad_conflict import PCGrad
+from .heads import GELUSpeakerGRLHead
+from . import utils as U
+
+
+def _autocast(bf16: bool):
+    """bf16 CUDA autocast when available, else a no-op (CPU-safe)."""
+    return torch.autocast("cuda", dtype=torch.bfloat16) if bf16 else contextlib.nullcontext()
+
+
+def _gumbel_tau(step: int, total: int, tau_start: float, tau_end: float) -> float:
+    """Geometric anneal of the Gumbel temperature (matches legacy)."""
+    return tau_start * (tau_end / tau_start) ** (step / max(1, total))
+
+
+# ---------------------------------------------------------------- schedule
+def _make_lr(cfg):
+    base, warm, total, lo = cfg.lr, cfg.warmup_steps, cfg.stage2_steps, cfg.lr_min
+    def lr_at(step):
+        if step < warm:
+            return base * step / max(1, warm)
+        t = (step - warm) / max(1, total - warm)
+        return lo + 0.5 * (base - lo) * (1 + math.cos(math.pi * min(1.0, t)))
+    return lr_at
+
+
+def _set_seed(seed):
+    import random, numpy as np
+    random.seed(seed); np.random.seed(seed)
+    torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
+
+
+# ---------------------------------------------------------------- evaluation
+@torch.no_grad()
+def evaluate(model, dl, device, bf16, n_emotion) -> Dict[str, float]:
+    model.eval()
+    ctx = _autocast(bf16)
+    pr_num = pr_den = 0
+    sid_c = sid_t = 0
+    grl_c = grl_t = 0                       # z_L speaker leakage (adversary)
+    grlp_num = grlp_den = 0                 # z_P phoneme leakage (adversary)
+    conf_P = torch.zeros(n_emotion, n_emotion)   # z_P emotion (task)
+    conf_L = torch.zeros(n_emotion, n_emotion)   # z_L emotion (adversary leakage)
+    for b in dl:
+        audios = b["audios"].to(device); alen = b["audio_lengths"].to(device)
+        tgt = b["targets"].to(device); tlen = b["target_lengths"].to(device)
+        spk = b["speaker_ids"].to(device); emo = b["emotion"].to(device)
+        with ctx:
+            out = model(audios, alen, stage=2, grl_lambda=0.0, grl_p_lambda=0.0,
+                        grl_emotion_lambda=0.0, emit_emotion=True)
+        olen = out["out_lengths"]
+        n, d = U.ctc_errors(out["pr_logits"].float(), tgt, olen, tlen); pr_num += n; pr_den += d
+        if (spk >= 0).all():
+            c, t = U.speaker_correct(out["sid_logits"], spk, olen); sid_c += c; sid_t += t
+            c, t = U.speaker_correct(out["grl_logits"], spk, olen); grl_c += c; grl_t += t
+        if "pr_grl_logits" in out:
+            n, d = U.ctc_errors(out["pr_grl_logits"].float(), tgt, olen, tlen)
+            grlp_num += n; grlp_den += d
+        ep = out["emotion_logits"].argmax(-1)
+        for tlab, plab in zip(emo.tolist(), ep.tolist()):
+            conf_P[tlab, plab] += 1
+        if "emotion_grl_logits" in out:
+            el = out["emotion_grl_logits"].argmax(-1)
+            for tlab, plab in zip(emo.tolist(), el.tolist()):
+                conf_L[tlab, plab] += 1
+    model.train()
+    m = {
+        "per":        pr_num / max(pr_den, 1),
+        "sid_acc":    sid_c / max(sid_t, 1),
+        "zL_sid_acc": grl_c / max(grl_t, 1),
+        "zP_pr_per":  grlp_num / max(grlp_den, 1),
+        "zP_emo_uar": U.uar_from_confusion(conf_P),
+        "zP_emo_acc": float(conf_P.diag().sum() / conf_P.sum().clamp(min=1)),
+        "zL_emo_uar": U.uar_from_confusion(conf_L),
+    }
+    return m
+
+
+# ---------------------------------------------------------------- train
+def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
+    _set_seed(cfg.seed)
+    device = torch.device(cfg.device)
+    bf16 = cfg.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+
+    loaders = make_msp_dataloaders(cfg)
+    tokenizer, train_dl, val_dl, test_dl = loaders[0], loaders[1], loaders[2], loaders[3]
+    n_emotion = cfg.emotion_num_classes
+
+    model = build_dis_model(cfg).to(device)
+    if stage1_ckpt:
+        sd = torch.load(stage1_ckpt, map_location="cpu")
+        sd = sd.get("model", sd)
+        miss, unexp = model.load_state_dict(sd, strict=False)
+        print(f"[msp] loaded stage1 SAE from {stage1_ckpt} (missing={len(miss)} unexpected={len(unexp)})")
+    else:
+        print("[msp] training from scratch (SAE/routing/heads from init)")
+    # Speaker adversary → GELU (isolation: overrides model.grl_head without
+    # editing the shared model/heads.py).
+    model.grl_head = GELUSpeakerGRLHead(cfg).to(device)
+    print("[msp] speaker adversary: GELUSpeakerGRLHead (GELU projector)")
+    model.train()
+
+    # ---- emotion class weights from the train manifest (neutral-heavy) ----
+    train_rows = train_dl.dataset.rows
+    emo_w = U.emotion_class_weights(train_rows, n_emotion, device)
+    print(f"[msp] emotion class weights {[round(float(x),2) for x in emo_w]} "
+          f"for {EMOTION_NAMES}")
+
+    # ---- param groups (mirror the legacy lr split, MSP heads only) ----
+    sae_params   = list(model.sae.parameters())
+    rout_params  = [p for p in model.routing.parameters() if p.requires_grad]
+    head_params  = (list(model.pr_head.parameters()) + list(model.sid_head.parameters())
+                    + list(model.prosody_head.parameters()) + list(model.emotion_head.parameters()))
+    disc_params  = (list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters())
+                    + list(model.prosody_grl_head.parameters())
+                    + list(model.emotion_grl_head.parameters()))
+    optimizer = torch.optim.AdamW([
+        {"params": sae_params,  "lr": cfg.lr},
+        {"params": rout_params, "lr": cfg.lr_routing},
+        {"params": head_params, "lr": cfg.lr_heads},
+        {"params": disc_params, "lr": cfg.lr_disc},
+    ], betas=(0.9, 0.95), weight_decay=0.0)
+    lr_at = _make_lr(cfg)
+    all_params = sae_params + rout_params + head_params + disc_params
+
+    pcgrad = PCGrad(sae_params, seed=cfg.seed) if cfg.pcgrad else None
+    coop_names = set(cfg.pcgrad_tasks)
+    ckpt_dir = Path(getattr(cfg, "checkpoint_dir", Path(__file__).resolve().parent / "checkpoints" / "msp_run"))
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"[msp] steps={cfg.stage2_steps} batch={cfg.batch_size} pcgrad={cfg.pcgrad} "
+          f"({sorted(coop_names)})  device={device} bf16={bf16}")
+    print(f"[msp] weights α(pr)={cfg.alpha} β(sid)={cfg.beta} grl={cfg.grl_weight} "
+          f"grl_p={cfg.grl_phoneme_weight} pros={cfg.prosody_weight}/{cfg.grl_prosody_weight} "
+          f"emo={cfg.emotion_weight}/{cfg.grl_emotion_weight} inv={cfg.inv_weight}")
+
+    best = float("inf")
+    step = 0
+    train_iter = iter(train_dl)
+    while step < cfg.stage2_steps:
+        try:
+            b = next(train_iter)
+        except StopIteration:
+            train_iter = iter(train_dl); b = next(train_iter)
+        step += 1
+        lr_now = lr_at(step)
+        optimizer.param_groups[0]["lr"] = lr_now          # SAE follows the cosine
+        ramp = min(1.0, step / max(1, cfg.warmup_steps))
+
+        audios = b["audios"].to(device); alen = b["audio_lengths"].to(device)
+        tgt = b["targets"].to(device); tlen = b["target_lengths"].to(device)
+        spk = b["speaker_ids"].to(device); emo = b["emotion"].to(device)
+        pert = b.get("pert_audios")
+        if pert is not None:
+            pert = pert.to(device)
+
+        ctx = _autocast(bf16)
+        with ctx:
+            out = model(audios, alen, stage=2,
+                        grl_lambda=ramp, grl_p_lambda=ramp,
+                        grl_prosody_lambda=ramp, grl_emotion_lambda=ramp,
+                        emit_emotion=True)
+            olen = out["out_lengths"]
+            # cooperative tasks
+            l_recon = recon_loss(out["h_t"], out["h_hat"], olen)
+            l_pr    = ctc_pr_loss(out["pr_logits"], tgt, olen, tlen)
+            l_sid   = sid_ce_loss(out["sid_logits"], spk)
+            p_f0, p_v, p_e = U.prosody_targets_fast(audios, alen, olen)
+            l_pros  = U.prosody_train_loss(out["prosody_pred"], p_f0, p_v, p_e, olen)
+            l_emo   = F.cross_entropy(out["emotion_logits"], emo, weight=emo_w)
+            l_inv   = out["z_L"].new_zeros(())
+            if pert is not None:
+                out_p = model(pert, alen, stage=2, grl_lambda=0.0, emit_emotion=False)
+                l_inv = U.invariance_loss(out["z_L"], out_p["z_L"], olen)
+            # adversaries (kept out of PCGrad — their conflict is the mechanism)
+            l_grl     = U.speaker_adv_loss(out["grl_logits"], spk, olen)
+            l_grl_p   = ctc_pr_loss(out["pr_grl_logits"], tgt, olen, tlen)
+            l_prosgrl = U.prosody_train_loss(out["prosody_grl_pred"], p_f0, p_v, p_e, olen)
+            l_emogrl  = F.cross_entropy(out["emotion_grl_logits"], emo, weight=emo_w)
+            l_route   = route_loss(out["routing_logits"])
+            l_spec    = routing_spec_loss(out["routing_logits"])
+
+        coop = {
+            "recon":   1.0 * l_recon,
+            "pr":      cfg.alpha * l_pr,
+            "sid":     cfg.beta * l_sid,
+            "prosody": cfg.prosody_weight * l_pros,
+            "emotion": cfg.emotion_weight * l_emo,
+            "inv":     cfg.inv_weight * l_inv,
+        }
+        adv = (cfg.grl_weight * l_grl + cfg.grl_phoneme_weight * l_grl_p
+               + cfg.grl_prosody_weight * l_prosgrl + cfg.grl_emotion_weight * l_emogrl
+               + cfg.routing_spec_weight * l_spec + cfg.rho * l_route)
+        total = sum(coop.values()) + adv
+
+        optimizer.zero_grad(set_to_none=True)
+        if pcgrad is not None:
+            managed = {k: v for k, v in coop.items() if k in coop_names}
+            unmanaged = [v for k, v in coop.items() if k not in coop_names]
+            shared_extra = adv + sum(unmanaged) if unmanaged else adv
+            pc_flat = pcgrad.project(managed)
+            adv_flat = pcgrad.flat_grad(shared_extra)
+            total.backward()                              # heads + routing get normal grads
+            pcgrad.write_(pc_flat + adv_flat)             # overwrite SAE grads with surgery result
+        else:
+            total.backward()
+        nn.utils.clip_grad_norm_(all_params, cfg.grad_clip)
+        optimizer.step()
+
+        # ---- discriminator catch-up: track the moving encoder (no reversal) ----
+        if cfg.n_disc_steps > 1:
+            zL_d, zP_d, lens_d = out["z_L"].detach(), out["z_P"].detach(), olen
+            for _ in range(cfg.n_disc_steps - 1):
+                optimizer.zero_grad(set_to_none=True)
+                with ctx:
+                    ld = (U.speaker_adv_loss(model.grl_head(zL_d, lens_d, 0.0), spk, lens_d)
+                          + ctc_pr_loss(model.pr_grl_head(zP_d, 0.0), tgt, lens_d, tlen)
+                          + U.prosody_train_loss(model.prosody_grl_head(zL_d, 0.0), p_f0, p_v, p_e, lens_d)
+                          + F.cross_entropy(model.emotion_grl_head(zL_d, lens_d, 0.0), emo, weight=emo_w))
+                ld.backward()
+                nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip)
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+
+        # ---- logging ----
+        if step % cfg.log_every == 0 or step == 1:
+            with torch.no_grad():
+                gc, gt = U.speaker_correct(out["grl_logits"], spk, olen)
+                ec, et = U.class_correct(out["emotion_logits"], emo)
+                lc, lt = U.class_correct(out["emotion_grl_logits"], emo)
+            print(f"  step {step:>6d}/{cfg.stage2_steps}  recon={l_recon.item():.4f}  "
+                  f"pr={l_pr.item():.3f}  sid={l_sid.item():.3f}  grl={l_grl.item():.3f}"
+                  f"(acc={gc/max(gt,1):.3f})  pros={l_pros.item():.3f}  "
+                  f"emo={l_emo.item():.3f}(acc={ec/max(et,1):.3f})  "
+                  f"emoGRL(acc={lc/max(lt,1):.3f})  inv={float(l_inv):.4f}  lr={lr_now:.2e}", flush=True)
+
+        # ---- eval + checkpoint ----
+        if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
+            vm = evaluate(model, val_dl, device, bf16, n_emotion)
+            print(f"  [val] step={step}  PER={vm['per']:.3f}  SID={vm['sid_acc']:.3f}  "
+                  f"| z_P emo UAR={vm['zP_emo_uar']:.3f} acc={vm['zP_emo_acc']:.3f}  "
+                  f"| leak z_L SID={vm['zL_sid_acc']:.3f}  z_P PR-PER={vm['zP_pr_per']:.3f}  "
+                  f"z_L emo UAR={vm['zL_emo_uar']:.3f}", flush=True)
+            score = (vm["per"] + (1 - vm["sid_acc"]) + vm["zL_sid_acc"]
+                     + (1 - vm["zP_pr_per"]) + (1 - vm["zP_emo_uar"]) + vm["zL_emo_uar"])
+            torch.save({"model": model.state_dict(), "step": step, "val": vm},
+                       ckpt_dir / f"step{step}.pt")
+            if score < best:
+                best = score
+                torch.save({"model": model.state_dict(), "step": step, "val": vm},
+                           ckpt_dir / "best.pt")
+                print(f"  ✓ best (disent={best:.3f}) → {ckpt_dir/'best.pt'}", flush=True)
+
+    print(f"[msp] done. best disent={best:.3f}  ckpts in {ckpt_dir}")
+    return ckpt_dir / "best.pt"

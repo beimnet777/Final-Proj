@@ -79,8 +79,8 @@ ${PYTHON} -u run.py \
     --inv_L_weight 1.0 --inv_P_weight 1.0 \
     --inv_var_weight 0.1 --inv_var_gamma 1.0 \
     --vicreg_full --vicreg_cov_weight 0.2 \
-    --club_enabled --club_weight 0.3 --club_inner_steps 3 \
-    --club_hidden 256 --club_lr 1e-3 \
+    --club_enabled --club_weight 0.3 --club_inner_steps 10 \
+    --club_hidden 256 --club_lr 3e-3 \
     --pair_alpha_arctic_w 0.0 --pair_alpha_pert_w 1.0 \
     --pair_beta_libri_w 1.0 \
     --pairs_alpha_per_step 8 --pairs_beta_per_step 8 \
@@ -90,7 +90,7 @@ ${PYTHON} -u run.py \
     --alpha 0.8 --beta 0.6 \
     --grl_weight 0.0 --grl_phoneme_weight 0.0 \
     --rho 0.001 --routing_spec_weight 0.01 \
-    --stage2_steps 12000 --warmup_steps 500 \
+    --stage2_steps 10000 --warmup_steps 500 \
     --lr 1e-4 --lr_min 1e-6 --lr_heads 1e-4 --lr_routing 1e-3 \
     --grad_clip 1.0 \
     --grad_log_every 200 --log_every 100 \

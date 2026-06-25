@@ -112,7 +112,7 @@ ${PYTHON} -u run.py \
     --grl_grad_norm --grl_grad_norm_target 0.001 \
     --alpha 0.8 --beta 0.6 \
     --grl_weight 1.0 --grl_phoneme_weight 0.5 \
-    --grl_p_grad_norm --grl_p_grad_norm_target 0.001 \
+    --grl_p_grad_norm --grl_p_grad_norm_target 0.0005 \
     --prosody --prosody_weight 0.5 --grl_prosody_weight 0.5 --grl_prosody_u_weight 0.0 \
     --emotion --emotion_weight 0.5 --grl_emotion_weight 0.2 \
     --emotion_every "${EMOTION_EVERY}" --emotion_grl_ramp_end 2000 --emotion_aux_loss_clip 5.0 \
