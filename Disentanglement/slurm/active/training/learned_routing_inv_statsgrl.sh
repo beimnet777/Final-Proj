@@ -15,10 +15,10 @@
 # Learned-routing comparison for the two strongest current objectives.
 #
 # Four array tasks:
-#   0: invariance_only_w4 + soft routing
-#   1: invariance_only_w4 + hard ST-Gumbel routing
-#   2: stats-GRL gp02    + soft routing
-#   3: stats-GRL gp02    + hard ST-Gumbel routing
+#   0: invariance_only_w4 + soft binary L/P routing
+#   1: invariance_only_w4 + hard binary L/P ST-Gumbel routing
+#   2: stats-GRL gp02    + soft binary L/P routing
+#   3: stats-GRL gp02    + hard binary L/P ST-Gumbel routing
 #
 # Each task trains stage2 from scratch, then probes the FINAL checkpoint only:
 #   z_L -> SID with SID probe heads: linear, mlp, stats
@@ -129,12 +129,13 @@ echo "sid_probe_heads  : linear mlp stats"
 echo "pr_probe_heads   : linear mlp"
 echo "probe_steps      : ${PROBE_STEPS}"
 echo "probe_patience   : ${PROBE_PATIENCE}"
-echo "note             : no fixed_blocks; learned routing only"
+echo "note             : no fixed_blocks; learned binary L/P routing; n_routes=2, no z_U"
 
 ${PYTHON} -u run.py \
     --stage 2 --stage2_from_scratch \
     "${ROUTING_ARGS[@]}" \
     "${METHOD_ARGS[@]}" \
+    --n_routes 2 \
     --local_data --train_split_dir train-clean-100 --spear_layernorm \
     --num_workers 8 \
     --stage2_steps "${STAGE2_STEPS}" --warmup_steps 500 \
@@ -164,7 +165,7 @@ for PROBE_SEED in "${PROBE_SEEDS[@]}"; do
             --stage2_ckpt "${FINAL_CKPT}" \
             --stage1_ckpt "${FINAL_CKPT}" \
             --run_name "diag_${RUN_NAME}_final_zL_sid_${SID_HEAD}_seed${PROBE_SEED}" \
-            "${ROUTING_ARGS[@]}" --spear_layernorm \
+            "${ROUTING_ARGS[@]}" --n_routes 2 --spear_layernorm \
             --sources "z_L" --tasks "sid" --sid_probe_arch "${SID_HEAD}" \
             --probe_steps "${PROBE_STEPS}" --probe_val_every 250 \
             --probe_patience "${PROBE_PATIENCE}" \
@@ -179,7 +180,7 @@ for PROBE_SEED in "${PROBE_SEEDS[@]}"; do
             --stage2_ckpt "${FINAL_CKPT}" \
             --stage1_ckpt "${FINAL_CKPT}" \
             --run_name "diag_${RUN_NAME}_final_zP_pr_${PR_HEAD}_seed${PROBE_SEED}" \
-            "${ROUTING_ARGS[@]}" --spear_layernorm \
+            "${ROUTING_ARGS[@]}" --n_routes 2 --spear_layernorm \
             --sources "z_P" --tasks "pr" --pr_probe_arch "${PR_HEAD}" \
             --probe_steps "${PROBE_STEPS}" --probe_val_every 250 \
             --probe_patience "${PROBE_PATIENCE}" \
