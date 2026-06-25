@@ -166,6 +166,8 @@ def _parse_args():
     p.add_argument("--topk_U", type=int, default=cfg.topk_U)
     p.add_argument("--gumbel_tau_end", type=float, default=0.1,
                    help="Soft-routing eval temperature — match training's final tau.")
+    p.add_argument("--n_routes", type=int, default=cfg.n_routes,
+                   help="Routing factors (2=z_L,z_P; 3=+z_U). Auto-overridden from the checkpoint if they differ.")
     return p.parse_args()
 
 
@@ -202,6 +204,7 @@ def main() -> None:
     cfg.instance_norm_zL = bool(args.instance_norm_zL)
     cfg.hard_gumbel_routing = bool(args.hard_gumbel_routing)
     cfg.gumbel_tau_end = args.gumbel_tau_end
+    cfg.n_routes = args.n_routes
     cfg.fixed_blocks = bool(args.fixed_blocks)
     cfg.per_block_topk = bool(args.per_block_topk)
     cfg.vib_zL_weight = args.vib_zL_weight
@@ -260,7 +263,7 @@ def main() -> None:
     # Optional override: matched-distribution probe on ARCTIC's 18 speakers.
     sid_num_classes_override = None
     if args.sid_dataset == "arctic":
-        from Disentanglement.data.arctic_sid import make_arctic_sid_dataloaders
+        from data.arctic_sid import make_arctic_sid_dataloaders
         sid_num_classes_override, sid_train_dl, sid_val_dl, sid_test_dl = (
             make_arctic_sid_dataloaders(
                 arctic_root=args.arctic_root,
