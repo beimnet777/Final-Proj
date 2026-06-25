@@ -95,7 +95,9 @@ echo "iemocap_root     : ${IEMOCAP_ROOT}"
 echo "iemocap_fold     : ${IEMOCAP_FOLD}"
 echo "no_z_U           : --n_routes 2, no z_U adversaries"
 echo "z_L removal      : invariance w4 + dense speaker-GRL w1 + prosody-GRL + mild emotion-GRL"
+echo "speaker grl_norm : target=0.001"
 echo "z_P tasks        : SID + prosody + emotion, with phoneme-GRL"
+echo "phoneme grl_norm : target=0.001"
 echo "final_ckpt       : ${FINAL_CKPT}"
 
 ${PYTHON} -u run.py \
@@ -107,8 +109,10 @@ ${PYTHON} -u run.py \
     --num_workers 8 \
     --invariance --inv_weight 4.0 --inv_ramp_end 0 \
     --grl_dense_context --grl_context_kernel 31 \
+    --grl_grad_norm --grl_grad_norm_target 0.001 \
     --alpha 0.8 --beta 0.6 \
     --grl_weight 1.0 --grl_phoneme_weight 0.5 \
+    --grl_p_grad_norm --grl_p_grad_norm_target 0.001 \
     --prosody --prosody_weight 0.5 --grl_prosody_weight 0.5 --grl_prosody_u_weight 0.0 \
     --emotion --emotion_weight 0.5 --grl_emotion_weight 0.2 \
     --emotion_every "${EMOTION_EVERY}" --emotion_grl_ramp_end 2000 --emotion_aux_loss_clip 5.0 \

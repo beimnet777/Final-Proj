@@ -98,6 +98,12 @@ def _parse_args():
                         "gives z_L a dense per-frame removal gradient like grl_p.")
     p.add_argument("--grl_context_kernel", type=int, default=cfg.grl_context_kernel,
                    help="Temporal conv kernel (frames) for the dense-context speaker GRL.")
+    p.add_argument("--grl_robust_sid", action="store_true", default=cfg.grl_robust_sid,
+                   help="Speaker GRL uses branched readouts: linear mean + nonlinear stats "
+                        "+ optional dense context. Branch losses are averaged.")
+    p.add_argument("--grl_robust_activation", choices=("relu", "gelu"),
+                   default=cfg.grl_robust_activation,
+                   help="Activation for nonlinear robust speaker-GRL branches.")
     p.add_argument("--grl_grad_norm", action="store_true", default=cfg.grl_grad_norm,
                    help="Per-frame normalize the reversed speaker gradient to a fixed magnitude "
                         "(decouples removal strength from discriminator confidence; counters dilution).")
@@ -260,6 +266,22 @@ def _parse_args():
     # NOTE: --gumbel_tau_start / --gumbel_tau_end / --hard_gumbel_routing are
     # already defined in the routing block above; do not re-add (argparse conflict).
 
+    # ---- Probe-robust: VICReg-full + CLUB MI-min (probe_robust/ package) ----
+    p.add_argument("--vicreg_full",       action=argparse.BooleanOptionalAction,
+                   default=cfg.vicreg_full,
+                   help="Replace cosine-per-frame L_inv_L with VICReg per-frame L2 "
+                        "(frame-aligned pairs only — use with --pair_alpha_arctic_w 0) "
+                        "and add covariance regulariser on z_L/z_P bucket dims.")
+    p.add_argument("--vicreg_cov_weight", type=float, default=cfg.vicreg_cov_weight)
+    p.add_argument("--club_enabled",      action=argparse.BooleanOptionalAction,
+                   default=cfg.club_enabled,
+                   help="Add CLUB MI-min on (mean-pool z_L, speaker_id). Adversary-free, "
+                        "probe-architecture-agnostic via Fano's inequality.")
+    p.add_argument("--club_weight",       type=float, default=cfg.club_weight)
+    p.add_argument("--club_lr",           type=float, default=cfg.club_lr)
+    p.add_argument("--club_inner_steps",  type=int,   default=cfg.club_inner_steps)
+    p.add_argument("--club_hidden",       type=int,   default=cfg.club_hidden)
+
     # paths
     p.add_argument("--checkpoint_dir", default=str(cfg.checkpoint_dir))
     p.add_argument("--runs_dir",       default=str(cfg.runs_dir))
@@ -302,6 +324,8 @@ def _parse_args():
     cfg.grl_stats_pool        = args.grl_stats_pool
     cfg.grl_dense_context     = args.grl_dense_context
     cfg.grl_context_kernel    = args.grl_context_kernel
+    cfg.grl_robust_sid        = args.grl_robust_sid
+    cfg.grl_robust_activation = args.grl_robust_activation
     cfg.grl_grad_norm         = args.grl_grad_norm
     cfg.grl_grad_norm_target  = args.grl_grad_norm_target
     cfg.shuffle_grl_speaker_labels = args.shuffle_grl_speaker_labels
@@ -401,6 +425,14 @@ def _parse_args():
     cfg.esd_root              = Path(args.esd_root)
     cfg.gumbel_tau_start      = args.gumbel_tau_start
     cfg.gumbel_tau_end        = args.gumbel_tau_end
+    # probe_robust (VICReg-full + CLUB)
+    cfg.vicreg_full           = bool(args.vicreg_full)
+    cfg.vicreg_cov_weight     = args.vicreg_cov_weight
+    cfg.club_enabled          = bool(args.club_enabled)
+    cfg.club_weight           = args.club_weight
+    cfg.club_lr               = args.club_lr
+    cfg.club_inner_steps      = args.club_inner_steps
+    cfg.club_hidden           = args.club_hidden
     cfg.checkpoint_dir        = Path(args.checkpoint_dir)
     cfg.runs_dir              = Path(args.runs_dir)
     cfg.log_dir               = Path(args.log_dir)

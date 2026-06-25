@@ -73,6 +73,11 @@ class DISConfig:
     # z_L a DENSE per-frame removal gradient instead of one diluted pooled gradient.
     grl_dense_context:   bool  = False
     grl_context_kernel:  int   = 31    # conv kernel (frames) for the dense head's temporal context
+    # Robust speaker adversary: train multiple z_L speaker readouts at once
+    # (linear mean, nonlinear stats, and optionally dense-context).  This avoids
+    # declaring speaker "removed" only because one adversary architecture is blind.
+    grl_robust_sid:      bool  = False
+    grl_robust_activation: str = "gelu"  # activation for nonlinear robust branches: relu|gelu
     # Per-frame gradient normalization for the PHONEME adversary on z_P (same mechanism
     # as the speaker grad-norm): a constant per-frame content-removal push on z_P.
     grl_p_grad_norm:        bool  = False
@@ -304,6 +309,29 @@ class DISConfig:
     # Gumbel-tau annealing schedule for hard routing (linear from start to end
     # over [0, tau_anneal_steps]; 0 means no annealing — hold at start).
     gumbel_tau_anneal_steps: int = 0
+
+    # ---------------------------------------------------------------- Probe-robust (VICReg-full + CLUB)
+    # When `vicreg_full=True`, pair-α L_inv switches from cosine-per-frame-after-
+    # bilinear-resample to **per-frame L2 on frame-aligned pairs only** (so use
+    # with pair_alpha_pert_w=1.0, pair_alpha_arctic_w=0.0 — ARCTIC pairs are NOT
+    # frame-aligned and bilinear resample is the v1 design flaw being removed).
+    # Variance floor is unchanged; covariance regulariser is added on z_L and z_P
+    # bucket dims (decorrelates → blocks orthogonal-subspace escape diagnosed in
+    # dual_inv_v1_soft_nogrl).
+    vicreg_full:        bool  = False
+    vicreg_cov_weight:  float = 0.2
+    # CLUB MI-min: minimises I(stats_pool(z_L); speaker_id) where stats_pool is
+    # mean+std over time (x-vector canonical speaker representation). Choosing
+    # mean+std (not mean-only) closes the "hide in temporal variance" escape
+    # route that pure mean pooling would leave open. Probe-architecture-agnostic
+    # by Fano's inequality w.r.t. classifiers reading the same stats vector.
+    # Adversary-free (variational density estimator, not GAN minimax).
+    # num_classes = cfg.num_speakers (set at runtime).
+    club_enabled:       bool  = False
+    club_weight:        float = 0.3
+    club_lr:            float = 1e-3
+    club_inner_steps:   int   = 3
+    club_hidden:        int   = 256
 
     # ---------------------------------------------------------------- Misc
     seed:   int  = 42

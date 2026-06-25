@@ -28,6 +28,8 @@ from losses import (
     inv_L_frame_cosine_loss, inv_P_stats_pool_loss,
     variance_floor_loss, effective_rank, bucket_diag,
 )
+from probe_robust.losses import vicreg_invariance_loss, vicreg_covariance_loss
+from probe_robust.club import CLUBSampled
 from tb_logger import DISLogger
 
 
@@ -142,13 +144,35 @@ def _edit_distance(a, b) -> int:
 # speaker adversaries, greedy PER (chance ~1.0) for the phoneme CTC adversaries.
 # Both helpers return raw counts so eval can accumulate exactly over the val set.
 
+def _is_branch_logits(logits) -> bool:
+    return isinstance(logits, (tuple, list))
+
+
+def _speaker_adv_loss(logits, speaker_ids: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    """Speaker adversary CE for pooled, frame-level, or branched readouts.
+
+    Branched adversaries average branch losses so enabling an extra readout does
+    not silently multiply the configured GRL weight.
+    """
+    if _is_branch_logits(logits):
+        losses = [_speaker_adv_loss(branch, speaker_ids, lengths) for branch in logits]
+        return torch.stack(losses).mean()
+    if logits.dim() == 3:
+        return sid_ce_loss_frames(logits, speaker_ids, lengths)
+    return sid_ce_loss(logits, speaker_ids)
+
+
 @torch.no_grad()
-def _speaker_correct(logits: torch.Tensor, speaker_ids: torch.Tensor,
-                     lengths: torch.Tensor):
+def _speaker_correct(logits, speaker_ids: torch.Tensor, lengths: torch.Tensor):
     """(#correct, #total) top-1 speaker hits for an adversary head.
 
-    Handles frame-level (B, T, S) — padding-masked — and pooled (B, S) heads.
+    Handles frame-level (B, T, S), pooled (B, S), and branched heads.  For
+    branched heads we report the strongest branch on this batch; averaged branch
+    accuracy can hide the leakage path the adversary is supposed to cover.
     """
+    if _is_branch_logits(logits):
+        branch_counts = [_speaker_correct(branch, speaker_ids, lengths) for branch in logits]
+        return max(branch_counts, key=lambda ct: ct[0] / max(ct[1], 1))
     if logits.dim() == 3:
         B, T, _ = logits.shape
         pred = logits.argmax(dim=-1)                                        # (B, T)
@@ -412,9 +436,7 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
         l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
         l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
-        l_grl   = (sid_ce_loss_frames(out["grl_logits"], adversary_speaker_ids, out["out_lengths"])
-                   if out["grl_logits"].dim() == 3
-                   else sid_ce_loss(out["grl_logits"], adversary_speaker_ids))
+        l_grl   = _speaker_adv_loss(out["grl_logits"], adversary_speaker_ids, out["out_lengths"])
         l_route = (route_loss(model.routing.logits) if _routing_active
                    else l_recon.new_zeros(()))
 
@@ -438,8 +460,7 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
             m  = (torch.arange(Tg, device=z.device).unsqueeze(0) < out["out_lengths"].unsqueeze(1)).float()
             return float((pf * m).sum() / m.sum().clamp(min=1))
         sp_lg  = model.grl_head(out["z_L"], out["out_lengths"], 1.0)
-        L_sp   = (sid_ce_loss_frames(sp_lg, adversary_speaker_ids, out["out_lengths"])
-                  if sp_lg.dim() == 3 else sid_ce_loss(sp_lg, adversary_speaker_ids))
+        L_sp   = _speaker_adv_loss(sp_lg, adversary_speaker_ids, out["out_lengths"])
         pf_grl = _per_frame_grad(L_sp, out["z_L"])
         pf_grl_p = 0.0
         if _grl_p_w > 0 and hasattr(model, 'pr_grl_head'):
@@ -848,6 +869,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += "  grl_attention_pool=True"
     if getattr(cfg, 'grl_dense_context', False):
         extra_str += f"  grl_dense_context=True(k={cfg.grl_context_kernel})"
+    if getattr(cfg, 'grl_robust_sid', False):
+        extra_str += f"  grl_robust_sid=True(act={cfg.grl_robust_activation})"
     if getattr(cfg, 'grl_grad_norm', False):
         extra_str += f"  grl_grad_norm={cfg.grl_grad_norm_target}"
     if getattr(cfg, 'instance_norm_zL', False):
@@ -953,6 +976,23 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
               f"inv_var_w={inv_var_w}  gamma={inv_var_g}  interp_frames={inv_L_frames}")
         print(f"[stage 2] routing: n_routes={n_routes_eff}  hard_gumbel={hard_route}  "
               f"tau {cfg.gumbel_tau_start} -> {cfg.gumbel_tau_end}")
+    # ---- probe_robust: VICReg-full + CLUB MI-min init ----
+    vicreg_full_on = bool(getattr(cfg, 'vicreg_full', False))
+    if vicreg_full_on:
+        print(f"[stage 2] VICReg-full ON: per-frame L2 inv (frame-aligned pairs only); "
+              f"cov_weight={cfg.vicreg_cov_weight}")
+    club_module = None
+    if bool(getattr(cfg, 'club_enabled', False)):
+        # mean+std pool of z_L over time -> 2*K-dim input (x-vector tradition)
+        club_module = CLUBSampled(
+            in_dim=2 * int(cfg.K),
+            num_classes=int(cfg.num_speakers),
+            hidden=int(cfg.club_hidden),
+            lr=float(cfg.club_lr),
+        ).to(device)
+        print(f"[stage 2] CLUB ON: weight={cfg.club_weight}  inner_steps={cfg.club_inner_steps}  "
+              f"lr={cfg.club_lr}  hidden={cfg.club_hidden}  in_dim={2 * cfg.K}  "
+              f"num_speakers={cfg.num_speakers}  pool=mean+std(z_L)")
     no_routing     = getattr(cfg, 'no_routing', False)
     fixed_blocks   = getattr(cfg, 'fixed_blocks', False)
     n_routes       = getattr(cfg, 'n_routes', 3)
@@ -1102,9 +1142,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
             l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
             l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
-            l_grl   = (sid_ce_loss_frames(out["grl_logits"], adversary_speaker_ids, out["out_lengths"])
-                       if out["grl_logits"].dim() == 3
-                       else sid_ce_loss(out["grl_logits"], adversary_speaker_ids))
+            l_grl   = _speaker_adv_loss(out["grl_logits"], adversary_speaker_ids, out["out_lengths"])
             l_route    = (route_loss(out["routing_logits"])
                           if routing_active else l_recon.new_zeros(()))
             # Per-unit specialization: minimise mean unit routing entropy (with
@@ -1127,11 +1165,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             # VIB KL on z_L
             l_vib      = (out["vib_kl"] if "vib_kl" in out else l_recon.new_zeros(()))
             # z_U adversaries: anti-speaker + anti-phoneme (dann → eff weight 1.0)
-            l_grl_u    = (sid_ce_loss_frames(out["grl_u_logits"], adversary_speaker_ids, out["out_lengths"])
-                          if (grl_u_weight > 0 and "grl_u_logits" in out and out["grl_u_logits"].dim() == 3)
-                          else (sid_ce_loss(out["grl_u_logits"], adversary_speaker_ids)
-                                if (grl_u_weight > 0 and "grl_u_logits" in out)
-                                else l_recon.new_zeros(())))
+            l_grl_u    = (_speaker_adv_loss(out["grl_u_logits"], adversary_speaker_ids, out["out_lengths"])
+                          if (grl_u_weight > 0 and "grl_u_logits" in out)
+                          else l_recon.new_zeros(()))
             l_grl_p_u  = (ctc_pr_loss(out["pr_grl_u_logits"], targets, out["out_lengths"], target_lengths)
                           if (grl_p_u_weight > 0 and "pr_grl_u_logits" in out)
                           else l_recon.new_zeros(()))
@@ -1194,11 +1230,20 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 out_pa_b = model(pa["audio_b"].to(device, non_blocking=True),
                                   pa["len_b"].to(device,   non_blocking=True),
                                   stage=2, grl_lambda=0.0, emit_emotion=False)
-                l_inv_L = inv_L_frame_cosine_loss(
-                    out_pa_a["z_L"], out_pa_a["out_lengths"],
-                    out_pa_b["z_L"], out_pa_b["out_lengths"],
-                    target_frames=inv_L_frames,
-                )
+                if vicreg_full_on:
+                    # VICReg per-frame L2 — assumes frame-aligned pairs (use only
+                    # with pair_alpha_pert_w=1.0, no ARCTIC: ARCTIC pairs would
+                    # require time-alignment we deliberately removed).
+                    l_inv_L = vicreg_invariance_loss(
+                        out_pa_a["z_L"], out_pa_b["z_L"],
+                        out_pa_a["out_lengths"], out_pa_b["out_lengths"],
+                    )
+                else:
+                    l_inv_L = inv_L_frame_cosine_loss(
+                        out_pa_a["z_L"], out_pa_a["out_lengths"],
+                        out_pa_b["z_L"], out_pa_b["out_lengths"],
+                        target_frames=inv_L_frames,
+                    )
                 # Pair β (z_P invariance)
                 out_pb_a = model(pb["audio_a"].to(device, non_blocking=True),
                                   pb["len_a"].to(device,   non_blocking=True),
@@ -1220,6 +1265,33 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                                                   gamma=inv_var_g, weight=_mL) +
                              variance_floor_loss(out["z_P"], out["out_lengths"],
                                                   gamma=inv_var_g, weight=_mP))
+
+            # ---- probe_robust: VICReg covariance regulariser on bucket dims ----
+            l_cov = l_recon.new_zeros(())
+            if vicreg_full_on and dual_inv_on and float(cfg.vicreg_cov_weight) > 0:
+                _mL = out.get("m_L"); _mP = out.get("m_P")
+                l_cov = (vicreg_covariance_loss(out["z_L"], out["out_lengths"], mask_dim=_mL) +
+                         vicreg_covariance_loss(out["z_P"], out["out_lengths"], mask_dim=_mP))
+
+            # ---- probe_robust: CLUB MI-min on (stats_pool(z_L), speaker_id) ----
+            l_club = l_recon.new_zeros(())
+            club_ce = float('nan')
+            club_acc = float('nan')
+            if club_module is not None:
+                _zL = out["z_L"]
+                _olen = out["out_lengths"]
+                _Bcl, _Tcl, _ = _zL.shape
+                _fm = (torch.arange(_Tcl, device=device).unsqueeze(0)
+                       < _olen.unsqueeze(1)).float().unsqueeze(-1)  # (B, T, 1)
+                _n = _olen.float().clamp(min=1).unsqueeze(1)        # (B, 1)
+                _mean = (_zL * _fm).sum(1) / _n                     # (B, K)
+                _var  = (((_zL - _mean.unsqueeze(1)) ** 2) * _fm).sum(1) / _n
+                _std  = (_var + 1e-5).sqrt()                        # (B, K)
+                _z_pool = torch.cat([_mean, _std], dim=-1)          # (B, 2K)
+                club_ce, club_acc = club_module.inner_step(
+                    _z_pool.detach(), speaker_ids, k=int(cfg.club_inner_steps)
+                )
+                l_club = club_module.mi_bound(_z_pool, speaker_ids)
 
             # ---- IEMOCAP auxiliary emotion/prosody batch (8 Libri : 1 IEMOCAP by default) ----
             l_emo = l_emo_grl = l_emo_pros = l_emo_pros_grl = l_recon.new_zeros(())
@@ -1276,6 +1348,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + inv_L_w          * l_inv_L
                           + inv_P_w          * l_inv_P
                           + inv_var_w        * l_var
+                          + float(cfg.vicreg_cov_weight) * l_cov
+                          + float(cfg.club_weight)       * l_club
                           + l_emo_aux
                           + cfg.rho          * l_route
                           + spec_w           * l_spec
@@ -1323,15 +1397,13 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 optimizer.zero_grad(set_to_none=True)
                 with ctx:
                     sp = model.grl_head(zL_d, lens_d, 0.0)
-                    l_d = (sid_ce_loss_frames(sp, adversary_speaker_ids, lens_d)
-                           if sp.dim() == 3 else sid_ce_loss(sp, adversary_speaker_ids))
+                    l_d = _speaker_adv_loss(sp, adversary_speaker_ids, lens_d)
                     if grl_p_weight > 0:
                         ph = model.pr_grl_head(zP_d, 0.0)
                         l_d = l_d + ctc_pr_loss(ph, targets, lens_d, target_lengths)
                     if hasattr(model, 'grl_head_u') and zU_d is not None:
                         spu = model.grl_head_u(zU_d, lens_d, 0.0)
-                        l_d = l_d + (sid_ce_loss_frames(spu, adversary_speaker_ids, lens_d)
-                                     if spu.dim() == 3 else sid_ce_loss(spu, adversary_speaker_ids))
+                        l_d = l_d + _speaker_adv_loss(spu, adversary_speaker_ids, lens_d)
                         phu = model.pr_grl_head_u(zU_d, 0.0)
                         l_d = l_d + ctc_pr_loss(phu, targets, lens_d, target_lengths)
                     if pros_adv and grl_pros_w > 0:
@@ -1491,6 +1563,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 losses["inv/zL_utt_norm_std"]   = diag_L["utt_norm_std"]
                 losses["inv/zP_utt_norm_mean"]  = diag_P["utt_norm_mean"]
                 losses["inv/zP_utt_norm_std"]   = diag_P["utt_norm_std"]
+                losses["probe_robust/cov"]      = float(l_cov.item())
+                losses["probe_robust/club"]     = float(l_club.item())
+                losses["probe_robust/q_phi_ce"] = float(club_ce) if club_ce == club_ce else 0.0
+                losses["probe_robust/q_phi_acc"] = float(club_acc) if club_acc == club_acc else 0.0
                 losses["eff_rank/zL"]           = _eL
                 losses["eff_rank/zP"]           = _eP
                 losses["pair_mix/alpha_arctic"] = _f_arctic
@@ -1498,6 +1574,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 dual_inv_str = (
                     f"  inv_L={l_inv_L.item():.4f}  inv_P={l_inv_P.item():.4f}"
                     f"  var={l_var.item():.4f}"
+                    f"  cov={l_cov.item():.4f}"
+                    f"  club={l_club.item():+.4f}  q_phi[ce={club_ce:.3f},acc={club_acc:.3f}]"
                     f"  k[L/P]={diag_L['k_active']}/{diag_P['k_active']}"
                     f"  Zσ10[L/P]={diag_L['p10_std']:.2f}/{diag_P['p10_std']:.2f}"
                     f"  blw[L/P]={diag_L['frac_blw_g']:.2f}/{diag_P['frac_blw_g']:.2f}"

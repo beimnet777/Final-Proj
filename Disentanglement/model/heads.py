@@ -235,19 +235,39 @@ class GRLHead(nn.Module):
         # temporal conv for local context, so each frame gets its OWN removal
         # gradient (dense) instead of one diluted pooled gradient over T frames.
         self.dense_context  = bool(getattr(cfg, "grl_dense_context", False))
+        # robust_sid=True: train a small family of speaker readouts at once:
+        #   1) linear mean pool on projector pre-activations (matches linear probe),
+        #   2) nonlinear mean+std pool (matches stats/MLP probe family),
+        #   3) optional dense-context branch when grl_dense_context is also on.
+        # The training loop averages branch losses, so this does not silently
+        # multiply grl_weight.
+        self.robust_sid     = bool(getattr(cfg, "grl_robust_sid", False))
+        act_name = str(getattr(cfg, "grl_robust_activation", "gelu")).lower()
+        self.robust_activation = act_name if act_name in {"relu", "gelu"} else "gelu"
         # grad_norm=True: per-frame normalize the reversed gradient to a fixed
         # magnitude (decouples removal strength from discriminator confidence).
         self.grad_norm        = bool(getattr(cfg, "grl_grad_norm", False))
         self.grad_norm_target = float(getattr(cfg, "grl_grad_norm_target", 1.0))
-        if self.attention_pool:
-            self.attn = nn.Sequential(nn.Linear(P, P), nn.Tanh(), nn.Linear(P, 1))
-        if self.attention_pool or self.stats_pool:
-            self.fc   = nn.Linear(2 * P, cfg.num_speakers)        # [weighted mean ; weighted std]
+        if self.robust_sid:
+            self.fc_linear = nn.Linear(P, cfg.num_speakers)
+            self.fc_stats  = nn.Linear(2 * P, cfg.num_speakers)
+            if self.dense_context:
+                k = int(getattr(cfg, "grl_context_kernel", 31))
+                self.context_conv = nn.Conv1d(P, P, kernel_size=k, padding=k // 2)
+                self.fc_dense = nn.Linear(P, cfg.num_speakers)
         else:
-            self.fc   = nn.Linear(P, cfg.num_speakers)
-        if self.dense_context:
-            k = int(getattr(cfg, "grl_context_kernel", 31))
-            self.context_conv = nn.Conv1d(P, P, kernel_size=k, padding=k // 2)
+            if self.attention_pool:
+                self.attn = nn.Sequential(nn.Linear(P, P), nn.Tanh(), nn.Linear(P, 1))
+            if self.attention_pool or self.stats_pool:
+                self.fc   = nn.Linear(2 * P, cfg.num_speakers)        # [weighted mean ; weighted std]
+            else:
+                self.fc   = nn.Linear(P, cfg.num_speakers)
+            if self.dense_context:
+                k = int(getattr(cfg, "grl_context_kernel", 31))
+                self.context_conv = nn.Conv1d(P, P, kernel_size=k, padding=k // 2)
+
+    def _activate(self, x: torch.Tensor) -> torch.Tensor:
+        return F.gelu(x) if self.robust_activation == "gelu" else F.relu(x)
 
     def forward(
         self,
@@ -261,21 +281,48 @@ class GRLHead(nn.Module):
         lam     : GRL reversal strength
 
         Returns (B, T, num_speakers) if frame_level, else (B, num_speakers).
+        With robust_sid=True returns a tuple of branch logits.
         """
         z_L = (gradient_reversal_norm(z_L, lam, self.grad_norm_target)
                if self.grad_norm else gradient_reversal(z_L, lam))
+        z_pre = self.projector(z_L)                                 # (B, T, P)
+        B, T, P = z_pre.shape
+        mask = (torch.arange(T, device=z_L.device).unsqueeze(0) < lengths.unsqueeze(1)
+                ).unsqueeze(-1)                                      # (B, T, 1) bool
+        fmask = mask.float()
+        n = lengths.float().clamp(min=1).unsqueeze(1)
+
+        if self.robust_sid:
+            # Branch A: linear readout after masked mean.  This explicitly covers
+            # the SUPERB-style linear leakage probe, where ReLU can hide signed
+            # mean information.
+            z_mean_linear = (z_pre * fmask).sum(1) / n
+            logits = [self.fc_linear(z_mean_linear)]
+
+            # Branch B: nonlinear statistics readout.  This covers the stronger
+            # stats/MLP probe family without relying on a dense per-frame label.
+            z_act = self._activate(z_pre)
+            mean = (z_act * fmask).sum(1) / n
+            var = (((z_act - mean.unsqueeze(1)) ** 2) * fmask).sum(1) / n
+            std = (var + 1e-5).sqrt()
+            logits.append(self.fc_stats(torch.cat([mean, std], dim=-1)))
+
+            # Branch C: optional dense-context speaker prediction, preserving the
+            # successful inv_dense local-gradient mechanism.
+            if self.dense_context:
+                z_ctx = self._activate(self.context_conv(z_act.transpose(1, 2))).transpose(1, 2)
+                logits.append(self.fc_dense(z_ctx))
+            return tuple(logits)
+
         # MLP (ReLU) — stronger than the linear SID probe it must beat, so z_L
         # must remove speaker in a way that survives a real probe.
-        z_proj = F.relu(self.projector(z_L))                      # (B, T, P)
+        z_proj = F.relu(z_pre)                                    # (B, T, P)
         if self.dense_context:
             # local temporal context, then per-frame speaker logits (B, T, num_speakers)
             z_ctx = F.relu(self.context_conv(z_proj.transpose(1, 2))).transpose(1, 2)
             return self.fc(z_ctx)
         if self.frame_level:
             return self.fc(z_proj)                                # (B, T, num_speakers)
-        B, T, P = z_proj.shape
-        mask = (torch.arange(T, device=z_L.device).unsqueeze(0) < lengths.unsqueeze(1)
-                ).unsqueeze(-1)                                    # (B, T, 1) bool
         if self.attention_pool:
             a = self.attn(z_proj).masked_fill(~mask, -1e9)        # (B, T, 1)
             a = torch.softmax(a, dim=1)                           # attention weights over time
@@ -283,12 +330,10 @@ class GRLHead(nn.Module):
             var  = (a * (z_proj - mean.unsqueeze(1)) ** 2).sum(1)
             std  = (var + 1e-5).sqrt()                            # (B, P)
             return self.fc(torch.cat([mean, std], dim=-1))
-        fmask  = mask.float()
         if self.stats_pool:
-            n    = lengths.float().clamp(min=1).unsqueeze(1)
             mean = (z_proj * fmask).sum(1) / n
             var  = (((z_proj - mean.unsqueeze(1)) ** 2) * fmask).sum(1) / n
             std  = (var + 1e-5).sqrt()
             return self.fc(torch.cat([mean, std], dim=-1))
-        z_mean = (z_proj * fmask).sum(1) / lengths.float().unsqueeze(1).clamp(min=1)
+        z_mean = (z_proj * fmask).sum(1) / n
         return self.fc(z_mean)
