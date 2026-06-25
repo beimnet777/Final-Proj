@@ -7,7 +7,7 @@
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
-#SBATCH --job-name=lr_invstat
+#SBATCH --job-name=lr_invrobust
 #SBATCH --array=0-3%4
 #SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/learned_routing_inv_statsgrl/%x_%A_%a.out
 #SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/learned_routing_inv_statsgrl/%x_%A_%a.err
@@ -17,8 +17,8 @@
 # Four array tasks:
 #   0: invariance_only_w4 + soft binary L/P routing
 #   1: invariance_only_w4 + hard binary L/P ST-Gumbel routing
-#   2: stats-GRL gp02    + soft binary L/P routing
-#   3: stats-GRL gp02    + hard binary L/P ST-Gumbel routing
+#   2: robust-GRL gp02   + soft binary L/P routing
+#   3: robust-GRL gp02   + hard binary L/P ST-Gumbel routing
 #
 # Each task trains stage2 from scratch, then probes the FINAL checkpoint only:
 #   z_L -> SID with SID probe heads: linear, mlp, stats
@@ -41,7 +41,7 @@ export HF_HUB_CACHE="${DIS_DIR}/../Probing/data/hub_cache"
 mkdir -p "${DIS_DIR}/logs/train/stage2/learned_routing_inv_statsgrl"
 cd "${DIS_DIR}"
 
-METHODS=(invariance_only_w4 invariance_only_w4 statsgrl_gp02 statsgrl_gp02)
+METHODS=(invariance_only_w4 invariance_only_w4 robustgrl_gp02 robustgrl_gp02)
 ROUTINGS=(soft hard soft hard)
 
 TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
@@ -93,9 +93,9 @@ case "${METHOD}" in
         )
         METHOD_LABEL="invariance-only w4, no z_L speaker GRL, z_P phone GRL=0.5"
         ;;
-    statsgrl_gp02)
+    robustgrl_gp02)
         METHOD_ARGS=(
-            --grl_stats_pool
+            --grl_robust_sid --grl_robust_activation gelu
             --grl_grad_norm --grl_grad_norm_target 0.001
             --alpha 0.8 --beta 0.6
             --grl_weight 1.0 --grl_phoneme_weight 0.2
@@ -103,7 +103,7 @@ case "${METHOD}" in
             --dann_full_discriminator --lr_disc 1e-3 --n_disc_steps 3
             --rho 0.0 --grad_clip 1.0
         )
-        METHOD_LABEL="stats-pool z_L GRL, grad-norm target=0.001, z_P phone GRL=0.2"
+        METHOD_LABEL="robust two-branch z_L GRL: signed linear mean + GELU mean/std, grad-norm target=0.001, z_P phone GRL=0.2"
         ;;
     *)
         echo "ERROR: unknown method=${METHOD}" >&2
@@ -111,7 +111,7 @@ case "${METHOD}" in
         ;;
 esac
 
-echo "=== Learned-routing invariance/stats-GRL experiment ==="
+echo "=== Learned-routing invariance/robust-GRL experiment ==="
 echo "started          : $(date)"
 echo "array_task       : ${TASK_ID}"
 echo "gpu              : $(nvidia-smi --query-gpu=name --format=csv,noheader)"
