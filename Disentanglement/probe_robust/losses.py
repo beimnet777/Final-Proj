@@ -24,7 +24,7 @@ import torch.nn.functional as F
 
 # Re-export the existing variance floor so callers can import all three from
 # this module (`from probe_robust.losses import variance_floor_loss, ...`).
-from Disentanglement.losses import variance_floor_loss  # noqa: F401
+# from losses import variance_floor_loss  # noqa: F401
 
 
 def vicreg_invariance_loss(
