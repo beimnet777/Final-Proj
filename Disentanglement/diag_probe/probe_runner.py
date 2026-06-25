@@ -486,7 +486,9 @@ def _train_sid_probe(
             speaker_ids = speaker_ids.to(device, non_blocking=True)
 
             opt.zero_grad(set_to_none=True)
-            loss = ce_loss(probe(z, lens), speaker_ids)
+            logits = probe(z, lens)
+            loss = ce_loss(logits, speaker_ids)
+            train_acc = (logits.argmax(-1) == speaker_ids).float().mean().item()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(trainable, grad_clip)
             opt.step()
@@ -494,7 +496,7 @@ def _train_sid_probe(
             step += 1
 
             if do_val and step % val_every == 0:
-                acc = _eval_sid_probe_cached(probe, val_cache, device)
+                acc, val_loss = _eval_sid_probe_cached(probe, val_cache, device, return_loss=True)
                 probe.train()
                 if acc > best_val + 1e-4:
                     best_val, bad = acc, 0
@@ -502,7 +504,9 @@ def _train_sid_probe(
                                   for k, v in probe.state_dict().items()}
                 else:
                     bad += 1
-                print(f"      [sid {src_key}] step {step}/{steps}  dev acc={acc:.3f}  "
+                print(f"      [sid {src_key}] step {step}/{steps}  "
+                      f"train loss={loss.item():.3f} acc={train_acc:.3f}  "
+                      f"dev loss={val_loss:.3f} acc={acc:.3f}  "
                       f"(best {best_val:.3f}, bad {bad}/{patience})", flush=True)
                 if patience > 0 and bad >= patience:
                     stop = True
@@ -552,7 +556,9 @@ def _train_emotion_probe(
             labels = labels.to(device, non_blocking=True)
 
             opt.zero_grad(set_to_none=True)
-            loss = ce_loss(probe(feats[src_key], feats["out_lengths"]), labels)
+            logits = probe(feats[src_key], feats["out_lengths"])
+            loss = ce_loss(logits, labels)
+            train_acc = (logits.argmax(-1) == labels).float().mean().item()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(trainable, grad_clip)
             opt.step()
@@ -560,7 +566,7 @@ def _train_emotion_probe(
             step += 1
 
             if do_val and step % val_every == 0:
-                acc = _eval_emotion_probe_cached(probe, val_cache, device)
+                acc, val_loss = _eval_emotion_probe_cached(probe, val_cache, device, return_loss=True)
                 probe.train()
                 if acc > best_val + 1e-4:
                     best_val, bad = acc, 0
@@ -568,7 +574,9 @@ def _train_emotion_probe(
                                   for k, v in probe.state_dict().items()}
                 else:
                     bad += 1
-                print(f"      [emo {src_key}] step {step}/{steps}  dev acc={acc:.3f}  "
+                print(f"      [emo {src_key}] step {step}/{steps}  "
+                      f"train loss={loss.item():.3f} acc={train_acc:.3f}  "
+                      f"dev loss={val_loss:.3f} acc={acc:.3f}  "
                       f"(best {best_val:.3f}, bad {bad}/{patience})", flush=True)
                 if patience > 0 and bad >= patience:
                     stop = True
@@ -764,17 +772,24 @@ def _eval_sid_probe(
 
 
 @torch.no_grad()
-def _eval_emotion_probe_cached(probe, cache, device) -> float:
+def _eval_emotion_probe_cached(probe, cache, device, return_loss: bool = False):
     probe.eval()
     correct = total = 0
+    loss_sum = 0.0
     for e in cache:
         z = e["z"].to(device)
         lens = e["out_lengths"].to(device)
         labels = e["labels"].to(device)
-        pred = probe(z, lens).argmax(-1)
+        logits = probe(z, lens)
+        pred = logits.argmax(-1)
         correct += (pred == labels).sum().item()
         total += labels.size(0)
-    return correct / max(total, 1)
+        if return_loss:
+            loss_sum += F.cross_entropy(logits, labels, reduction="sum").item()
+    acc = correct / max(total, 1)
+    if return_loss:
+        return acc, loss_sum / max(total, 1)
+    return acc
 
 
 # ---------------------------------------------------------------- cached eval (no encoder re-run)
@@ -836,17 +851,24 @@ def _eval_pr_probe_cached(probe, cache, tokenizer, device) -> float:
 
 
 @torch.no_grad()
-def _eval_sid_probe_cached(probe, cache, device) -> float:
+def _eval_sid_probe_cached(probe, cache, device, return_loss: bool = False):
     probe.eval()
     correct = total = 0
+    loss_sum = 0.0
     for e in cache:
         z = e["z"].to(device)
         lens = e["out_lengths"].to(device)
         sid = e["speaker_ids"].to(device)
-        pred = probe(z, lens).argmax(-1)
+        logits = probe(z, lens)
+        pred = logits.argmax(-1)
         correct += (pred == sid).sum().item()
         total += sid.size(0)
-    return correct / max(total, 1)
+        if return_loss:
+            loss_sum += F.cross_entropy(logits, sid, reduction="sum").item()
+    acc = correct / max(total, 1)
+    if return_loss:
+        return acc, loss_sum / max(total, 1)
+    return acc
 
 
 # ---------------------------------------------------------------- MDL / codelength probe
