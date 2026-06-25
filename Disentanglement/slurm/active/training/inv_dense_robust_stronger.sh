@@ -12,7 +12,7 @@
 #SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/inv_dense_robust_stronger/%x_%j.err
 
 # Stronger inv_dense variant:
-#   - fixed L/P/U blocks, stage-2 from scratch
+#   - learned binary L/P routing, stage-2 from scratch (NO fixed blocks, NO z_U)
 #   - slightly stronger pitch/formant invariance on z_L
 #   - robust branched z_L speaker GRL:
 #       linear mean branch + GELU stats branch + dense-context frame branch
@@ -36,6 +36,7 @@ STAGE2_STEPS="${STAGE2_STEPS:-12000}"
 PROBE_STEPS="${PROBE_STEPS:-10000}"
 PROBE_VAL_EVERY="${PROBE_VAL_EVERY:-250}"
 PROBE_SEEDS_STR="${PROBE_SEEDS:-42 7}"
+ROUTING="${ROUTING:-hard}"
 
 TRAIN_LOG_DIR="${DIS_DIR}/logs/train/stage2/${RUN_NAME}"
 DIAG_LOG_DIR="${DIS_DIR}/logs/diag/${RUN_NAME}"
@@ -45,11 +46,20 @@ mkdir -p "${TRAIN_LOG_DIR}" "${DIAG_LOG_DIR}" "${CKPT_DIR}" "${RUNS_DIR}"
 
 cd "${DIS_DIR}"
 
-BLOCKS=(
-    --fixed_blocks --per_block_topk
-    --K_L 3072 --K_P 1024 --K_U 1024
-    --topk_L 160 --topk_P 64 --topk_U 32
-)
+case "${ROUTING}" in
+    soft)
+        ROUTING_ARGS=(--no-hard_gumbel_routing)
+        ROUTING_LABEL="learned soft fractional binary L/P routing"
+        ;;
+    hard)
+        ROUTING_ARGS=(--hard_gumbel_routing)
+        ROUTING_LABEL="learned hard ST-Gumbel binary L/P routing"
+        ;;
+    *)
+        echo "ERROR: ROUTING must be 'hard' or 'soft' (got '${ROUTING}')" >&2
+        exit 2
+        ;;
+esac
 
 echo "=== inv_dense_robust_stronger: stronger invariance + branched dense GRL ==="
 echo "started          : $(date)"
@@ -57,6 +67,7 @@ echo "node             : ${SLURMD_NODENAME:-unknown}"
 echo "gpu              : $(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)"
 echo "run_name         : ${RUN_NAME}"
 echo "stage2_steps     : ${STAGE2_STEPS}"
+echo "routing          : ${ROUTING_LABEL}; n_routes=2; no fixed_blocks; no z_U"
 echo "invariance       : w=4.0, no ramp, f0=[0.6,1.7], formant=[0.75,1.55]"
 echo "z_L grl          : robust branches = linear mean + GELU stats + dense context"
 echo "z_P grl          : PR-GRL weight=0.5"
@@ -65,7 +76,8 @@ echo "probe final ckpt : stage2_step${STAGE2_STEPS}.pt"
 echo
 
 "${PYTHON}" -u run.py \
-    --stage 2 --stage2_from_scratch "${BLOCKS[@]}" \
+    --stage 2 --stage2_from_scratch \
+    "${ROUTING_ARGS[@]}" --n_routes 2 \
     --invariance --inv_weight 4.0 --inv_ramp_end 0 \
     --inv_f0_low 0.6 --inv_f0_high 1.7 \
     --inv_formant_low 0.75 --inv_formant_high 1.55 \
@@ -98,7 +110,7 @@ for PROBE_SEED in ${PROBE_SEEDS_STR}; do
         "${PYTHON}" -u diag_probe/run.py \
             --stage2_ckpt "${FINAL_CKPT}" --stage1_ckpt "${FINAL_CKPT}" \
             --run_name "diag_${RUN_NAME}_final_zL_sid_${SID_HEAD}_seed${PROBE_SEED}" \
-            "${BLOCKS[@]}" --spear_layernorm \
+            "${ROUTING_ARGS[@]}" --n_routes 2 --spear_layernorm \
             --sources "z_L" --tasks "sid" --sid_probe_arch "${SID_HEAD}" \
             --probe_steps "${PROBE_STEPS}" --probe_val_every "${PROBE_VAL_EVERY}" --probe_patience 0 \
             --sid_probe_lr 1e-3 --seed "${PROBE_SEED}" \
@@ -111,7 +123,7 @@ for PROBE_SEED in ${PROBE_SEEDS_STR}; do
         "${PYTHON}" -u diag_probe/run.py \
             --stage2_ckpt "${FINAL_CKPT}" --stage1_ckpt "${FINAL_CKPT}" \
             --run_name "diag_${RUN_NAME}_final_zP_pr_${PR_HEAD}_seed${PROBE_SEED}" \
-            "${BLOCKS[@]}" --spear_layernorm \
+            "${ROUTING_ARGS[@]}" --n_routes 2 --spear_layernorm \
             --sources "z_P" --tasks "pr" --pr_probe_arch "${PR_HEAD}" \
             --probe_steps "${PROBE_STEPS}" --probe_val_every "${PROBE_VAL_EVERY}" --probe_patience 0 \
             --pr_max_examples 0 --pr_probe_lr 5e-4 --seed "${PROBE_SEED}" \
