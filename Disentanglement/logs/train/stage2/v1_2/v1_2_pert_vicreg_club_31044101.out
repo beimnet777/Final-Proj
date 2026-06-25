@@ -1,0 +1,69 @@
+=== v1_2_pert_vicreg_club: perturbation-only VICReg-full + CLUB ===
+started : Thu 25 Jun 16:40:58 BST 2026  gpu: NVIDIA A100-SXM4-80GB
+routing : soft Gumbel-softmax, tau=1.0 (no anneal); n_routes=2 (no z_U)
+pair α  : perturbed-LibriSpeech 100%  (ARCTIC DROPPED — no bilinear-align hack)
+pair β  : within-chapter LibriSpeech
+inv_L   : VICReg L2 per-frame (frame-aligned only)
+cov     : VICReg covariance reg on z_L,z_P bucket dims (weight=0.2)
+CLUB    : I(stats_pool(z_L); speaker_id) min, weight=0.3, inner=3, lr=1e-3
+GRL     : OFF
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=12000  α=0.8  β=0.6  grl=0.0  ρ=0.001
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=17,488,522  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.8  β=0.6  grl=0.0  ρ=0.001  spear_ln=True
+[stage 2] steps=12000  schedule_steps=12000  batch=16  grad_clip=1.0
+[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + (1 - grl_p_per)  — in-training head proxies, NOT a probe; run diag_probe/ for the authoritative leakage signal.
+[stage 2] dual-invariance ON: inv_L_w=1.0  inv_P_w=1.0  inv_var_w=0.1  gamma=1.0  interp_frames=200
+[stage 2] routing: n_routes=2  hard_gumbel=False  tau 1.0 -> 1.0
+[stage 2] VICReg-full ON: per-frame L2 inv (frame-aligned pairs only); cov_weight=0.2
+[stage 2] CLUB ON: weight=0.3  inner_steps=3  lr=0.001  hidden=256  in_dim=10240  num_speakers=251  pool=mean+std(z_L)
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step      1/12000  recon=0.3694  pr=18.6017  sid=5.5332  grl=5.5352(acc=0.000)  inv_L=0.0251  inv_P=0.5354  var=1.3173  cov=0.0136  club=-0.0004  q_phi[ce=5.547,acc=0.000]  k[L/P]=2573/2547  Zσ10[L/P]=0.13/0.13  blw[L/P]=1.00/1.00  uN[L/P]=3.24±0.11/3.25±0.12  eR[L/P]=888/889  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2530/2590/0  actL/P/U=127/129/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4962  lr=2.00e-07
+  step    100/12000  recon=0.3325  pr=16.7110  sid=5.5234  grl=5.5254(acc=0.000)  inv_L=0.0256  inv_P=0.5705  var=1.3207  cov=0.0127  club=-0.0001  q_phi[ce=5.512,acc=0.000]  k[L/P]=2551/2569  Zσ10[L/P]=0.13/0.13  blw[L/P]=1.00/1.00  uN[L/P]=3.42±0.25/3.41±0.23  eR[L/P]=882/888  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2531/2589/0  actL/P/U=128/128/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4969  lr=2.00e-05
+  [grad_norms @200]
+    recon             |g|=0.07235  ratio=1.000x recon
+    pr_raw            |g|=11.58742  ratio=160.165x recon
+    pr_weighted       |g|=9.26993  ratio=128.132x recon
+    sid_raw           |g|=0.54802  ratio=7.575x recon
+    sid_weighted      |g|=0.32881  ratio=4.545x recon
+    grl               |g|=0.00000  ratio=0.000x recon
+    grl_p             |g|=0.00000  ratio=0.000x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00003   grl_p(z_P)=0.00000   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.000
+      cos(recon_vs_sid          ) = -0.000
+      cos(recon_vs_grl          ) = -0.002
+      cos(pr_vs_sid             ) = +0.002
+      cos(pr_vs_grl             ) = -0.001
+      cos(sid_vs_grl            ) = -0.006
+  step    200/12000  recon=0.3642  pr=10.9722  sid=5.5000  grl=5.5430(acc=0.000)  inv_L=0.0358  inv_P=0.5708  var=1.3027  cov=0.0294  club=+0.0000  q_phi[ce=5.521,acc=0.000]  k[L/P]=2585/2535  Zσ10[L/P]=0.07/0.08  blw[L/P]=1.00/1.00  uN[L/P]=4.57±0.20/4.29±0.19  eR[L/P]=855/862  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2587/2533/0  actL/P/U=143/113/0  H=0.693  Hu=0.640  spec<.5=0.05  marg=0.263  lstd=0.4991  lr=4.00e-05
+  step    300/12000  recon=0.4454  pr=3.9611  sid=5.5273  grl=5.5391(acc=0.000)  inv_L=0.0597  inv_P=0.6158  var=1.2697  cov=0.0859  club=+0.0000  q_phi[ce=5.533,acc=0.000]  k[L/P]=2640/2480  Zσ10[L/P]=0.02/0.02  blw[L/P]=1.00/1.00  uN[L/P]=7.53±0.58/5.59±0.34  eR[L/P]=829/834  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2759/2361/0  actL/P/U=175/81/0  H=0.693  Hu=0.637  spec<.5=0.06  marg=0.269  lstd=0.5065  lr=6.00e-05
+  [grad_norms @400]
+    recon             |g|=0.04209  ratio=1.000x recon
+    pr_raw            |g|=0.46398  ratio=11.024x recon
+    pr_weighted       |g|=0.37118  ratio=8.820x recon
+    sid_raw           |g|=0.59976  ratio=14.251x recon
+    sid_weighted      |g|=0.35986  ratio=8.550x recon
+    grl               |g|=0.00000  ratio=0.000x recon
+    grl_p             |g|=0.00000  ratio=0.000x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00002   grl_p(z_P)=0.00000   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.001
+      cos(recon_vs_sid          ) = +0.005
+      cos(recon_vs_grl          ) = +0.001
+      cos(pr_vs_sid             ) = +0.012
+      cos(pr_vs_grl             ) = -0.002
+      cos(sid_vs_grl            ) = -0.004
+  step    400/12000  recon=0.2563  pr=2.0809  sid=5.4336  grl=5.5391(acc=0.000)  inv_L=0.0812  inv_P=0.5722  var=1.2202  cov=0.1884  club=+0.0000  q_phi[ce=5.506,acc=0.000]  k[L/P]=2698/2422  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.99/1.00  uN[L/P]=9.09±0.82/7.02±0.66  eR[L/P]=815/817  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2716/2404/0  actL/P/U=169/87/0  H=0.693  Hu=0.632  spec<.5=0.07  marg=0.281  lstd=0.5201  lr=8.00e-05
+  step    500/12000  recon=0.1802  pr=1.1916  sid=5.3164  grl=5.5059(acc=0.000)  inv_L=0.0896  inv_P=0.5555  var=1.1620  cov=0.2693  club=+0.0000  q_phi[ce=5.518,acc=0.000]  k[L/P]=2633/2487  Zσ10[L/P]=0.01/0.00  blw[L/P]=0.99/0.99  uN[L/P]=9.22±0.82/7.96±0.67  eR[L/P]=809/808  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2720/2400/0  actL/P/U=160/96/0  H=0.692  Hu=0.625  spec<.5=0.09  marg=0.297  lstd=0.5392  lr=1.00e-04
