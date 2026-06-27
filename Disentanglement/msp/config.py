@@ -60,6 +60,21 @@ class MSPConfig:
     hard_routing: bool = True
     seed:         int = 42
 
+    # Optimizer and routing controls. The production Slurm script passes every
+    # one explicitly so its submitted command is the experiment source of truth.
+    lr:                  float = 1e-4
+    lr_min:              float = 1e-6
+    lr_heads:            float = 1e-4
+    lr_disc:             float = 1e-3
+    lr_routing:          float = 1e-3
+    n_disc_steps:        int   = 3
+    grad_clip:           float = 1.0
+    routing_init_std:    float = 0.5
+    routing_spec_weight: float = 0.01
+    routing_tau:         float = 1.0
+    log_every:           int   = 100
+    ckpt_every:          int   = 1000
+
 
 def to_dis_cfg(m: MSPConfig) -> DISConfig:
     """Materialise a DISConfig the shared model/optimiser understand, with the MSP
@@ -70,13 +85,13 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.hard_gumbel_routing = m.hard_routing
     # Gumbel temperature anneal: sharpen the routing over training.  Hard ST-Gumbel
     # cools to 0.1; soft routing stops at 0.5 (matches the legacy schedule).
-    c.gumbel_tau_start = 1.0
+    c.gumbel_tau_start = m.routing_tau
     c.gumbel_tau_end = 0.1 if m.hard_routing else 0.5
-    c.routing_init_std = 0.5
-    c.routing_spec_weight = 0.01
+    c.routing_init_std = m.routing_init_std
+    c.routing_spec_weight = m.routing_spec_weight
     c.spear_layernorm = True
     c.dann_full_discriminator = True
-    c.n_disc_steps = 3
+    c.n_disc_steps = m.n_disc_steps
     c.rho = 0.0
     # ---- tasks on (build_dis_model reads these to create the heads) ----
     c.prosody = True
@@ -94,12 +109,12 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.inv_weight = m.inv_weight
     c.inv_ramp_end = 0
     # ---- optimisation ----
-    c.lr = 1e-4
-    c.lr_min = 1e-6
-    c.lr_heads = 1e-4
-    c.lr_disc = 1e-3
-    c.lr_routing = 1e-3
-    c.grad_clip = 1.0
+    c.lr = m.lr
+    c.lr_min = m.lr_min
+    c.lr_heads = m.lr_heads
+    c.lr_disc = m.lr_disc
+    c.lr_routing = m.lr_routing
+    c.grad_clip = m.grad_clip
     c.warmup_steps = m.warmup_steps
     c.stage2_steps = m.steps
     c.stage2_schedule_steps = m.steps
@@ -107,6 +122,8 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.eval_batch_size = m.eval_batch
     c.num_workers = m.num_workers
     c.seed = m.seed
+    c.log_every = m.log_every
+    c.ckpt_every = m.ckpt_every
     # ---- MSP data paths (read by msp.data.make_msp_dataloaders) ----
     c.msp_manifest = m.manifest
     c.msp_audio_root = m.audio_root

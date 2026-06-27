@@ -29,6 +29,19 @@ def main() -> None:
     p.add_argument("--soft_routing", action="store_true",
                    help="use soft Gumbel routing (default: hard ST-Gumbel)")
     p.add_argument("--seed", type=int, default=d.seed)
+    # optimizer / routing
+    p.add_argument("--lr", type=float, default=d.lr)
+    p.add_argument("--lr_min", type=float, default=d.lr_min)
+    p.add_argument("--lr_heads", type=float, default=d.lr_heads)
+    p.add_argument("--lr_disc", type=float, default=d.lr_disc)
+    p.add_argument("--lr_routing", type=float, default=d.lr_routing)
+    p.add_argument("--n_disc_steps", type=int, default=d.n_disc_steps)
+    p.add_argument("--grad_clip", type=float, default=d.grad_clip)
+    p.add_argument("--routing_init_std", type=float, default=d.routing_init_std)
+    p.add_argument("--routing_spec_weight", type=float, default=d.routing_spec_weight)
+    p.add_argument("--routing_tau", type=float, default=d.routing_tau)
+    p.add_argument("--log_every", type=int, default=d.log_every)
+    p.add_argument("--ckpt_every", type=int, default=d.ckpt_every)
     # gradient-conflict
     p.add_argument("--no_pcgrad", action="store_true", help="disable PCGrad surgery")
     p.add_argument("--pcgrad_tasks", default=d.pcgrad_tasks)
@@ -59,6 +72,11 @@ def main() -> None:
         steps=a.steps, warmup_steps=a.warmup_steps, batch_size=a.batch_size,
         eval_batch=a.eval_batch, num_workers=a.num_workers, seed=a.seed,
         hard_routing=not a.soft_routing,
+        lr=a.lr, lr_min=a.lr_min, lr_heads=a.lr_heads, lr_disc=a.lr_disc,
+        lr_routing=a.lr_routing, n_disc_steps=a.n_disc_steps,
+        grad_clip=a.grad_clip, routing_init_std=a.routing_init_std,
+        routing_spec_weight=a.routing_spec_weight, routing_tau=a.routing_tau,
+        log_every=a.log_every, ckpt_every=a.ckpt_every,
         pcgrad=not a.no_pcgrad, pcgrad_tasks=a.pcgrad_tasks,
         grl_grad_norm=a.grl_grad_norm,
         grl_grad_norm_target=a.grl_grad_norm_target,

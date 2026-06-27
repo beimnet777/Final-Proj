@@ -29,24 +29,78 @@ export HF_HUB_CACHE="${DIS_DIR}/../Probing/data/hub_cache"
 mkdir -p "${DIS_DIR}/msp/logs"
 cd "${DIS_DIR}"
 
-RUN_NAME="${RUN_NAME:-msp_v1}"
-STEPS="${STEPS:-12000}"
-GRL_NORM_TARGET="${GRL_NORM_TARGET:-0.0005}"
-EXTRA_ARGS=("$@")          # e.g. --no_pcgrad / --soft_routing / --grl_emotion_weight 0.8
+# Complete experiment specification. Submit with no environment variables:
+#     sbatch msp/slurm/train_msp.sh
+RUN_NAME=msp_v2
+STEPS=12000
+WARMUP_STEPS=500
+BATCH_SIZE=16
+EVAL_BATCH_SIZE=32
+NUM_WORKERS=8
+SEED=42
+
+LR_SAE=1e-4
+LR_MIN=1e-6
+LR_HEADS=1e-4
+LR_DISC=1e-3
+LR_ROUTING=1e-3
+N_DISC_STEPS=3
+GRAD_CLIP=1.0
+
+ROUTING_INIT_STD=0.5
+ROUTING_SPEC_WEIGHT=0.01
+ROUTING_TAU=1.0
+PCGRAD_TASKS="recon,pr,sid,prosody,emotion,inv"
+
+PR_WEIGHT=0.8
+SID_WEIGHT=0.6
+SPEAKER_GRL_WEIGHT=1.0
+PHONEME_GRL_WEIGHT=0.5
+PROSODY_WEIGHT=0.5
+PROSODY_GRL_WEIGHT=0.5
+EMOTION_WEIGHT=0.5
+EMOTION_GRL_WEIGHT=0.5
+INVARIANCE_WEIGHT=1.0
+GRL_NORM_TARGET=0.0005
+
+LOG_EVERY=100
+CKPT_EVERY=1000
+
+MANIFEST="${DIS_DIR}/data/msp_subset"
+AUDIO_ROOT="${DIS_DIR}/data/msp_audio"
+TRANSCRIPTS="/rds/project/rds-xyBFuSj0hm0/dataset/MSP-Podcast-2.0/Transcripts.zip"
 
 echo "=== MSP standalone disentanglement ==="
 echo "started   : $(date)"
 echo "gpu       : $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "run_name  : ${RUN_NAME}"
 echo "steps     : ${STEPS}"
+echo "routing   : hard binary L/P, tau=${ROUTING_TAU}, init_std=${ROUTING_INIT_STD}, spec=${ROUTING_SPEC_WEIGHT}"
+echo "learning  : sae=${LR_SAE} heads=${LR_HEADS} disc=${LR_DISC} routing=${LR_ROUTING} min=${LR_MIN}"
+echo "disc      : steps=${N_DISC_STEPS} grad_clip=${GRAD_CLIP}"
+echo "weights   : pr=${PR_WEIGHT} sid=${SID_WEIGHT} grl=${SPEAKER_GRL_WEIGHT} grl_p=${PHONEME_GRL_WEIGHT}"
+echo "weights   : pros=${PROSODY_WEIGHT}/${PROSODY_GRL_WEIGHT} emo=${EMOTION_WEIGHT}/${EMOTION_GRL_WEIGHT} inv=${INVARIANCE_WEIGHT}"
 echo "zL_grl_norm: ${GRL_NORM_TARGET}"
-echo "extra     : ${EXTRA_ARGS[*]:-(none)}"
 
 ${PYTHON} -u -m msp.run \
     --run_name "${RUN_NAME}" \
+    --manifest "${MANIFEST}" --audio_root "${AUDIO_ROOT}" --transcripts "${TRANSCRIPTS}" \
     --steps "${STEPS}" \
-    --num_workers 8 \
+    --warmup_steps "${WARMUP_STEPS}" \
+    --batch_size "${BATCH_SIZE}" --eval_batch "${EVAL_BATCH_SIZE}" \
+    --num_workers "${NUM_WORKERS}" --seed "${SEED}" \
+    --lr "${LR_SAE}" --lr_min "${LR_MIN}" \
+    --lr_heads "${LR_HEADS}" --lr_disc "${LR_DISC}" --lr_routing "${LR_ROUTING}" \
+    --n_disc_steps "${N_DISC_STEPS}" --grad_clip "${GRAD_CLIP}" \
+    --routing_init_std "${ROUTING_INIT_STD}" \
+    --routing_spec_weight "${ROUTING_SPEC_WEIGHT}" --routing_tau "${ROUTING_TAU}" \
+    --pcgrad_tasks "${PCGRAD_TASKS}" \
+    --alpha "${PR_WEIGHT}" --beta "${SID_WEIGHT}" \
+    --grl_weight "${SPEAKER_GRL_WEIGHT}" --grl_phoneme_weight "${PHONEME_GRL_WEIGHT}" \
+    --prosody_weight "${PROSODY_WEIGHT}" --grl_prosody_weight "${PROSODY_GRL_WEIGHT}" \
+    --emotion_weight "${EMOTION_WEIGHT}" --grl_emotion_weight "${EMOTION_GRL_WEIGHT}" \
+    --inv_weight "${INVARIANCE_WEIGHT}" \
     --grl_grad_norm --grl_grad_norm_target "${GRL_NORM_TARGET}" \
-    "${EXTRA_ARGS[@]}"
+    --log_every "${LOG_EVERY}" --ckpt_every "${CKPT_EVERY}"
 
 echo "finished  : $(date)"
