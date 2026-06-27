@@ -946,13 +946,15 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     disc_params  = (list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters())
                     + u_adv_params + prosody_adv_params + emotion_adv_params)
     lr_disc_eff  = cfg.lr_disc if getattr(cfg, 'lr_disc', 0.0) > 0 else cfg.lr_heads
+    lr_sid_eff   = (cfg.lr_sid_head if getattr(cfg, 'lr_sid_head', 0.0) > 0
+                    else cfg.lr_heads)
     param_groups = [
         {"params": list(model.sae.parameters()),         "lr": cfg.lr},
         {"params": routing_params,                       "lr": cfg.lr_routing},
         {"params": (list(model.pr_head.parameters()) +
-                    list(model.sid_head.parameters()) +
                     prosody_task_params +
                     emotion_task_params),                "lr": cfg.lr_heads},
+        {"params": list(model.sid_head.parameters()),    "lr": lr_sid_eff},
         {"params": disc_params,                          "lr": lr_disc_eff},
     ]
     if projection_params:

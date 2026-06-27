@@ -120,7 +120,9 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     # Speaker adversary → GELU (isolation: overrides model.grl_head without
     # editing the shared model/heads.py).
     model.grl_head = GELUSpeakerGRLHead(cfg).to(device)
-    print("[msp] speaker adversary: GELUSpeakerGRLHead (GELU projector)")
+    grl_norm = (f"per-frame grad norm target={cfg.grl_grad_norm_target:g}"
+                if cfg.grl_grad_norm else "plain gradient reversal")
+    print(f"[msp] speaker adversary: GELUSpeakerGRLHead (GELU projector, {grl_norm})")
     model.train()
 
     # ---- emotion class weights from the train manifest (neutral-heavy) ----

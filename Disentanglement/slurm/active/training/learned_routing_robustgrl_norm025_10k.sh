@@ -48,8 +48,9 @@ echo "routing          : hard ST-Gumbel, binary L/P, no z_U"
 echo "grl_head         : signed linear mean + GELU mean/std"
 echo "grl_norm_target  : ${GRL_NORM_TARGET}"
 echo "grl_weight       : 1.0"
-echo "grl_p_weight     : 0.15"
+echo "grl_p_weight     : 0.2"
 echo "grad_clip        : 1.0"
+echo "sid_head_lr      : 5e-4"
 echo "stage2_steps     : ${STAGE2_STEPS}"
 echo "train_seed       : ${TRAIN_SEED}"
 echo "final_ckpt       : ${FINAL_CKPT}"
@@ -68,7 +69,7 @@ ${PYTHON} -u run.py \
     --local_data --train_split_dir train-clean-100 --spear_layernorm \
     --num_workers 8 \
     --stage2_steps "${STAGE2_STEPS}" --warmup_steps 500 \
-    --lr 1e-4 --lr_min 1e-6 --lr_heads 1e-4 --grad_log_every 500 \
+    --lr 1e-4 --lr_min 1e-6 --lr_heads 1e-4 --lr_sid_head 5e-4 --grad_log_every 500 \
     --checkpoint_dir "${CKPT_DIR}" \
     --runs_dir "${DIS_DIR}/runs/${RUN_NAME}" \
     --log_dir "${DIS_DIR}/logs" \

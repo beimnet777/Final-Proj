@@ -32,7 +32,9 @@ def main() -> None:
     # gradient-conflict
     p.add_argument("--no_pcgrad", action="store_true", help="disable PCGrad surgery")
     p.add_argument("--pcgrad_tasks", default=d.pcgrad_tasks)
-    p.add_argument("--gradnorm", action="store_true")
+    p.add_argument("--grl_grad_norm", action="store_true",
+                   help="normalize the z_L speaker-GRL gradient per frame")
+    p.add_argument("--grl_grad_norm_target", type=float, default=d.grl_grad_norm_target)
     # task weights
     p.add_argument("--alpha", type=float, default=d.alpha)
     p.add_argument("--beta", type=float, default=d.beta)
@@ -57,7 +59,9 @@ def main() -> None:
         steps=a.steps, warmup_steps=a.warmup_steps, batch_size=a.batch_size,
         eval_batch=a.eval_batch, num_workers=a.num_workers, seed=a.seed,
         hard_routing=not a.soft_routing,
-        pcgrad=not a.no_pcgrad, pcgrad_tasks=a.pcgrad_tasks, gradnorm=a.gradnorm,
+        pcgrad=not a.no_pcgrad, pcgrad_tasks=a.pcgrad_tasks,
+        grl_grad_norm=a.grl_grad_norm,
+        grl_grad_norm_target=a.grl_grad_norm_target,
         alpha=a.alpha, beta=a.beta, grl_weight=a.grl_weight,
         grl_phoneme_weight=a.grl_phoneme_weight, prosody_weight=a.prosody_weight,
         grl_prosody_weight=a.grl_prosody_weight, emotion_weight=a.emotion_weight,

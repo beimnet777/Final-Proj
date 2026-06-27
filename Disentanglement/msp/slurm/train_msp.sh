@@ -31,6 +31,7 @@ cd "${DIS_DIR}"
 
 RUN_NAME="${RUN_NAME:-msp_v1}"
 STEPS="${STEPS:-12000}"
+GRL_NORM_TARGET="${GRL_NORM_TARGET:-0.0005}"
 EXTRA_ARGS=("$@")          # e.g. --no_pcgrad / --soft_routing / --grl_emotion_weight 0.8
 
 echo "=== MSP standalone disentanglement ==="
@@ -38,12 +39,14 @@ echo "started   : $(date)"
 echo "gpu       : $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "run_name  : ${RUN_NAME}"
 echo "steps     : ${STEPS}"
+echo "zL_grl_norm: ${GRL_NORM_TARGET}"
 echo "extra     : ${EXTRA_ARGS[*]:-(none)}"
 
 ${PYTHON} -u -m msp.run \
     --run_name "${RUN_NAME}" \
     --steps "${STEPS}" \
     --num_workers 8 \
+    --grl_grad_norm --grl_grad_norm_target "${GRL_NORM_TARGET}" \
     "${EXTRA_ARGS[@]}"
 
 echo "finished  : $(date)"

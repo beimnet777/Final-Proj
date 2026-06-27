@@ -12,6 +12,7 @@ The old emotion path failed: emotion CE was ~2–5% of a clamped IEMOCAP aux bun
 and ramped — so z_L kept *more* emotion than z_P. Fixes baked in here:
 - **one dataset, per-batch emotion** — no `emotion_every`, no `_cap_loss_by_scaling`.
 - **full-strength anti-emotion GRL** on z_L (0.5, no ramp).
+- **per-frame normalized speaker-GRL gradient** on z_L (target 0.00025).
 - **class-weighted emotion CE + UAR** reporting (MSP is neutral-heavy).
 - **PCGrad** gradient surgery over the cooperative tasks on the shared SAE trunk,
   to defuse the `cos(recon, grl)<0` conflicts. Adversaries are **excluded** — their
@@ -37,6 +38,7 @@ cd Disentanglement
 python -m msp.run --run_name msp_v1 --steps 12000            # hard routing, PCGrad on
 python -m msp.run --run_name msp_smoke --smoke               # 3-step wiring check
 python -m msp.run --no_pcgrad --run_name msp_nopcgrad        # ablate the surgery
+python -m msp.run --grl_grad_norm --grl_grad_norm_target 0.0005  # normalized z_L GRL
 ```
 Or `sbatch msp/slurm/train_msp.sh`.
 

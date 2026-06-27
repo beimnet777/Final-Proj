@@ -159,7 +159,7 @@ class Prosody_GRL_Head(nn.Module):
 
     def forward(self, z: torch.Tensor, lam: float) -> torch.Tensor:
         z = gradient_reversal(z, lam)
-        return self.head(F.relu(self.projector(z)))       # (B, T, 2)
+        return self.head(F.gelu(self.projector(z)))       # (B, T, 2)
 
 
 # ---------------------------------------------------------------- Emotion head

@@ -228,7 +228,11 @@ class DISConfig:
     lr_min:      float = 1e-6   # cosine decay floor
     lr_routing:  float = 1e-3   # routing logits (stage 2) — raised from 5e-6 (which froze the
                                 # logits); collapse is guarded by route_loss, not a tiny lr
-    lr_heads:    float = 1e-4   # task heads      (stage 2)
+    lr_heads:    float = 1e-4   # task heads      (stage 2) — pr_head + prosody/emotion
+    # SID head gets its own lr (separate from pr_head) so it can be tuned when
+    # CLUB-phn / GRL-phn are pulling phoneme info OUT of z_P at the same time
+    # SID needs to keep speaker info IN z_P.  0 = fall back to lr_heads.
+    lr_sid_head: float = 0.0
     # Adversary discriminators (grl_head, pr_grl_head) get their own, higher lr so
     # they can track the moving encoder instead of stalling at chance.  0 = fall
     # back to lr_heads (legacy: discriminators shared the task-head group).

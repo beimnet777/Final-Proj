@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.heads import gradient_reversal, _head_input_dim
+from model.heads import gradient_reversal, gradient_reversal_norm, _head_input_dim
 
 
 class GELUSpeakerGRLHead(nn.Module):
@@ -25,9 +25,12 @@ class GELUSpeakerGRLHead(nn.Module):
         P = 256
         self.projector = nn.Linear(_head_input_dim(cfg), P)
         self.fc = nn.Linear(P, cfg.num_speakers)
+        self.grad_norm = bool(getattr(cfg, "grl_grad_norm", False))
+        self.grad_norm_target = float(getattr(cfg, "grl_grad_norm_target", 1.0))
 
     def forward(self, z_L: torch.Tensor, lengths: torch.Tensor, lam: float) -> torch.Tensor:
-        z = gradient_reversal(z_L, lam)
+        z = (gradient_reversal_norm(z_L, lam, self.grad_norm_target)
+             if self.grad_norm else gradient_reversal(z_L, lam))
         z = F.gelu(self.projector(z))                              # (B, T, P) — GELU
         T = z.shape[1]
         fmask = (torch.arange(T, device=z.device).unsqueeze(0) < lengths.unsqueeze(1)

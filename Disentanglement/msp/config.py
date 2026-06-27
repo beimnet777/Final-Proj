@@ -33,7 +33,11 @@ class MSPConfig:
     pcgrad:        bool = True
     # cooperative tasks PCGrad de-conflicts (adversaries excluded on purpose)
     pcgrad_tasks:  str  = "recon,pr,sid,prosody,emotion,inv"
-    gradnorm:      bool = False           # magnitude balancing (optional, off by default)
+
+    # Optional per-frame normalization of the reversed speaker gradient entering
+    # z_L. Experiments enable it and select its target in their Slurm script.
+    grl_grad_norm:        bool  = False
+    grl_grad_norm_target: float = 1.0
 
     # task weights (full-strength emotion + its GRL — the key fix)
     alpha: float = 0.8                    # PR / CTC
@@ -110,5 +114,6 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     # ---- gradient-conflict controls (read by msp.train) ----
     c.pcgrad = m.pcgrad
     c.pcgrad_tasks = tuple(t.strip() for t in m.pcgrad_tasks.split(",") if t.strip())
-    c.gradnorm = m.gradnorm
+    c.grl_grad_norm = m.grl_grad_norm
+    c.grl_grad_norm_target = m.grl_grad_norm_target
     return c
