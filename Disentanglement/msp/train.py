@@ -21,7 +21,7 @@ from model import build_dis_model
 from losses import recon_loss, ctc_pr_loss, sid_ce_loss, route_loss, routing_spec_loss
 
 from .data import make_msp_dataloaders, EMOTION_NAMES
-from .grad_conflict import PCGrad
+from .grad_conflict import PCGrad, named_gradient_diagnostics
 from .heads import GELUSpeakerGRLHead
 from . import utils as U
 
@@ -222,21 +222,50 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         total = sum(coop.values()) + adv
 
         optimizer.zero_grad(set_to_none=True)
+        router_grad_diag = None
+        adversary_losses = None
+        active_freq_for_router = None
+        active_p_soft_after = None
+        if log_now:
+            adversary_losses = {
+                "grl": cfg.grl_weight * l_grl,
+                "grl_p": cfg.grl_phoneme_weight * l_grl_p,
+                "pros_grl": cfg.grl_prosody_weight * l_prosgrl,
+                "emo_grl": cfg.grl_emotion_weight * l_emogrl,
+            }
+            if cfg.routing_spec_weight > 0:
+                adversary_losses["route_spec"] = cfg.routing_spec_weight * l_spec
+            if cfg.rho > 0:
+                adversary_losses["route_balance"] = cfg.rho * l_route
+
+            with torch.no_grad():
+                _z_active = (out["z_t"] != 0).float()
+                _T = _z_active.shape[1]
+                _valid = (torch.arange(_T, device=device).unsqueeze(0)
+                          < olen.unsqueeze(1)).float()
+                if out["routing_logits"].dim() == 2:
+                    active_freq_for_router = (
+                        (_z_active * _valid.unsqueeze(-1)).sum(dim=(0, 1))
+                        / _valid.sum().clamp(min=1)
+                    )
+                else:
+                    active_freq_for_router = (
+                        (_z_active * _valid.unsqueeze(-1)).sum(dim=1)
+                        / _valid.sum(dim=1, keepdim=True).clamp(min=1)
+                    )
+            route_p_soft = torch.softmax(out["routing_logits"], dim=-1)[..., 1]
+            active_p_soft = (
+                (active_freq_for_router * route_p_soft).sum()
+                / active_freq_for_router.sum().clamp(min=1e-12)
+            )
+            router_grad_diag = named_gradient_diagnostics(
+                {**coop, **adversary_losses}, rout_params, reference=active_p_soft)
         if pcgrad is not None:
             managed = {k: v for k, v in coop.items() if k in coop_names}
             unmanaged = [v for k, v in coop.items() if k not in coop_names]
             shared_extra = adv + sum(unmanaged) if unmanaged else adv
             if log_now:
-                external_losses = {
-                    "grl": cfg.grl_weight * l_grl,
-                    "grl_p": cfg.grl_phoneme_weight * l_grl_p,
-                    "pros_grl": cfg.grl_prosody_weight * l_prosgrl,
-                    "emo_grl": cfg.grl_emotion_weight * l_emogrl,
-                }
-                if cfg.routing_spec_weight > 0:
-                    external_losses["route_spec"] = cfg.routing_spec_weight * l_spec
-                if cfg.rho > 0:
-                    external_losses["route_balance"] = cfg.rho * l_route
+                external_losses = dict(adversary_losses)
                 external_losses.update({
                     f"{name}_unmanaged": loss
                     for name, loss in coop.items() if name not in coop_names
@@ -254,6 +283,13 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         main_pre_clip = float(nn.utils.clip_grad_norm_(all_params, cfg.grad_clip))
         main_clip_scale = min(1.0, cfg.grad_clip / max(main_pre_clip, 1e-12))
         optimizer.step()
+        if log_now and active_freq_for_router is not None and not model.routing.dynamic:
+            with torch.no_grad():
+                route_p_after = torch.softmax(model.routing.logits, dim=-1)[:, 1]
+                active_p_soft_after = float(
+                    (active_freq_for_router * route_p_after).sum()
+                    / active_freq_for_router.sum().clamp(min=1e-12)
+                )
 
         # ---- discriminator catch-up: track the moving encoder (no reversal) ----
         disc_pre_clip = 0.0
@@ -308,62 +344,126 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 dead_frac = n_dead / cfg.K
                 zL_grl_frame = (cfg.grl_grad_norm_target * ramp
                                 if cfg.grl_grad_norm else float("nan"))
-            print(f"  step {step:>6d}/{cfg.stage2_steps}  recon={l_recon.item():.4f}  "
-                  f"pr={l_pr.item():.3f}(per={pr_n/max(pr_d,1):.3f})  "
-                  f"sid={l_sid.item():.3f}(acc={sc/max(st,1):.3f})  "
-                  f"grl={l_grl.item():.3f}(acc={gc/max(gt,1):.3f})  "
-                  f"grl_p={l_grl_p.item():.3f}(per={gp_n/max(gp_d,1):.3f})  "
-                  f"pros={l_pros.item():.3f}  prosGRL={l_prosgrl.item():.3f}  "
-                  f"emo={l_emo.item():.3f}(acc={ec/max(et,1):.3f})  "
-                  f"emoGRL={l_emogrl.item():.3f}(acc={lc/max(lt,1):.3f})  "
-                  f"inv={float(l_inv):.4f}  dead={100*dead_frac:.1f}%  "
-                  f"L/P={n_L}/{n_P}  actL/P={act_L:.0f}/{act_P:.0f}  "
-                  f"H={route_diag['balance_entropy']:.3f}  Hu={route_diag['unit_entropy']:.3f}  "
-                  f"spec<.5={route_diag['specialized_frac_h_lt_0_5']:.2f}  "
-                  f"marg={route_diag['top1_top2_margin']:.3f}  "
-                  f"lstd={route_diag['logit_std']:.4f}  tau={model.routing.tau:.3f}  "
-                  f"grlLam={ramp:.2f}  zLgrlFrame={zL_grl_frame:.2e}  "
-                  f"lr={lr_now:.2e}", flush=True)
-            print(f"  [clip @{step}] main_pre={main_pre_clip:.3e} "
-                  f"scale={main_clip_scale:.3e}  disc_pre_max={disc_pre_clip:.3e} "
-                  f"disc_scale_min={disc_clip_scale:.3e}", flush=True)
+
+            print(f"\n[train step={step:05d}/{cfg.stage2_steps}]  lr_sae={lr_now:.2e}  "
+                  f"grl_lambda={ramp:.2f}  zL_grl_frame={zL_grl_frame:.2e}", flush=True)
+            print("  factor      kept task                         adversary", flush=True)
+            print(f"  phoneme     loss={l_pr.item():7.3f} PER={pr_n/max(pr_d,1):.3f}"
+                  f"        loss={l_grl_p.item():7.3f} PER={gp_n/max(gp_d,1):.3f}", flush=True)
+            print(f"  speaker     loss={l_sid.item():7.3f} acc={sc/max(st,1):.3f}"
+                  f"        loss={l_grl.item():7.3f} acc={gc/max(gt,1):.3f}", flush=True)
+            print(f"  prosody     loss={l_pros.item():7.3f}"
+                  f"                  loss={l_prosgrl.item():7.3f}", flush=True)
+            print(f"  emotion     loss={l_emo.item():7.3f} acc={ec/max(et,1):.3f}"
+                  f"        loss={l_emogrl.item():7.3f} acc={lc/max(lt,1):.3f}", flush=True)
+            print(f"  shared      recon={l_recon.item():.4f}  invariance={float(l_inv):.4f}", flush=True)
+
+            active_total = max(act_L + act_P, 1e-12)
+            print("  routing", flush=True)
+            print(f"    assigned L/P={n_L}/{n_P}"
+                  f"    active L/P={act_L:.0f}/{act_P:.0f}"
+                  f"    active_P={100*act_P/active_total:.1f}%    dead={100*dead_frac:.1f}%", flush=True)
+            print(f"    H_balance={route_diag['balance_entropy']:.3f}"
+                  f"    H_unit={route_diag['unit_entropy']:.3f}"
+                  f"    specialized={route_diag['specialized_frac_h_lt_0_5']:.2f}"
+                  f"    margin={route_diag['top1_top2_margin']:.3f}"
+                  f"    logit_std={route_diag['logit_std']:.4f}"
+                  f"    tau={model.routing.tau:.3f}", flush=True)
+            print("  clipping (pre-norm -> multiplier)", flush=True)
+            print(f"    main={main_pre_clip:.3e} -> {main_clip_scale:.3e}"
+                  f"    discriminator_max={disc_pre_clip:.3e} -> {disc_clip_scale:.3e}", flush=True)
+
+            def _norm_row(norms, names):
+                return "  ".join(f"{name}={norms.get(name, 0.0):.2e}" for name in names)
+
+            coop_order = ("recon", "pr", "sid", "prosody", "emotion", "inv")
+            adv_order = ("grl", "grl_p", "pros_grl", "emo_grl", "route_spec")
             if grad_diag is not None:
-                norms = " ".join(f"{name}={value:.2e}"
-                                 for name, value in grad_diag["norms"].items())
-                coop_cos = list(grad_diag["coop_cosines"].values())
-                min_cos = min(coop_cos) if coop_cos else float("nan")
-                n_pairs = len(coop_cos)
-                ext_recon = " ".join(
-                    f"{name}={value:+.2f}"
-                    for name, value in grad_diag["external_vs_recon"].items())
-                coop_ext = " ".join(
-                    f"{name}={value:+.2f}"
-                    for name, value in grad_diag["coop_vs_external"].items())
-                print(f"  [grad_norms @{step}] weighted SAE |g|: {norms}", flush=True)
-                print(f"    PCGrad coop raw={grad_diag['raw_coop_norm']:.2e} "
-                      f"projected={grad_diag['projected_coop_norm']:.2e}  "
-                      f"adv_bundle={grad_diag['external_norm']:.2e}  "
-                      f"coop_conflicts={grad_diag['coop_conflicts']}/{n_pairs} "
-                      f"min_cos={min_cos:+.2f}", flush=True)
-                print(f"    [grad_cos @{step}] recon_vs_adversaries: {ext_recon}", flush=True)
-                print(f"      cooperative_vs_adv_bundle: {coop_ext}", flush=True)
+                coop_cos = grad_diag["coop_cosines"]
+                if coop_cos:
+                    sae_min_pair, sae_min_cos = min(coop_cos.items(), key=lambda item: item[1])
+                else:
+                    sae_min_pair, sae_min_cos = "n/a", float("nan")
+                print("  SAE gradients (weighted, before clipping)", flush=True)
+                print(f"    cooperative: {_norm_row(grad_diag['norms'], coop_order)}", flush=True)
+                print(f"    adversarial: {_norm_row(grad_diag['norms'], adv_order)}", flush=True)
+                print(f"    PCGrad: raw={grad_diag['raw_coop_norm']:.2e}"
+                      f"  projected={grad_diag['projected_coop_norm']:.2e}"
+                      f"  adversary_bundle={grad_diag['external_norm']:.2e}", flush=True)
+                print(f"    cooperative conflicts={grad_diag['coop_conflicts']}/{len(coop_cos)}"
+                      f"  strongest={sae_min_pair}:{sae_min_cos:+.2f}", flush=True)
+
+            if router_grad_diag is not None:
+                def _grad_cos(a, b):
+                    av = router_grad_diag["vectors"][a].detach().float()
+                    bv = router_grad_diag["vectors"][b].detach().float()
+                    return float(torch.dot(av, bv) / (av.norm() * bv.norm()).clamp(min=1e-12))
+
+                router_vectors = router_grad_diag["vectors"]
+                router_adv_names = [name for name in adv_order if name in router_vectors]
+                router_adv = torch.stack([router_vectors[name] for name in router_adv_names]).sum(0)
+
+                def _cos_adv(name):
+                    v = router_vectors[name].detach().float()
+                    a = router_adv.detach().float()
+                    return float(torch.dot(v, a) / (v.norm() * a.norm()).clamp(min=1e-12))
+
+                router_cos = router_grad_diag["cosines"]
+                if router_cos:
+                    router_min_pair, router_min_cos = min(router_cos.items(), key=lambda item: item[1])
+                else:
+                    router_min_pair, router_min_cos = "n/a", float("nan")
+                paired = (
+                    f"pr<->grl_p={_grad_cos('pr', 'grl_p'):+.2f}  "
+                    f"sid<->grl={_grad_cos('sid', 'grl'):+.2f}  "
+                    f"pros<->pros_grl={_grad_cos('prosody', 'pros_grl'):+.2f}  "
+                    f"emo<->emo_grl={_grad_cos('emotion', 'emo_grl'):+.2f}"
+                )
+                coop_vs_adv = "  ".join(
+                    f"{name}={_cos_adv(name):+.2f}" for name in coop_order)
+                push_cos = router_grad_diag.get("push_cos", {})
+                coop_push = "  ".join(
+                    f"{name}={push_cos.get(name, 0.0):+.2f}" for name in coop_order)
+                adv_push = "  ".join(
+                    f"{name}={push_cos.get(name, 0.0):+.2f}" for name in adv_order)
+                print("  router gradients (weighted, before clipping)", flush=True)
+                print(f"    cooperative: {_norm_row(router_grad_diag['norms'], coop_order)}", flush=True)
+                print(f"    adversarial: {_norm_row(router_grad_diag['norms'], adv_order)}", flush=True)
+                print(f"    paired cosines: {paired}", flush=True)
+                print(f"    cooperative vs adversary bundle: {coop_vs_adv}", flush=True)
+                print("    active-P push cosine (+ toward P, - toward L)", flush=True)
+                print(f"      cooperative: {coop_push}", flush=True)
+                print(f"      adversarial: {adv_push}", flush=True)
+                print(f"      combined={router_grad_diag.get('total_push_cos', 0.0):+.2f}"
+                      f"  first_order={router_grad_diag.get('total_push_effect', 0.0):+.2e}", flush=True)
+                if active_p_soft_after is not None:
+                    before = router_grad_diag.get("reference_value", float("nan"))
+                    print(f"      actual optimizer step: soft_active_P {before:.6f} -> "
+                          f"{active_p_soft_after:.6f}  delta={active_p_soft_after-before:+.2e}", flush=True)
+                print(f"    all-pair negative={sum(c < 0 for c in router_cos.values())}/{len(router_cos)}"
+                      f"  strongest={router_min_pair}:{router_min_cos:+.2f}", flush=True)
 
         # ---- eval + checkpoint ----
         if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
             vm = evaluate(model, val_dl, device, bf16, n_emotion)
-            print(f"  [val] step={step}  PER={vm['per']:.3f}  SID={vm['sid_acc']:.3f}  "
-                  f"| z_P emo UAR={vm['zP_emo_uar']:.3f} acc={vm['zP_emo_acc']:.3f}  "
-                  f"| leak z_L SID={vm['zL_sid_acc']:.3f}  z_P PR-PER={vm['zP_pr_per']:.3f}  "
-                  f"z_L emo UAR={vm['zL_emo_uar']:.3f}", flush=True)
             score = (vm["per"] + (1 - vm["sid_acc"]) + vm["zL_sid_acc"]
                      + (1 - vm["zP_pr_per"]) + (1 - vm["zP_emo_uar"]) + vm["zL_emo_uar"])
+            print(f"\n[val step={step:05d}]", flush=True)
+            print("  factor      kept representation       leakage representation", flush=True)
+            print(f"  phoneme     z_L PER={vm['per']:.3f}"
+                  f"              z_P PER={vm['zP_pr_per']:.3f}", flush=True)
+            print(f"  speaker     z_P acc={vm['sid_acc']:.3f}"
+                  f"              z_L acc={vm['zL_sid_acc']:.3f}", flush=True)
+            print(f"  emotion     z_P UAR={vm['zP_emo_uar']:.3f} acc={vm['zP_emo_acc']:.3f}"
+                  f"    z_L UAR={vm['zL_emo_uar']:.3f}", flush=True)
+            print(f"  checkpoint score={score:.3f}", flush=True)
             torch.save({"model": model.state_dict(), "step": step, "val": vm},
                        ckpt_dir / f"step{step}.pt")
             if score < best:
                 best = score
                 torch.save({"model": model.state_dict(), "step": step, "val": vm},
                            ckpt_dir / "best.pt")
-                print(f"  ✓ best (disent={best:.3f}) → {ckpt_dir/'best.pt'}", flush=True)
+                print(f"  [best] disent={best:.3f} -> {ckpt_dir/'best.pt'}", flush=True)
 
     print(f"[msp] done. best disent={best:.3f}  ckpts in {ckpt_dir}")
     return ckpt_dir / "best.pt"

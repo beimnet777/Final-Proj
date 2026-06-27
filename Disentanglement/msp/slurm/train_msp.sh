@@ -31,7 +31,7 @@ cd "${DIS_DIR}"
 
 # Complete experiment specification. Submit with no environment variables:
 #     sbatch msp/slurm/train_msp.sh
-RUN_NAME=msp_v2
+RUN_NAME=msp_v3
 STEPS=12000
 WARMUP_STEPS=500
 BATCH_SIZE=16
@@ -55,7 +55,7 @@ PCGRAD_TASKS="recon,pr,sid,prosody,emotion,inv"
 PR_WEIGHT=0.8
 SID_WEIGHT=0.6
 SPEAKER_GRL_WEIGHT=1.0
-PHONEME_GRL_WEIGHT=0.5
+PHONEME_GRL_WEIGHT=0.15
 PROSODY_WEIGHT=0.5
 PROSODY_GRL_WEIGHT=0.5
 EMOTION_WEIGHT=0.5

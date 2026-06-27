@@ -23,6 +23,67 @@ from typing import Dict, List
 import torch
 
 
+def named_gradient_diagnostics(
+    named_losses: Dict[str, torch.Tensor],
+    params,
+    reference: torch.Tensor | None = None,
+) -> dict:
+    """Read-only weighted-gradient diagnostics for an arbitrary parameter group.
+
+    When `reference` is supplied, `push_cos[name]` is the signed first-order
+    direction in which gradient descent on that loss moves the reference:
+    positive increases it, negative decreases it.
+    """
+    shared = [p for p in params if p.requires_grad]
+
+    def _flat_grad(loss: torch.Tensor) -> torch.Tensor:
+        if not loss.requires_grad:
+            return torch.cat([p.reshape(-1) * 0 for p in shared])
+        grads = torch.autograd.grad(loss, shared, retain_graph=True, allow_unused=True)
+        return torch.cat([
+            (g if g is not None else torch.zeros_like(p)).reshape(-1)
+            for g, p in zip(grads, shared)
+        ])
+
+    vectors = {}
+    for name, loss in named_losses.items():
+        vectors[name] = _flat_grad(loss)
+
+    def _norm(x: torch.Tensor) -> float:
+        return float(x.detach().float().norm().item())
+
+    def _cos(a: torch.Tensor, b: torch.Tensor) -> float:
+        af, bf = a.detach().float(), b.detach().float()
+        den = af.norm() * bf.norm()
+        return float(torch.dot(af, bf).div(den.clamp(min=1e-12)).item())
+
+    names = list(vectors)
+    cosines = {}
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            cosines[f"{a}|{b}"] = _cos(vectors[a], vectors[b])
+    out = {
+        "vectors": vectors,
+        "norms": {name: _norm(g) for name, g in vectors.items()},
+        "cosines": cosines,
+    }
+    if reference is not None:
+        ref_grad = _flat_grad(reference)
+        total_grad = torch.stack(list(vectors.values())).sum(0)
+        # theta <- theta - eta*g_loss, so delta(reference) ~ -eta*g_ref.g_loss.
+        out["reference_value"] = float(reference.detach())
+        out["reference_grad_norm"] = _norm(ref_grad)
+        out["push_cos"] = {name: -_cos(ref_grad, g) for name, g in vectors.items()}
+        out["push_effect"] = {
+            name: -float(torch.dot(ref_grad.detach().float(), g.detach().float()).item())
+            for name, g in vectors.items()
+        }
+        out["total_push_cos"] = -_cos(ref_grad, total_grad)
+        out["total_push_effect"] = -float(
+            torch.dot(ref_grad.detach().float(), total_grad.detach().float()).item())
+    return out
+
+
 class PCGrad:
     def __init__(self, shared_params, seed: int = 0) -> None:
         self.shared: List[torch.Tensor] = [p for p in shared_params if p.requires_grad]
