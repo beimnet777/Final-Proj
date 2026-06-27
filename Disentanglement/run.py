@@ -92,7 +92,7 @@ def _parse_args():
                    help="Speaker GRL pools z_L with attentive statistics (weighted mean+std) instead of "
                         "flat mean — a stronger speaker discriminator.")
     p.add_argument("--grl_stats_pool", action="store_true", default=cfg.grl_stats_pool,
-                   help="Speaker GRL uses diagnostic-style stats pooling: projector->ReLU->mean+std->linear.")
+                   help="Speaker GRL uses one GELU statistics branch: projector->GELU->mean+std->linear.")
     p.add_argument("--grl_dense_context", action="store_true", default=cfg.grl_dense_context,
                    help="Speaker GRL predicts per-frame (dense) with a temporal conv for context — "
                         "gives z_L a dense per-frame removal gradient like grl_p.")

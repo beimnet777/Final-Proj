@@ -168,6 +168,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         except StopIteration:
             train_iter = iter(train_dl); b = next(train_iter)
         step += 1
+        log_now = step % cfg.log_every == 0 or step == 1
+        grad_diag = None
         lr_now = lr_at(step)
         optimizer.param_groups[0]["lr"] = lr_now          # SAE follows the cosine
         ramp = min(1.0, step / max(1, cfg.warmup_steps))
@@ -185,6 +187,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                         grl_lambda=ramp, grl_p_lambda=ramp,
                         grl_prosody_lambda=ramp, grl_emotion_lambda=ramp,
                         emit_emotion=True)
+            model.sae.update_dead(out["z_t"])
             olen = out["out_lengths"]
             # cooperative tasks
             l_recon = recon_loss(out["h_t"], out["h_hat"], olen)
@@ -223,16 +226,38 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             managed = {k: v for k, v in coop.items() if k in coop_names}
             unmanaged = [v for k, v in coop.items() if k not in coop_names]
             shared_extra = adv + sum(unmanaged) if unmanaged else adv
-            pc_flat = pcgrad.project(managed)
-            adv_flat = pcgrad.flat_grad(shared_extra)
+            if log_now:
+                external_losses = {
+                    "grl": cfg.grl_weight * l_grl,
+                    "grl_p": cfg.grl_phoneme_weight * l_grl_p,
+                    "pros_grl": cfg.grl_prosody_weight * l_prosgrl,
+                    "emo_grl": cfg.grl_emotion_weight * l_emogrl,
+                }
+                if cfg.routing_spec_weight > 0:
+                    external_losses["route_spec"] = cfg.routing_spec_weight * l_spec
+                if cfg.rho > 0:
+                    external_losses["route_balance"] = cfg.rho * l_route
+                external_losses.update({
+                    f"{name}_unmanaged": loss
+                    for name, loss in coop.items() if name not in coop_names
+                })
+                pc_flat, _, grad_diag = pcgrad.project_with_diagnostics(
+                    managed, external_losses)
+                adv_flat = pcgrad.flat_grad(shared_extra)
+            else:
+                pc_flat = pcgrad.project(managed)
+                adv_flat = pcgrad.flat_grad(shared_extra)
             total.backward()                              # heads + routing get normal grads
             pcgrad.write_(pc_flat + adv_flat)             # overwrite SAE grads with surgery result
         else:
             total.backward()
-        nn.utils.clip_grad_norm_(all_params, cfg.grad_clip)
+        main_pre_clip = float(nn.utils.clip_grad_norm_(all_params, cfg.grad_clip))
+        main_clip_scale = min(1.0, cfg.grad_clip / max(main_pre_clip, 1e-12))
         optimizer.step()
 
         # ---- discriminator catch-up: track the moving encoder (no reversal) ----
+        disc_pre_clip = 0.0
+        disc_clip_scale = 1.0
         if cfg.n_disc_steps > 1:
             zL_d, zP_d, lens_d = out["z_L"].detach(), out["z_P"].detach(), olen
             for _ in range(cfg.n_disc_steps - 1):
@@ -243,21 +268,85 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                           + U.prosody_train_loss(model.prosody_grl_head(zL_d, 0.0), p_f0, p_v, p_e, lens_d)
                           + F.cross_entropy(model.emotion_grl_head(zL_d, lens_d, 0.0), emo, weight=emo_w))
                 ld.backward()
-                nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip)
+                disc_norm = float(nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip))
+                if disc_norm > disc_pre_clip:
+                    disc_pre_clip = disc_norm
+                    disc_clip_scale = min(1.0, cfg.grad_clip / max(disc_norm, 1e-12))
                 optimizer.step()
             optimizer.zero_grad(set_to_none=True)
 
         # ---- logging ----
-        if step % cfg.log_every == 0 or step == 1:
+        if log_now:
             with torch.no_grad():
+                sc, st = U.speaker_correct(out["sid_logits"], spk, olen)
                 gc, gt = U.speaker_correct(out["grl_logits"], spk, olen)
                 ec, et = U.class_correct(out["emotion_logits"], emo)
                 lc, lt = U.class_correct(out["emotion_grl_logits"], emo)
+                pr_n, pr_d = U.ctc_errors(out["pr_logits"].float(), tgt, olen, tlen)
+                gp_n, gp_d = U.ctc_errors(out["pr_grl_logits"].float(), tgt, olen, tlen)
+
+                route_idx = out["routing_logits"].detach().argmax(dim=-1)
+                if route_idx.dim() == 1:
+                    n_L = int((route_idx == 0).sum())
+                    n_P = int((route_idx == 1).sum())
+                    route_L = (route_idx == 0).float().view(1, 1, -1)
+                    route_P = (route_idx == 1).float().view(1, 1, -1)
+                else:
+                    n_L = int((route_idx == 0).sum(dim=-1).float().mean())
+                    n_P = int((route_idx == 1).sum(dim=-1).float().mean())
+                    route_L = (route_idx == 0).float().unsqueeze(1)
+                    route_P = (route_idx == 1).float().unsqueeze(1)
+                z_active = (out["z_t"] != 0).float()
+                T = z_active.shape[1]
+                fmask = (torch.arange(T, device=device).unsqueeze(0)
+                         < olen.unsqueeze(1)).float()
+                n_valid = fmask.sum().clamp(min=1)
+                act_L = float(((z_active * route_L).sum(-1) * fmask).sum() / n_valid)
+                act_P = float(((z_active * route_P).sum(-1) * fmask).sum() / n_valid)
+                route_diag = model.routing.routing_diagnostics
+                n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
+                dead_frac = n_dead / cfg.K
+                zL_grl_frame = (cfg.grl_grad_norm_target * ramp
+                                if cfg.grl_grad_norm else float("nan"))
             print(f"  step {step:>6d}/{cfg.stage2_steps}  recon={l_recon.item():.4f}  "
-                  f"pr={l_pr.item():.3f}  sid={l_sid.item():.3f}  grl={l_grl.item():.3f}"
-                  f"(acc={gc/max(gt,1):.3f})  pros={l_pros.item():.3f}  "
+                  f"pr={l_pr.item():.3f}(per={pr_n/max(pr_d,1):.3f})  "
+                  f"sid={l_sid.item():.3f}(acc={sc/max(st,1):.3f})  "
+                  f"grl={l_grl.item():.3f}(acc={gc/max(gt,1):.3f})  "
+                  f"grl_p={l_grl_p.item():.3f}(per={gp_n/max(gp_d,1):.3f})  "
+                  f"pros={l_pros.item():.3f}  prosGRL={l_prosgrl.item():.3f}  "
                   f"emo={l_emo.item():.3f}(acc={ec/max(et,1):.3f})  "
-                  f"emoGRL(acc={lc/max(lt,1):.3f})  inv={float(l_inv):.4f}  lr={lr_now:.2e}", flush=True)
+                  f"emoGRL={l_emogrl.item():.3f}(acc={lc/max(lt,1):.3f})  "
+                  f"inv={float(l_inv):.4f}  dead={100*dead_frac:.1f}%  "
+                  f"L/P={n_L}/{n_P}  actL/P={act_L:.0f}/{act_P:.0f}  "
+                  f"H={route_diag['balance_entropy']:.3f}  Hu={route_diag['unit_entropy']:.3f}  "
+                  f"spec<.5={route_diag['specialized_frac_h_lt_0_5']:.2f}  "
+                  f"marg={route_diag['top1_top2_margin']:.3f}  "
+                  f"lstd={route_diag['logit_std']:.4f}  tau={model.routing.tau:.3f}  "
+                  f"grlLam={ramp:.2f}  zLgrlFrame={zL_grl_frame:.2e}  "
+                  f"lr={lr_now:.2e}", flush=True)
+            print(f"  [clip @{step}] main_pre={main_pre_clip:.3e} "
+                  f"scale={main_clip_scale:.3e}  disc_pre_max={disc_pre_clip:.3e} "
+                  f"disc_scale_min={disc_clip_scale:.3e}", flush=True)
+            if grad_diag is not None:
+                norms = " ".join(f"{name}={value:.2e}"
+                                 for name, value in grad_diag["norms"].items())
+                coop_cos = list(grad_diag["coop_cosines"].values())
+                min_cos = min(coop_cos) if coop_cos else float("nan")
+                n_pairs = len(coop_cos)
+                ext_recon = " ".join(
+                    f"{name}={value:+.2f}"
+                    for name, value in grad_diag["external_vs_recon"].items())
+                coop_ext = " ".join(
+                    f"{name}={value:+.2f}"
+                    for name, value in grad_diag["coop_vs_external"].items())
+                print(f"  [grad_norms @{step}] weighted SAE |g|: {norms}", flush=True)
+                print(f"    PCGrad coop raw={grad_diag['raw_coop_norm']:.2e} "
+                      f"projected={grad_diag['projected_coop_norm']:.2e}  "
+                      f"adv_bundle={grad_diag['external_norm']:.2e}  "
+                      f"coop_conflicts={grad_diag['coop_conflicts']}/{n_pairs} "
+                      f"min_cos={min_cos:+.2f}", flush=True)
+                print(f"    [grad_cos @{step}] recon_vs_adversaries: {ext_recon}", flush=True)
+                print(f"      cooperative_vs_adv_bundle: {coop_ext}", flush=True)
 
         # ---- eval + checkpoint ----
         if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:

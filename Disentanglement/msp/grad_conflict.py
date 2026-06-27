@@ -12,13 +12,13 @@ untouched and simply added — their opposition to reconstruction is the mechani
 that strips speaker/prosody/emotion from z_L, so "fixing" that conflict would
 weaken the disentanglement.
 
-Operates on the trainable shared params (the SAE + routing); heads are task-private
-and keep their ordinary gradients from total.backward().
+Operates on the trainable SAE parameters. Routing and task-private heads keep their
+ordinary gradients from total.backward().
 """
 from __future__ import annotations
 
 import random
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import torch
 
@@ -37,9 +37,7 @@ class PCGrad:
         return torch.cat([(g if g is not None else torch.zeros_like(p)).reshape(-1)
                           for g, p in zip(grads, self.shared)])
 
-    def project(self, named_losses: Dict[str, torch.Tensor]) -> torch.Tensor:
-        """PCGrad-combined flat gradient over the cooperative losses."""
-        grads = [self._flat_grad(L) for L in named_losses.values()]
+    def _project(self, grads: List[torch.Tensor]) -> List[torch.Tensor]:
         pc = [g.clone() for g in grads]
         for i in range(len(pc)):
             order = list(range(len(grads)))
@@ -51,7 +49,63 @@ class PCGrad:
                 dot = torch.dot(pc[i], gj)
                 if dot < 0:
                     pc[i] = pc[i] - (dot / (torch.dot(gj, gj) + 1e-12)) * gj
-        return torch.stack(pc).sum(0)
+        return pc
+
+    def project(self, named_losses: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """PCGrad-combined flat gradient over the cooperative losses."""
+        grads = [self._flat_grad(loss) for loss in named_losses.values()]
+        return torch.stack(self._project(grads)).sum(0)
+
+    def project_with_diagnostics(
+        self,
+        named_losses: Dict[str, torch.Tensor],
+        external_losses: Dict[str, torch.Tensor],
+    ):
+        """Project cooperative gradients and summarize what PCGrad actually sees.
+
+        External losses are not projected. They are returned as one flat gradient
+        for the normal adversarial addition, while their individual norms and
+        cosines remain visible in the diagnostics.
+        """
+        coop = {name: self._flat_grad(loss) for name, loss in named_losses.items()}
+        external = {name: self._flat_grad(loss) for name, loss in external_losses.items()}
+        projected_parts = self._project(list(coop.values()))
+        projected = torch.stack(projected_parts).sum(0)
+        raw_sum = torch.stack(list(coop.values())).sum(0)
+        if external:
+            external_sum = torch.stack(list(external.values())).sum(0)
+        else:
+            external_sum = torch.zeros_like(projected)
+
+        def _norm(x: torch.Tensor) -> float:
+            return float(x.detach().float().norm().item())
+
+        def _cos(a: torch.Tensor, b: torch.Tensor) -> float:
+            af, bf = a.detach().float(), b.detach().float()
+            den = af.norm() * bf.norm()
+            return float(torch.dot(af, bf).div(den.clamp(min=1e-12)).item())
+
+        coop_names = list(coop)
+        coop_cos = {}
+        for i, a in enumerate(coop_names):
+            for b in coop_names[i + 1:]:
+                coop_cos[f"{a}|{b}"] = _cos(coop[a], coop[b])
+        diagnostics = {
+            "norms": {name: _norm(g) for name, g in {**coop, **external}.items()},
+            "raw_coop_norm": _norm(raw_sum),
+            "projected_coop_norm": _norm(projected),
+            "external_norm": _norm(external_sum),
+            "coop_cosines": coop_cos,
+            "coop_conflicts": sum(c < 0.0 for c in coop_cos.values()),
+            "external_vs_recon": (
+                {name: _cos(coop["recon"], g) for name, g in external.items()}
+                if "recon" in coop else {}
+            ),
+            "coop_vs_external": {
+                name: _cos(g, external_sum) for name, g in coop.items()
+            },
+        }
+        return projected, external_sum, diagnostics
 
     def flat_grad(self, loss: torch.Tensor) -> torch.Tensor:
         """Public single-loss flat grad (used for the adversary bundle)."""
