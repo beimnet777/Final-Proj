@@ -1,0 +1,1473 @@
+=== Learned-routing invariance/robust-GRL experiment ===
+started          : Thu 25 Jun 23:51:18 BST 2026
+array_task       : 3
+gpu              : NVIDIA A100-SXM4-80GB
+run_name         : lr_robustgrl_gp02_hard_seed42
+method           : robustgrl_gp02
+method_label     : robust two-branch z_L GRL: signed linear mean + GELU mean/std, grad-norm target=0.001, z_P phone GRL=0.15
+routing          : hard
+routing_label    : hard ST-Gumbel routing; eval uses deterministic argmax masks
+train_seed       : 42
+probe_seeds      : 42 7
+stage2_steps     : 12000
+final_ckpt       : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+probe_targets    : z_L->SID and z_P->PR
+sid_probe_heads  : linear mlp stats
+pr_probe_heads   : linear mlp
+probe_steps      : 10000
+probe_patience   : 0
+note             : no fixed_blocks; learned binary L/P routing; n_routes=2, no z_U
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=12000  α=0.8  β=0.6  grl=1.0  ρ=0.0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=17,617,285  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.8  β=0.6  grl=1.0  ρ=0.0  grl_p=0.15  hard_gumbel=True  spear_ln=True  grl_robust_sid=True(act=gelu)  grl_grad_norm=0.001  dann_full_disc=True
+[stage 2] steps=12000  schedule_steps=12000  batch=16  grad_clip=1.0
+[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + (1 - grl_p_per)  — in-training head proxies, NOT a probe; run diag_probe/ for the authoritative leakage signal.
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step      1/12000  recon=0.3681  pr=18.8404  sid=5.5312  grl=5.5195(acc=0.000)  grl_p=18.9505(per=2.898)  dead=0.0%  L/P/U=2530/2590/0  actL/P/U=128/128/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4962  lr=2.00e-07
+  step    100/12000  recon=0.3288  pr=17.0105  sid=5.5039  grl=5.4912(acc=0.000)  grl_p=3.4891(per=1.000)  dead=0.0%  L/P/U=2530/2590/0  actL/P/U=129/127/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4965  lr=2.00e-05
+  step    200/12000  recon=0.3458  pr=10.7611  sid=5.5078  grl=5.5103(acc=0.062)  grl_p=0.9288(per=0.298)  dead=0.0%  L/P/U=2609/2511/0  actL/P/U=155/101/0  H=0.693  Hu=0.640  spec<.5=0.05  marg=0.263  lstd=0.4996  lr=4.00e-05
+  step    300/12000  recon=0.3790  pr=3.8616  sid=5.4355  grl=4.8057(acc=0.188)  grl_p=0.9018(per=0.273)  dead=0.0%  L/P/U=2782/2338/0  actL/P/U=198/58/0  H=0.692  Hu=0.636  spec<.5=0.06  marg=0.272  lstd=0.5098  lr=6.00e-05
+  step    400/12000  recon=0.2492  pr=2.8819  sid=5.4336  grl=5.3945(acc=0.062)  grl_p=0.9953(per=0.314)  dead=0.0%  L/P/U=2814/2306/0  actL/P/U=219/37/0  H=0.692  Hu=0.633  spec<.5=0.07  marg=0.278  lstd=0.5164  lr=8.00e-05
+  [grad_norms @500]
+    recon             |g|=0.05010  ratio=1.000x recon
+    pr_raw            |g|=1.17183  ratio=23.388x recon
+    pr_weighted       |g|=0.93746  ratio=18.710x recon
+    sid_raw           |g|=0.69716  ratio=13.914x recon
+    sid_weighted      |g|=0.41830  ratio=8.348x recon
+    grl               |g|=4.40822  ratio=87.980x recon
+    grl_p             |g|=0.09599  ratio=1.916x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00034   (grl_p/grl = 0.3x  <- pooled-vs-dense dilution)
+    [grad_cos @500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.009
+      cos(recon_vs_sid          ) = +0.027
+      cos(recon_vs_grl          ) = -0.101  conflict
+      cos(recon_vs_grl_p        ) = -0.015
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.141  aligned
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.000
+      cos(grl_vs_grl_p          ) = +0.000
+  step    500/12000  recon=0.1997  pr=1.8634  sid=5.4121  grl=6.7246(acc=0.000)  grl_p=1.0529(per=0.295)  dead=0.0%  L/P/U=2869/2251/0  actL/P/U=233/23/0  H=0.692  Hu=0.630  spec<.5=0.07  marg=0.287  lstd=0.5261  lr=1.00e-04
+  step    600/12000  recon=0.1755  pr=1.2932  sid=5.5820  grl=5.7031(acc=0.062)  grl_p=0.9772(per=0.317)  dead=0.0%  L/P/U=2892/2228/0  actL/P/U=243/13/0  H=0.691  Hu=0.627  spec<.5=0.08  marg=0.294  lstd=0.5345  lr=1.00e-04
+  step    700/12000  recon=0.1633  pr=1.0717  sid=5.5742  grl=7.0293(acc=0.000)  grl_p=1.2807(per=0.310)  dead=0.0%  L/P/U=2904/2216/0  actL/P/U=248/8/0  H=0.691  Hu=0.624  spec<.5=0.09  marg=0.299  lstd=0.5408  lr=9.99e-05
+  step    800/12000  recon=0.1618  pr=1.0398  sid=5.5117  grl=7.2158(acc=0.000)  grl_p=1.6690(per=0.465)  dead=0.0%  L/P/U=2903/2217/0  actL/P/U=251/5/0  H=0.691  Hu=0.623  spec<.5=0.10  marg=0.302  lstd=0.5456  lr=9.98e-05
+  step    900/12000  recon=0.1633  pr=1.0087  sid=5.4805  grl=7.6851(acc=0.000)  grl_p=1.4732(per=0.392)  dead=0.1%  L/P/U=2901/2219/0  actL/P/U=253/3/0  H=0.690  Hu=0.621  spec<.5=0.10  marg=0.305  lstd=0.5496  lr=9.97e-05
+  [grad_norms @1000]
+    recon             |g|=0.11051  ratio=1.000x recon
+    pr_raw            |g|=0.75125  ratio=6.798x recon
+    pr_weighted       |g|=0.60100  ratio=5.438x recon
+    sid_raw           |g|=0.77558  ratio=7.018x recon
+    sid_weighted      |g|=0.46535  ratio=4.211x recon
+    grl               |g|=8.40779  ratio=76.081x recon
+    grl_p             |g|=0.32131  ratio=2.908x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00042   (grl_p/grl = 0.4x  <- pooled-vs-dense dilution)
+    [grad_cos @1000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.029
+      cos(recon_vs_grl          ) = -0.038
+      cos(recon_vs_grl_p        ) = -0.011
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.041
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.005
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1000/12000  recon=0.1642  pr=0.9540  sid=5.5605  grl=7.6768(acc=0.000)  grl_p=1.4683(per=0.460)  dead=0.4%  L/P/U=2898/2222/0  actL/P/U=254/2/0  H=0.690  Hu=0.620  spec<.5=0.11  marg=0.307  lstd=0.5533  lr=9.95e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=1000  recon=0.1655  pr=0.8300  | z_L PR=0.294 SID=0.018  | z_P PR=0.888 SID=0.010
+  ✓ best checkpoint (disent=1.4134  PER=0.294 sid=0.010 grl_acc=0.018 grl_p_per=0.888) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_best.pt
+  step   1100/12000  recon=0.1699  pr=0.9759  sid=5.4453  grl=7.1313(acc=0.000)  grl_p=1.8956(per=0.669)  dead=1.0%  L/P/U=2904/2216/0  actL/P/U=255/1/0  H=0.690  Hu=0.619  spec<.5=0.11  marg=0.309  lstd=0.5566  lr=9.93e-05
+  step   1200/12000  recon=0.1763  pr=0.9143  sid=5.5508  grl=9.0996(acc=0.000)  grl_p=2.5294(per=0.817)  dead=1.6%  L/P/U=2904/2216/0  actL/P/U=255/1/0  H=0.690  Hu=0.618  spec<.5=0.11  marg=0.311  lstd=0.5597  lr=9.91e-05
+  step   1300/12000  recon=0.1795  pr=0.8844  sid=5.5898  grl=8.9561(acc=0.000)  grl_p=3.3082(per=0.633)  dead=2.5%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.617  spec<.5=0.11  marg=0.312  lstd=0.5624  lr=9.88e-05
+  step   1400/12000  recon=0.1847  pr=0.9045  sid=5.4570  grl=10.7314(acc=0.000)  grl_p=2.8247(per=0.860)  dead=3.5%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.617  spec<.5=0.12  marg=0.313  lstd=0.5648  lr=9.85e-05
+  [grad_norms @1500]
+    recon             |g|=0.24032  ratio=1.000x recon
+    pr_raw            |g|=0.62511  ratio=2.601x recon
+    pr_weighted       |g|=0.50009  ratio=2.081x recon
+    sid_raw           |g|=0.79560  ratio=3.311x recon
+    sid_weighted      |g|=0.47736  ratio=1.986x recon
+    grl               |g|=12.43051  ratio=51.726x recon
+    grl_p             |g|=0.78360  ratio=3.261x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00035   (grl_p/grl = 0.3x  <- pooled-vs-dense dilution)
+    [grad_cos @1500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.009
+      cos(recon_vs_sid          ) = +0.021
+      cos(recon_vs_grl          ) = -0.057  conflict
+      cos(recon_vs_grl_p        ) = -0.010
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.008
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.013
+      cos(grl_vs_grl_p          ) = +0.000
+  step   1500/12000  recon=0.1910  pr=0.9553  sid=5.6270  grl=8.2974(acc=0.000)  grl_p=3.5206(per=0.884)  dead=4.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.616  spec<.5=0.12  marg=0.314  lstd=0.5672  lr=9.82e-05
+  step   1600/12000  recon=0.1950  pr=0.9635  sid=5.4414  grl=10.0781(acc=0.000)  grl_p=3.8358(per=0.957)  dead=6.5%  L/P/U=2904/2216/0  actL/P/U=256/0/0  H=0.690  Hu=0.615  spec<.5=0.12  marg=0.315  lstd=0.5692  lr=9.78e-05
+  step   1700/12000  recon=0.2006  pr=0.9244  sid=5.6660  grl=9.7217(acc=0.000)  grl_p=3.0985(per=0.969)  dead=7.6%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.615  spec<.5=0.12  marg=0.316  lstd=0.5710  lr=9.74e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   1800/12000  recon=0.2042  pr=1.0410  sid=5.5059  grl=10.5254(acc=0.000)  grl_p=3.2009(per=0.981)  dead=8.7%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.614  spec<.5=0.12  marg=0.316  lstd=0.5728  lr=9.69e-05
+  step   1900/12000  recon=0.2122  pr=0.9915  sid=5.6816  grl=11.1152(acc=0.000)  grl_p=6.4733(per=0.884)  dead=9.4%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.614  spec<.5=0.12  marg=0.317  lstd=0.5744  lr=9.64e-05
+  [grad_norms @2000]
+    recon             |g|=0.43453  ratio=1.000x recon
+    pr_raw            |g|=1.04231  ratio=2.399x recon
+    pr_weighted       |g|=0.83385  ratio=1.919x recon
+    sid_raw           |g|=0.93962  ratio=2.162x recon
+    sid_weighted      |g|=0.56377  ratio=1.297x recon
+    grl               |g|=15.64025  ratio=35.994x recon
+    grl_p             |g|=0.17574  ratio=0.404x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00009   (grl_p/grl = 0.1x  <- pooled-vs-dense dilution)
+    [grad_cos @2000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.010
+      cos(recon_vs_sid          ) = +0.016
+      cos(recon_vs_grl          ) = -0.021
+      cos(recon_vs_grl_p        ) = -0.020
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.032
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.008
+      cos(grl_vs_grl_p          ) = +0.000
+  step   2000/12000  recon=0.2086  pr=1.0155  sid=5.5059  grl=11.9951(acc=0.000)  grl_p=4.2859(per=1.000)  dead=10.4%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.613  spec<.5=0.13  marg=0.317  lstd=0.5757  lr=9.59e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+  [val] step=2000  recon=0.2123  pr=0.8787  | z_L PR=0.291 SID=0.010  | z_P PR=1.000 SID=0.002
+  ✓ best checkpoint (disent=1.2994  PER=0.291 sid=0.002 grl_acc=0.010 grl_p_per=1.000) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_best.pt
+  step   2100/12000  recon=0.2168  pr=1.3024  sid=5.5820  grl=10.3262(acc=0.000)  grl_p=4.2783(per=0.987)  dead=11.0%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.613  spec<.5=0.13  marg=0.318  lstd=0.5770  lr=9.53e-05
+  step   2200/12000  recon=0.2177  pr=1.4675  sid=5.5957  grl=9.7715(acc=0.000)  grl_p=4.0668(per=1.000)  dead=11.4%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.613  spec<.5=0.13  marg=0.318  lstd=0.5783  lr=9.48e-05
+  step   2300/12000  recon=0.2211  pr=1.3820  sid=5.8984  grl=11.5884(acc=0.062)  grl_p=3.6580(per=1.000)  dead=12.5%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.690  Hu=0.612  spec<.5=0.13  marg=0.319  lstd=0.5795  lr=9.41e-05
+  step   2400/12000  recon=0.2245  pr=1.4632  sid=5.8516  grl=14.2280(acc=0.000)  grl_p=4.1233(per=1.000)  dead=12.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.612  spec<.5=0.13  marg=0.319  lstd=0.5806  lr=9.35e-05
+  [grad_norms @2500]
+    recon             |g|=0.67447  ratio=1.000x recon
+    pr_raw            |g|=4.02824  ratio=5.972x recon
+    pr_weighted       |g|=3.22259  ratio=4.778x recon
+    sid_raw           |g|=0.95037  ratio=1.409x recon
+    sid_weighted      |g|=0.57022  ratio=0.845x recon
+    grl               |g|=24.18154  ratio=35.853x recon
+    grl_p             |g|=0.31961  ratio=0.474x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00006   (grl_p/grl = 0.1x  <- pooled-vs-dense dilution)
+    [grad_cos @2500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.011
+      cos(recon_vs_sid          ) = +0.031
+      cos(recon_vs_grl          ) = -0.003
+      cos(recon_vs_grl_p        ) = -0.015
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.155  conflict
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.005
+      cos(grl_vs_grl_p          ) = +0.000
+  step   2500/12000  recon=0.2278  pr=1.8549  sid=5.5156  grl=9.3828(acc=0.000)  grl_p=3.5729(per=1.000)  dead=13.4%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.612  spec<.5=0.13  marg=0.320  lstd=0.5817  lr=9.28e-05
+  step   2600/12000  recon=0.2276  pr=1.7732  sid=5.6055  grl=11.0537(acc=0.000)  grl_p=3.7798(per=1.000)  dead=14.0%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.612  spec<.5=0.13  marg=0.320  lstd=0.5827  lr=9.21e-05
+  step   2700/12000  recon=0.2302  pr=1.9910  sid=5.7070  grl=14.6309(acc=0.000)  grl_p=3.6216(per=1.000)  dead=14.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.611  spec<.5=0.13  marg=0.320  lstd=0.5837  lr=9.13e-05
+  step   2800/12000  recon=0.2310  pr=1.8281  sid=5.5156  grl=11.7148(acc=0.000)  grl_p=3.5641(per=1.000)  dead=15.6%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.611  spec<.5=0.13  marg=0.321  lstd=0.5846  lr=9.05e-05
+  step   2900/12000  recon=0.2341  pr=1.8808  sid=6.0723  grl=13.4541(acc=0.000)  grl_p=3.8108(per=1.000)  dead=16.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.611  spec<.5=0.13  marg=0.321  lstd=0.5854  lr=8.97e-05
+  [grad_norms @3000]
+    recon             |g|=0.96276  ratio=1.000x recon
+    pr_raw            |g|=7.28397  ratio=7.566x recon
+    pr_weighted       |g|=5.82718  ratio=6.053x recon
+    sid_raw           |g|=1.08271  ratio=1.125x recon
+    sid_weighted      |g|=0.64963  ratio=0.675x recon
+    grl               |g|=25.46729  ratio=26.452x recon
+    grl_p             |g|=0.20250  ratio=0.210x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00004   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @3000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.016
+      cos(recon_vs_sid          ) = +0.027
+      cos(recon_vs_grl          ) = -0.021
+      cos(recon_vs_grl_p        ) = -0.013
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.043
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.026
+      cos(grl_vs_grl_p          ) = +0.000
+  step   3000/12000  recon=0.2381  pr=2.0839  sid=5.8887  grl=15.5381(acc=0.000)  grl_p=3.6134(per=1.000)  dead=18.7%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.611  spec<.5=0.13  marg=0.321  lstd=0.5863  lr=8.89e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=3000  recon=0.2348  pr=1.4138  | z_L PR=0.573 SID=0.012  | z_P PR=1.000 SID=0.002
+  step   3100/12000  recon=0.2384  pr=2.2498  sid=6.3145  grl=12.1899(acc=0.000)  grl_p=3.5866(per=1.000)  dead=19.7%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.610  spec<.5=0.13  marg=0.321  lstd=0.5870  lr=8.80e-05
+  step   3200/12000  recon=0.2369  pr=2.2801  sid=5.7676  grl=10.3262(acc=0.000)  grl_p=3.7061(per=1.000)  dead=20.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.610  spec<.5=0.13  marg=0.322  lstd=0.5878  lr=8.71e-05
+  step   3300/12000  recon=0.2378  pr=2.3792  sid=5.9941  grl=10.8560(acc=0.000)  grl_p=3.6755(per=1.000)  dead=22.3%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.610  spec<.5=0.13  marg=0.322  lstd=0.5885  lr=8.62e-05
+  step   3400/12000  recon=0.2362  pr=2.5673  sid=5.7109  grl=11.7317(acc=0.062)  grl_p=3.5832(per=1.000)  dead=24.3%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.610  spec<.5=0.13  marg=0.322  lstd=0.5891  lr=8.53e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [grad_norms @3500]
+    recon             |g|=1.22653  ratio=1.000x recon
+    pr_raw            |g|=3.75957  ratio=3.065x recon
+    pr_weighted       |g|=3.00766  ratio=2.452x recon
+    sid_raw           |g|=1.08206  ratio=0.882x recon
+    sid_weighted      |g|=0.64924  ratio=0.529x recon
+    grl               |g|=26.87902  ratio=21.915x recon
+    grl_p             |g|=0.33102  ratio=0.270x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00005   (grl_p/grl = 0.1x  <- pooled-vs-dense dilution)
+    [grad_cos @3500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.027
+      cos(recon_vs_sid          ) = +0.025
+      cos(recon_vs_grl          ) = +0.001
+      cos(recon_vs_grl_p        ) = +0.008
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.018
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.004
+      cos(grl_vs_grl_p          ) = +0.000
+  step   3500/12000  recon=0.2371  pr=2.5104  sid=5.5957  grl=15.4697(acc=0.000)  grl_p=3.5899(per=1.000)  dead=25.4%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.610  spec<.5=0.13  marg=0.322  lstd=0.5897  lr=8.43e-05
+  step   3600/12000  recon=0.2373  pr=2.3001  sid=5.8281  grl=13.5908(acc=0.000)  grl_p=3.6277(per=1.000)  dead=26.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.610  spec<.5=0.13  marg=0.322  lstd=0.5903  lr=8.33e-05
+  step   3700/12000  recon=0.2382  pr=2.5841  sid=6.2871  grl=12.5063(acc=0.000)  grl_p=3.7173(per=1.000)  dead=28.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.610  spec<.5=0.13  marg=0.323  lstd=0.5908  lr=8.23e-05
+  step   3800/12000  recon=0.2415  pr=2.5893  sid=5.5205  grl=16.0376(acc=0.000)  grl_p=3.6271(per=1.000)  dead=31.1%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.609  spec<.5=0.14  marg=0.323  lstd=0.5913  lr=8.12e-05
+  step   3900/12000  recon=0.2387  pr=3.2361  sid=5.8301  grl=14.3711(acc=0.000)  grl_p=3.6999(per=1.000)  dead=33.6%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.609  spec<.5=0.14  marg=0.323  lstd=0.5918  lr=8.01e-05
+  [grad_norms @4000]
+    recon             |g|=1.31334  ratio=1.000x recon
+    pr_raw            |g|=2.87720  ratio=2.191x recon
+    pr_weighted       |g|=2.30176  ratio=1.753x recon
+    sid_raw           |g|=1.23241  ratio=0.938x recon
+    sid_weighted      |g|=0.73944  ratio=0.563x recon
+    grl               |g|=38.65720  ratio=29.434x recon
+    grl_p             |g|=0.06044  ratio=0.046x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @4000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.023
+      cos(recon_vs_sid          ) = +0.013
+      cos(recon_vs_grl          ) = +0.008
+      cos(recon_vs_grl_p        ) = +0.001
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.013
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.001
+      cos(grl_vs_grl_p          ) = +0.000
+  step   4000/12000  recon=0.2400  pr=3.4778  sid=6.5371  grl=12.6426(acc=0.000)  grl_p=3.5998(per=1.000)  dead=35.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.609  spec<.5=0.14  marg=0.323  lstd=0.5922  lr=7.90e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=4000  recon=0.2402  pr=1.5666  | z_L PR=0.572 SID=0.004  | z_P PR=1.000 SID=0.002
+  step   4100/12000  recon=0.2362  pr=6.0935  sid=5.9883  grl=11.9404(acc=0.000)  grl_p=3.8454(per=1.000)  dead=37.4%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.609  spec<.5=0.14  marg=0.323  lstd=0.5927  lr=7.79e-05
+  step   4200/12000  recon=0.2383  pr=2.7332  sid=5.6934  grl=11.7002(acc=0.000)  grl_p=3.7725(per=1.000)  dead=40.1%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.609  spec<.5=0.14  marg=0.324  lstd=0.5931  lr=7.68e-05
+  step   4300/12000  recon=0.2414  pr=2.7415  sid=6.1660  grl=15.1309(acc=0.000)  grl_p=3.6443(per=1.000)  dead=43.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.609  spec<.5=0.14  marg=0.324  lstd=0.5937  lr=7.56e-05
+  step   4400/12000  recon=0.2378  pr=3.9208  sid=6.0469  grl=17.0098(acc=0.000)  grl_p=3.6049(per=1.000)  dead=46.3%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.609  spec<.5=0.14  marg=0.324  lstd=0.5941  lr=7.45e-05
+  [grad_norms @4500]
+    recon             |g|=2.21423  ratio=1.000x recon
+    pr_raw            |g|=10.76685  ratio=4.863x recon
+    pr_weighted       |g|=8.61348  ratio=3.890x recon
+    sid_raw           |g|=1.26539  ratio=0.571x recon
+    sid_weighted      |g|=0.75923  ratio=0.343x recon
+    grl               |g|=35.81749  ratio=16.176x recon
+    grl_p             |g|=0.11963  ratio=0.054x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @4500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.003
+      cos(recon_vs_sid          ) = +0.043
+      cos(recon_vs_grl          ) = -0.006
+      cos(recon_vs_grl_p        ) = +0.019
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.075  aligned
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.009
+      cos(grl_vs_grl_p          ) = +0.000
+  step   4500/12000  recon=0.2440  pr=3.7483  sid=6.3145  grl=12.8833(acc=0.000)  grl_p=3.6026(per=1.000)  dead=48.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.609  spec<.5=0.14  marg=0.324  lstd=0.5945  lr=7.33e-05
+  step   4600/12000  recon=0.2428  pr=3.6387  sid=6.2480  grl=13.6475(acc=0.000)  grl_p=3.9938(per=1.000)  dead=51.7%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.609  spec<.5=0.14  marg=0.324  lstd=0.5948  lr=7.21e-05
+  step   4700/12000  recon=0.2343  pr=2.8820  sid=5.8262  grl=11.3760(acc=0.000)  grl_p=3.6199(per=1.000)  dead=55.0%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.324  lstd=0.5953  lr=7.08e-05
+  step   4800/12000  recon=0.2382  pr=2.9754  sid=5.5088  grl=13.4551(acc=0.000)  grl_p=3.6012(per=1.000)  dead=58.7%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.324  lstd=0.5955  lr=6.96e-05
+  step   4900/12000  recon=0.2395  pr=2.3953  sid=5.9766  grl=11.9397(acc=0.062)  grl_p=3.5709(per=1.000)  dead=62.6%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.325  lstd=0.5958  lr=6.83e-05
+  [grad_norms @5000]
+    recon             |g|=1.45219  ratio=1.000x recon
+    pr_raw            |g|=6.54464  ratio=4.507x recon
+    pr_weighted       |g|=5.23571  ratio=3.605x recon
+    sid_raw           |g|=1.17836  ratio=0.811x recon
+    sid_weighted      |g|=0.70702  ratio=0.487x recon
+    grl               |g|=34.31742  ratio=23.632x recon
+    grl_p             |g|=0.12377  ratio=0.085x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @5000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.015
+      cos(recon_vs_sid          ) = +0.024
+      cos(recon_vs_grl          ) = -0.002
+      cos(recon_vs_grl_p        ) = +0.002
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.034
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.050
+      cos(grl_vs_grl_p          ) = +0.000
+  step   5000/12000  recon=0.2321  pr=2.9507  sid=6.1191  grl=11.0850(acc=0.000)  grl_p=3.5910(per=1.000)  dead=66.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.325  lstd=0.5961  lr=6.71e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=5000  recon=0.2351  pr=2.1944  | z_L PR=0.690 SID=0.006  | z_P PR=1.000 SID=0.002
+  step   5100/12000  recon=0.2357  pr=3.2617  sid=6.1719  grl=15.1260(acc=0.000)  grl_p=3.5619(per=1.000)  dead=70.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.325  lstd=0.5964  lr=6.58e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   5200/12000  recon=0.2366  pr=3.7688  sid=6.0254  grl=12.5508(acc=0.000)  grl_p=3.6752(per=1.000)  dead=74.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.325  lstd=0.5967  lr=6.45e-05
+  step   5300/12000  recon=0.2367  pr=3.4675  sid=6.1348  grl=11.3408(acc=0.000)  grl_p=3.6186(per=1.000)  dead=78.6%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.325  lstd=0.5970  lr=6.32e-05
+  step   5400/12000  recon=0.2405  pr=9.3275  sid=6.5840  grl=12.5195(acc=0.000)  grl_p=3.6901(per=1.000)  dead=81.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.325  lstd=0.5973  lr=6.19e-05
+  [grad_norms @5500]
+    recon             |g|=1.67158  ratio=1.000x recon
+    pr_raw            |g|=7.61307  ratio=4.554x recon
+    pr_weighted       |g|=6.09046  ratio=3.644x recon
+    sid_raw           |g|=1.32395  ratio=0.792x recon
+    sid_weighted      |g|=0.79437  ratio=0.475x recon
+    grl               |g|=30.11779  ratio=18.018x recon
+    grl_p             |g|=0.18595  ratio=0.111x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00002   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @5500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.024
+      cos(recon_vs_sid          ) = +0.015
+      cos(recon_vs_grl          ) = -0.010
+      cos(recon_vs_grl_p        ) = +0.009
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.085  aligned
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.004
+      cos(grl_vs_grl_p          ) = +0.000
+  step   5500/12000  recon=0.2330  pr=2.3868  sid=5.8945  grl=10.2314(acc=0.000)  grl_p=3.7695(per=1.000)  dead=84.2%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.325  lstd=0.5975  lr=6.06e-05
+  step   5600/12000  recon=0.2350  pr=5.3578  sid=5.9355  grl=12.3062(acc=0.000)  grl_p=3.6031(per=1.000)  dead=87.3%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.326  lstd=0.5978  lr=5.92e-05
+  step   5700/12000  recon=0.2361  pr=5.4762  sid=6.1230  grl=12.7085(acc=0.000)  grl_p=3.7638(per=1.000)  dead=88.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.326  lstd=0.5981  lr=5.79e-05
+  step   5800/12000  recon=0.2356  pr=4.5128  sid=6.0020  grl=11.2324(acc=0.000)  grl_p=3.6653(per=1.000)  dead=91.4%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.326  lstd=0.5983  lr=5.66e-05
+  step   5900/12000  recon=0.2357  pr=3.6735  sid=6.4785  grl=10.5889(acc=0.000)  grl_p=3.6515(per=1.000)  dead=92.6%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.608  spec<.5=0.14  marg=0.326  lstd=0.5985  lr=5.52e-05
+  [grad_norms @6000]
+    recon             |g|=4.62099  ratio=1.000x recon
+    pr_raw            |g|=13.82571  ratio=2.992x recon
+    pr_weighted       |g|=11.06057  ratio=2.394x recon
+    sid_raw           |g|=1.42800  ratio=0.309x recon
+    sid_weighted      |g|=0.85680  ratio=0.185x recon
+    grl               |g|=39.63444  ratio=8.577x recon
+    grl_p             |g|=0.78595  ratio=0.170x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00008   (grl_p/grl = 0.1x  <- pooled-vs-dense dilution)
+    [grad_cos @6000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.002
+      cos(recon_vs_sid          ) = -0.006
+      cos(recon_vs_grl          ) = +0.004
+      cos(recon_vs_grl_p        ) = +0.007
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.008
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.030
+      cos(grl_vs_grl_p          ) = +0.000
+  step   6000/12000  recon=0.2527  pr=2.9108  sid=6.2305  grl=12.4531(acc=0.000)  grl_p=3.5369(per=1.000)  dead=93.7%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.326  lstd=0.5987  lr=5.39e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=6000  recon=0.2365  pr=1.8351  | z_L PR=0.566 SID=0.012  | z_P PR=1.000 SID=0.002
+  step   6100/12000  recon=0.2305  pr=3.7092  sid=6.5020  grl=11.6309(acc=0.000)  grl_p=3.5874(per=1.000)  dead=93.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.326  lstd=0.5989  lr=5.25e-05
+  step   6200/12000  recon=0.2350  pr=3.7364  sid=5.8096  grl=12.0869(acc=0.000)  grl_p=3.6016(per=1.000)  dead=94.4%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.326  lstd=0.5991  lr=5.12e-05
+  step   6300/12000  recon=0.2329  pr=3.2015  sid=6.0625  grl=12.2305(acc=0.000)  grl_p=3.6833(per=1.000)  dead=94.5%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.327  lstd=0.5994  lr=4.98e-05
+  step   6400/12000  recon=0.2341  pr=3.9543  sid=6.1113  grl=13.8159(acc=0.000)  grl_p=3.6363(per=1.000)  dead=94.6%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.327  lstd=0.5995  lr=4.85e-05
+  [grad_norms @6500]
+    recon             |g|=1.83798  ratio=1.000x recon
+    pr_raw            |g|=10.86780  ratio=5.913x recon
+    pr_weighted       |g|=8.69424  ratio=4.730x recon
+    sid_raw           |g|=1.37795  ratio=0.750x recon
+    sid_weighted      |g|=0.82677  ratio=0.450x recon
+    grl               |g|=33.67619  ratio=18.322x recon
+    grl_p             |g|=0.02600  ratio=0.014x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00000   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @6500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.009
+      cos(recon_vs_sid          ) = +0.029
+      cos(recon_vs_grl          ) = +0.020
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.019
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.010
+      cos(grl_vs_grl_p          ) = +0.000
+  step   6500/12000  recon=0.2327  pr=7.7045  sid=6.6074  grl=10.0400(acc=0.000)  grl_p=3.6932(per=1.000)  dead=94.6%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.327  lstd=0.5998  lr=4.71e-05
+  step   6600/12000  recon=0.2339  pr=3.3560  sid=6.0957  grl=9.9897(acc=0.000)  grl_p=3.5578(per=1.000)  dead=94.7%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.327  lstd=0.6000  lr=4.58e-05
+  step   6700/12000  recon=0.2341  pr=5.6138  sid=6.3682  grl=11.7910(acc=0.000)  grl_p=3.5715(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.327  lstd=0.6002  lr=4.44e-05
+  step   6800/12000  recon=0.2354  pr=4.5090  sid=6.4961  grl=11.4443(acc=0.000)  grl_p=3.5475(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.327  lstd=0.6004  lr=4.31e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   6900/12000  recon=0.2326  pr=3.0766  sid=5.8574  grl=9.4294(acc=0.062)  grl_p=3.7184(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.327  lstd=0.6006  lr=4.18e-05
+  [grad_norms @7000]
+    recon             |g|=3.52792  ratio=1.000x recon
+    pr_raw            |g|=7.75681  ratio=2.199x recon
+    pr_weighted       |g|=6.20545  ratio=1.759x recon
+    sid_raw           |g|=1.37195  ratio=0.389x recon
+    sid_weighted      |g|=0.82317  ratio=0.233x recon
+    grl               |g|=32.24432  ratio=9.140x recon
+    grl_p             |g|=0.34145  ratio=0.097x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00003   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @7000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.002
+      cos(recon_vs_sid          ) = +0.032
+      cos(recon_vs_grl          ) = +0.000
+      cos(recon_vs_grl_p        ) = +0.006
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.061  aligned
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.011
+      cos(grl_vs_grl_p          ) = +0.000
+  step   7000/12000  recon=0.2358  pr=11.8503  sid=6.0820  grl=9.1343(acc=0.000)  grl_p=3.9411(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.328  lstd=0.6008  lr=4.04e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=7000  recon=0.2483  pr=2.2698  | z_L PR=0.626 SID=0.004  | z_P PR=1.000 SID=0.002
+  step   7100/12000  recon=0.2376  pr=5.7965  sid=6.0273  grl=10.3169(acc=0.000)  grl_p=3.7906(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.328  lstd=0.6010  lr=3.91e-05
+  step   7200/12000  recon=0.2305  pr=6.2387  sid=5.8770  grl=10.2769(acc=0.000)  grl_p=3.6674(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.328  lstd=0.6011  lr=3.78e-05
+  step   7300/12000  recon=0.2319  pr=3.6832  sid=5.8291  grl=10.6230(acc=0.000)  grl_p=3.5969(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.607  spec<.5=0.14  marg=0.328  lstd=0.6013  lr=3.65e-05
+  step   7400/12000  recon=0.2387  pr=4.3749  sid=6.0322  grl=9.3394(acc=0.000)  grl_p=3.8016(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.328  lstd=0.6015  lr=3.52e-05
+  [grad_norms @7500]
+    recon             |g|=2.23989  ratio=1.000x recon
+    pr_raw            |g|=7.75672  ratio=3.463x recon
+    pr_weighted       |g|=6.20538  ratio=2.770x recon
+    sid_raw           |g|=1.49893  ratio=0.669x recon
+    sid_weighted      |g|=0.89936  ratio=0.402x recon
+    grl               |g|=26.63526  ratio=11.891x recon
+    grl_p             |g|=0.06065  ratio=0.027x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @7500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.013
+      cos(recon_vs_sid          ) = +0.019
+      cos(recon_vs_grl          ) = +0.007
+      cos(recon_vs_grl_p        ) = +0.002
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.030
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.008
+      cos(grl_vs_grl_p          ) = +0.000
+  step   7500/12000  recon=0.2295  pr=2.4857  sid=5.5908  grl=8.4336(acc=0.062)  grl_p=5.0147(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.328  lstd=0.6017  lr=3.39e-05
+  step   7600/12000  recon=0.2325  pr=3.5135  sid=5.9160  grl=10.1270(acc=0.000)  grl_p=3.7308(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.329  lstd=0.6019  lr=3.27e-05
+  step   7700/12000  recon=0.2332  pr=3.9497  sid=6.3193  grl=9.5410(acc=0.000)  grl_p=3.7237(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.329  lstd=0.6021  lr=3.14e-05
+  step   7800/12000  recon=0.2327  pr=6.7851  sid=5.4355  grl=8.6519(acc=0.000)  grl_p=3.6856(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.329  lstd=0.6023  lr=3.02e-05
+  step   7900/12000  recon=0.2309  pr=2.9962  sid=5.7090  grl=8.2305(acc=0.000)  grl_p=3.6510(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.329  lstd=0.6025  lr=2.89e-05
+  [grad_norms @8000]
+    recon             |g|=2.07882  ratio=1.000x recon
+    pr_raw            |g|=6.69440  ratio=3.220x recon
+    pr_weighted       |g|=5.35552  ratio=2.576x recon
+    sid_raw           |g|=1.53852  ratio=0.740x recon
+    sid_weighted      |g|=0.92311  ratio=0.444x recon
+    grl               |g|=28.77982  ratio=13.844x recon
+    grl_p             |g|=0.06012  ratio=0.029x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @8000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.004
+      cos(recon_vs_sid          ) = +0.019
+      cos(recon_vs_grl          ) = +0.006
+      cos(recon_vs_grl_p        ) = +0.001
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.175  conflict
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.008
+      cos(grl_vs_grl_p          ) = +0.000
+  step   8000/12000  recon=0.2320  pr=3.2247  sid=5.9062  grl=8.9189(acc=0.000)  grl_p=3.7144(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.329  lstd=0.6027  lr=2.77e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=8000  recon=0.2310  pr=1.8695  | z_L PR=0.500 SID=0.014  | z_P PR=1.000 SID=0.002
+  step   8100/12000  recon=0.2329  pr=8.0098  sid=6.6133  grl=9.3223(acc=0.000)  grl_p=3.5913(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.329  lstd=0.6029  lr=2.65e-05
+  step   8200/12000  recon=0.2316  pr=3.3441  sid=6.4995  grl=7.7109(acc=0.000)  grl_p=3.5325(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.329  lstd=0.6031  lr=2.54e-05
+  step   8300/12000  recon=0.2299  pr=4.3912  sid=6.4531  grl=7.9839(acc=0.000)  grl_p=3.5572(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.330  lstd=0.6033  lr=2.42e-05
+  step   8400/12000  recon=0.2330  pr=5.5646  sid=6.9473  grl=7.8330(acc=0.000)  grl_p=4.3202(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.330  lstd=0.6034  lr=2.31e-05
+  [grad_norms @8500]
+    recon             |g|=3.17731  ratio=1.000x recon
+    pr_raw            |g|=25.08319  ratio=7.894x recon
+    pr_weighted       |g|=20.06655  ratio=6.316x recon
+    sid_raw           |g|=1.62801  ratio=0.512x recon
+    sid_weighted      |g|=0.97680  ratio=0.307x recon
+    grl               |g|=25.23493  ratio=7.942x recon
+    grl_p             |g|=0.02346  ratio=0.007x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00000   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @8500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.013
+      cos(recon_vs_sid          ) = +0.022
+      cos(recon_vs_grl          ) = +0.032
+      cos(recon_vs_grl_p        ) = -0.016
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.070  conflict
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.018
+      cos(grl_vs_grl_p          ) = +0.000
+  step   8500/12000  recon=0.2363  pr=4.3472  sid=6.4570  grl=7.8374(acc=0.000)  grl_p=3.5593(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.330  lstd=0.6036  lr=2.20e-05
+  step   8600/12000  recon=0.2378  pr=5.2337  sid=6.6270  grl=7.4263(acc=0.000)  grl_p=3.5659(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.330  lstd=0.6038  lr=2.09e-05
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+  step   8700/12000  recon=0.2322  pr=4.1382  sid=5.9619  grl=7.7002(acc=0.000)  grl_p=3.9845(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.330  lstd=0.6039  lr=1.98e-05
+  step   8800/12000  recon=0.2297  pr=4.6197  sid=5.6738  grl=7.4482(acc=0.000)  grl_p=3.6183(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.606  spec<.5=0.14  marg=0.330  lstd=0.6041  lr=1.87e-05
+  step   8900/12000  recon=0.2292  pr=3.3513  sid=5.3369  grl=6.6851(acc=0.000)  grl_p=3.5535(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.14  marg=0.331  lstd=0.6043  lr=1.77e-05
+  [grad_norms @9000]
+    recon             |g|=1.54137  ratio=1.000x recon
+    pr_raw            |g|=4.68836  ratio=3.042x recon
+    pr_weighted       |g|=3.75069  ratio=2.433x recon
+    sid_raw           |g|=1.46651  ratio=0.951x recon
+    sid_weighted      |g|=0.87990  ratio=0.571x recon
+    grl               |g|=17.73603  ratio=11.507x recon
+    grl_p             |g|=0.01274  ratio=0.008x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @9000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.004
+      cos(recon_vs_sid          ) = +0.022
+      cos(recon_vs_grl          ) = +0.004
+      cos(recon_vs_grl_p        ) = -0.023
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.070  conflict
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.019
+      cos(grl_vs_grl_p          ) = +0.000
+  step   9000/12000  recon=0.2284  pr=4.5512  sid=6.9219  grl=7.2007(acc=0.000)  grl_p=3.7334(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.14  marg=0.331  lstd=0.6044  lr=1.67e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=9000  recon=0.2298  pr=1.7474  | z_L PR=0.459 SID=0.016  | z_P PR=1.000 SID=0.002
+  step   9100/12000  recon=0.2282  pr=3.1555  sid=6.3613  grl=6.7896(acc=0.000)  grl_p=3.5731(per=1.000)  dead=94.8%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.14  marg=0.331  lstd=0.6046  lr=1.57e-05
+  step   9200/12000  recon=0.2300  pr=3.1662  sid=6.2793  grl=7.0352(acc=0.062)  grl_p=3.6883(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.14  marg=0.331  lstd=0.6047  lr=1.48e-05
+  step   9300/12000  recon=0.2298  pr=3.7371  sid=6.5254  grl=6.7041(acc=0.000)  grl_p=3.5621(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.14  marg=0.331  lstd=0.6049  lr=1.39e-05
+  step   9400/12000  recon=0.2279  pr=5.7239  sid=6.2441  grl=6.6824(acc=0.062)  grl_p=3.5479(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.14  marg=0.331  lstd=0.6050  lr=1.30e-05
+  [grad_norms @9500]
+    recon             |g|=1.59053  ratio=1.000x recon
+    pr_raw            |g|=2.93505  ratio=1.845x recon
+    pr_weighted       |g|=2.34804  ratio=1.476x recon
+    sid_raw           |g|=1.51343  ratio=0.952x recon
+    sid_weighted      |g|=0.90806  ratio=0.571x recon
+    grl               |g|=20.75975  ratio=13.052x recon
+    grl_p             |g|=0.05162  ratio=0.032x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @9500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.013
+      cos(recon_vs_sid          ) = +0.030
+      cos(recon_vs_grl          ) = +0.006
+      cos(recon_vs_grl_p        ) = +0.004
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.017
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.023
+      cos(grl_vs_grl_p          ) = +0.000
+  step   9500/12000  recon=0.2286  pr=4.2752  sid=6.2754  grl=7.0430(acc=0.000)  grl_p=3.5912(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.14  marg=0.331  lstd=0.6052  lr=1.21e-05
+  step   9600/12000  recon=0.2275  pr=5.3360  sid=6.4512  grl=6.2207(acc=0.000)  grl_p=3.5742(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.14  marg=0.332  lstd=0.6053  lr=1.13e-05
+  step   9700/12000  recon=0.2284  pr=3.3074  sid=6.3516  grl=6.5752(acc=0.000)  grl_p=3.6092(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.14  marg=0.332  lstd=0.6054  lr=1.05e-05
+  step   9800/12000  recon=0.2279  pr=3.9806  sid=5.7900  grl=6.2651(acc=0.000)  grl_p=3.6072(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.332  lstd=0.6055  lr=9.67e-06
+  step   9900/12000  recon=0.2281  pr=4.9310  sid=6.0117  grl=6.0430(acc=0.000)  grl_p=3.5838(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.332  lstd=0.6057  lr=8.92e-06
+  [grad_norms @10000]
+    recon             |g|=1.44383  ratio=1.000x recon
+    pr_raw            |g|=4.31861  ratio=2.991x recon
+    pr_weighted       |g|=3.45489  ratio=2.393x recon
+    sid_raw           |g|=1.48312  ratio=1.027x recon
+    sid_weighted      |g|=0.88987  ratio=0.616x recon
+    grl               |g|=13.98427  ratio=9.686x recon
+    grl_p             |g|=0.05852  ratio=0.041x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @10000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.008
+      cos(recon_vs_sid          ) = +0.016
+      cos(recon_vs_grl          ) = +0.003
+      cos(recon_vs_grl_p        ) = -0.005
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.010
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.000
+      cos(grl_vs_grl_p          ) = +0.000
+  step  10000/12000  recon=0.2263  pr=5.4489  sid=6.8379  grl=5.9922(acc=0.000)  grl_p=3.5568(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.332  lstd=0.6058  lr=8.21e-06
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=10000  recon=0.2277  pr=1.7072  | z_L PR=0.453 SID=0.006  | z_P PR=1.000 SID=0.002
+  step  10100/12000  recon=0.2297  pr=4.3717  sid=6.4551  grl=6.0098(acc=0.000)  grl_p=3.5394(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.332  lstd=0.6059  lr=7.52e-06
+  step  10200/12000  recon=0.2285  pr=2.8499  sid=6.3320  grl=5.8940(acc=0.000)  grl_p=3.7186(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.332  lstd=0.6060  lr=6.86e-06
+  step  10300/12000  recon=0.2254  pr=2.7680  sid=6.6855  grl=6.4429(acc=0.000)  grl_p=3.6967(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.332  lstd=0.6061  lr=6.24e-06
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step  10400/12000  recon=0.2277  pr=5.9385  sid=6.4512  grl=5.9932(acc=0.000)  grl_p=3.6331(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.333  lstd=0.6062  lr=5.65e-06
+  [grad_norms @10500]
+    recon             |g|=1.34217  ratio=1.000x recon
+    pr_raw            |g|=3.08561  ratio=2.299x recon
+    pr_weighted       |g|=2.46849  ratio=1.839x recon
+    sid_raw           |g|=1.55423  ratio=1.158x recon
+    sid_weighted      |g|=0.93254  ratio=0.695x recon
+    grl               |g|=21.92779  ratio=16.338x recon
+    grl_p             |g|=0.06979  ratio=0.052x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @10500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.002
+      cos(recon_vs_sid          ) = +0.022
+      cos(recon_vs_grl          ) = -0.035
+      cos(recon_vs_grl_p        ) = +0.009
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.025
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.002
+      cos(grl_vs_grl_p          ) = +0.000
+  step  10500/12000  recon=0.2258  pr=6.3017  sid=6.5879  grl=6.2803(acc=0.000)  grl_p=3.6296(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.333  lstd=0.6063  lr=5.10e-06
+  step  10600/12000  recon=0.2250  pr=3.2152  sid=6.0273  grl=6.1162(acc=0.000)  grl_p=3.6013(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.333  lstd=0.6063  lr=4.58e-06
+  step  10700/12000  recon=0.2240  pr=3.9585  sid=6.0225  grl=5.8232(acc=0.000)  grl_p=3.5519(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.333  lstd=0.6064  lr=4.09e-06
+  step  10800/12000  recon=0.2260  pr=6.9924  sid=6.3936  grl=6.1084(acc=0.000)  grl_p=3.7745(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.605  spec<.5=0.15  marg=0.333  lstd=0.6065  lr=3.64e-06
+  step  10900/12000  recon=0.2268  pr=2.5322  sid=6.4258  grl=5.6758(acc=0.000)  grl_p=3.5622(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6065  lr=3.22e-06
+  [grad_norms @11000]
+    recon             |g|=1.21168  ratio=1.000x recon
+    pr_raw            |g|=6.19703  ratio=5.114x recon
+    pr_weighted       |g|=4.95762  ratio=4.092x recon
+    sid_raw           |g|=1.54708  ratio=1.277x recon
+    sid_weighted      |g|=0.92825  ratio=0.766x recon
+    grl               |g|=19.98076  ratio=16.490x recon
+    grl_p             |g|=0.10122  ratio=0.084x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @11000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.004
+      cos(recon_vs_sid          ) = +0.033
+      cos(recon_vs_grl          ) = -0.000
+      cos(recon_vs_grl_p        ) = -0.000
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.031
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.014
+      cos(grl_vs_grl_p          ) = +0.000
+  step  11000/12000  recon=0.2251  pr=3.8716  sid=6.6562  grl=5.8682(acc=0.000)  grl_p=3.6428(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6066  lr=2.84e-06
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+  [val] step=11000  recon=0.2257  pr=1.7841  | z_L PR=0.468 SID=0.006  | z_P PR=1.000 SID=0.002
+  step  11100/12000  recon=0.2242  pr=3.5118  sid=6.7891  grl=5.8086(acc=0.000)  grl_p=3.5801(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6066  lr=2.49e-06
+  step  11200/12000  recon=0.2247  pr=3.1134  sid=6.0703  grl=5.6953(acc=0.000)  grl_p=3.6445(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6067  lr=2.18e-06
+  step  11300/12000  recon=0.2217  pr=7.9276  sid=5.8184  grl=5.3896(acc=0.000)  grl_p=3.5343(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6067  lr=1.90e-06
+  step  11400/12000  recon=0.2246  pr=3.3161  sid=5.9766  grl=5.5532(acc=0.000)  grl_p=3.6884(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6067  lr=1.66e-06
+  [grad_norms @11500]
+    recon             |g|=1.34777  ratio=1.000x recon
+    pr_raw            |g|=17.34221  ratio=12.867x recon
+    pr_weighted       |g|=13.87377  ratio=10.294x recon
+    sid_raw           |g|=1.50769  ratio=1.119x recon
+    sid_weighted      |g|=0.90461  ratio=0.671x recon
+    grl               |g|=22.57519  ratio=16.750x recon
+    grl_p             |g|=0.02401  ratio=0.018x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00000   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @11500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.006
+      cos(recon_vs_sid          ) = +0.016
+      cos(recon_vs_grl          ) = +0.019
+      cos(recon_vs_grl_p        ) = -0.003
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.065  aligned
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.027
+      cos(grl_vs_grl_p          ) = +0.000
+  step  11500/12000  recon=0.2271  pr=6.3411  sid=6.5547  grl=5.6025(acc=0.000)  grl_p=3.7426(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6068  lr=1.46e-06
+  step  11600/12000  recon=0.2291  pr=3.7740  sid=6.4688  grl=5.7910(acc=0.000)  grl_p=3.6427(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6068  lr=1.30e-06
+  step  11700/12000  recon=0.2249  pr=2.5855  sid=6.2744  grl=5.4971(acc=0.000)  grl_p=3.7204(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6068  lr=1.17e-06
+  step  11800/12000  recon=0.2229  pr=3.6905  sid=5.7793  grl=5.7803(acc=0.000)  grl_p=3.9297(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6069  lr=1.07e-06
+  step  11900/12000  recon=0.2252  pr=3.4784  sid=6.6963  grl=5.5352(acc=0.000)  grl_p=3.6256(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6069  lr=1.02e-06
+  [grad_norms @12000]
+    recon             |g|=1.25885  ratio=1.000x recon
+    pr_raw            |g|=4.53501  ratio=3.603x recon
+    pr_weighted       |g|=3.62801  ratio=2.882x recon
+    sid_raw           |g|=1.48021  ratio=1.176x recon
+    sid_weighted      |g|=0.88812  ratio=0.706x recon
+    grl               |g|=15.32425  ratio=12.173x recon
+    grl_p             |g|=0.12073  ratio=0.096x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00100   grl_p(z_P)=0.00001   (grl_p/grl = 0.0x  <- pooled-vs-dense dilution)
+    [grad_cos @12000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.000
+      cos(recon_vs_sid          ) = +0.019
+      cos(recon_vs_grl          ) = -0.011
+      cos(recon_vs_grl_p        ) = +0.001
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.018
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.053  aligned
+      cos(grl_vs_grl_p          ) = +0.000
+  step  12000/12000  recon=0.2227  pr=3.4952  sid=7.0352  grl=5.7139(acc=0.000)  grl_p=3.5646(per=1.000)  dead=94.9%  L/P/U=2905/2215/0  actL/P/U=256/0/0  H=0.689  Hu=0.604  spec<.5=0.15  marg=0.333  lstd=0.6069  lr=1.00e-06
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=12000  recon=0.2253  pr=1.6800  | z_L PR=0.446 SID=0.008  | z_P PR=1.000 SID=0.002
+
+[stage 2] done.  Best disent_score=1.2994  → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_best.pt
+
+[done]  best checkpoint → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_best.pt
+
+=== Targeted diagnostic probes on FINAL checkpoint ===
+probe_started    : Fri 26 Jun 01:03:02 BST 2026
+stage1_ckpt      : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+stage2_ckpt      : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+--- probe: z_L -> SID | sid_head=linear | seed=42 ---
+[diag_probe] run=diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_linear_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] sources=['z_L']  tasks=['sid']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=0
+[diag_probe] PR task not requested — skipping PR dataloaders.
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt  (step=12000  val=1.2994)
+[diag_probe] skipped 5 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head.fc_linear.weight', 'grl_head.fc_linear.bias']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.fc.weight', 'grl_head.fc.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: skipped
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_L] step 250/10000  train loss=12.611 acc=0.000  dev loss=14.433 acc=0.006  (best 0.006, bad 0/0)
+      [sid z_L] step 500/10000  train loss=9.924 acc=0.000  dev loss=14.367 acc=0.006  (best 0.006, bad 1/0)
+      [sid z_L] step 750/10000  train loss=11.431 acc=0.000  dev loss=11.714 acc=0.002  (best 0.006, bad 2/0)
+      [sid z_L] step 1000/10000  train loss=11.008 acc=0.000  dev loss=11.647 acc=0.012  (best 0.012, bad 0/0)
+      [sid z_L] step 1250/10000  train loss=10.922 acc=0.000  dev loss=9.781 acc=0.004  (best 0.012, bad 1/0)
+      [sid z_L] step 1500/10000  train loss=10.196 acc=0.000  dev loss=9.455 acc=0.006  (best 0.012, bad 2/0)
+      [sid z_L] step 1750/10000  train loss=10.850 acc=0.000  dev loss=9.213 acc=0.002  (best 0.012, bad 3/0)
+      [sid z_L] step 2000/10000  train loss=9.355 acc=0.000  dev loss=8.243 acc=0.006  (best 0.012, bad 4/0)
+      [sid z_L] step 2250/10000  train loss=7.587 acc=0.000  dev loss=7.593 acc=0.008  (best 0.012, bad 5/0)
+      [sid z_L] step 2500/10000  train loss=7.864 acc=0.000  dev loss=7.872 acc=0.004  (best 0.012, bad 6/0)
+      [sid z_L] step 2750/10000  train loss=8.056 acc=0.000  dev loss=7.673 acc=0.004  (best 0.012, bad 7/0)
+      [sid z_L] step 3000/10000  train loss=7.275 acc=0.000  dev loss=7.097 acc=0.000  (best 0.012, bad 8/0)
+      [sid z_L] step 3250/10000  train loss=7.104 acc=0.062  dev loss=7.106 acc=0.008  (best 0.012, bad 9/0)
+      [sid z_L] step 3500/10000  train loss=7.239 acc=0.000  dev loss=6.649 acc=0.014  (best 0.014, bad 0/0)
+      [sid z_L] step 3750/10000  train loss=7.071 acc=0.000  dev loss=6.899 acc=0.006  (best 0.014, bad 1/0)
+      [sid z_L] step 4000/10000  train loss=6.727 acc=0.000  dev loss=6.710 acc=0.014  (best 0.014, bad 2/0)
+      [sid z_L] step 4250/10000  train loss=6.762 acc=0.062  dev loss=7.054 acc=0.006  (best 0.014, bad 3/0)
+      [sid z_L] step 4500/10000  train loss=6.528 acc=0.062  dev loss=6.488 acc=0.008  (best 0.014, bad 4/0)
+      [sid z_L] step 4750/10000  train loss=6.594 acc=0.000  dev loss=6.269 acc=0.002  (best 0.014, bad 5/0)
+      [sid z_L] step 5000/10000  train loss=6.115 acc=0.000  dev loss=6.163 acc=0.004  (best 0.014, bad 6/0)
+      [sid z_L] step 5250/10000  train loss=5.527 acc=0.062  dev loss=6.286 acc=0.004  (best 0.014, bad 7/0)
+      [sid z_L] step 5500/10000  train loss=5.605 acc=0.000  dev loss=6.036 acc=0.006  (best 0.014, bad 8/0)
+      [sid z_L] step 5750/10000  train loss=5.439 acc=0.125  dev loss=6.163 acc=0.006  (best 0.014, bad 9/0)
+      [sid z_L] step 6000/10000  train loss=6.421 acc=0.000  dev loss=6.307 acc=0.010  (best 0.014, bad 10/0)
+      [sid z_L] step 6250/10000  train loss=6.369 acc=0.000  dev loss=5.995 acc=0.006  (best 0.014, bad 11/0)
+      [sid z_L] step 6500/10000  train loss=6.016 acc=0.000  dev loss=5.757 acc=0.006  (best 0.014, bad 12/0)
+      [sid z_L] step 6750/10000  train loss=6.060 acc=0.000  dev loss=5.808 acc=0.016  (best 0.016, bad 0/0)
+      [sid z_L] step 7000/10000  train loss=6.103 acc=0.000  dev loss=5.707 acc=0.006  (best 0.016, bad 1/0)
+      [sid z_L] step 7250/10000  train loss=5.653 acc=0.000  dev loss=5.872 acc=0.006  (best 0.016, bad 2/0)
+      [sid z_L] step 7500/10000  train loss=5.767 acc=0.000  dev loss=5.635 acc=0.006  (best 0.016, bad 3/0)
+      [sid z_L] step 7750/10000  train loss=5.576 acc=0.000  dev loss=5.687 acc=0.020  (best 0.020, bad 0/0)
+      [sid z_L] step 8000/10000  train loss=5.626 acc=0.000  dev loss=5.579 acc=0.004  (best 0.020, bad 1/0)
+      [sid z_L] step 8250/10000  train loss=5.461 acc=0.062  dev loss=5.554 acc=0.008  (best 0.020, bad 2/0)
+      [sid z_L] step 8500/10000  train loss=5.418 acc=0.000  dev loss=5.398 acc=0.026  (best 0.026, bad 0/0)
+      [sid z_L] step 8750/10000  train loss=5.490 acc=0.000  dev loss=5.413 acc=0.014  (best 0.026, bad 1/0)
+      [sid z_L] step 9000/10000  train loss=5.513 acc=0.000  dev loss=5.387 acc=0.014  (best 0.026, bad 2/0)
+      [sid z_L] step 9250/10000  train loss=5.299 acc=0.062  dev loss=5.392 acc=0.014  (best 0.026, bad 3/0)
+      [sid z_L] step 9500/10000  train loss=5.473 acc=0.062  dev loss=5.339 acc=0.018  (best 0.026, bad 4/0)
+      [sid z_L] step 9750/10000  train loss=5.170 acc=0.125  dev loss=5.291 acc=0.016  (best 0.026, bad 5/0)
+      [sid z_L] step 10000/10000  train loss=5.268 acc=0.000  dev loss=5.285 acc=0.018  (best 0.026, bad 6/0)
+    z_L -> SID              acc test=0.014  (val 0.026)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_linear_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_L                nan         0.014
+==================================================================
+
+
+--- probe: z_L -> SID | sid_head=mlp | seed=42 ---
+[diag_probe] run=diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_mlp_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] sources=['z_L']  tasks=['sid']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=0
+[diag_probe] PR task not requested — skipping PR dataloaders.
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt  (step=12000  val=1.2994)
+[diag_probe] skipped 5 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head.fc_linear.weight', 'grl_head.fc_linear.bias']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.fc.weight', 'grl_head.fc.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: skipped
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=mlp
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_L] step 250/10000  train loss=5.520 acc=0.000  dev loss=5.527 acc=0.002  (best 0.002, bad 0/0)
+      [sid z_L] step 500/10000  train loss=5.530 acc=0.000  dev loss=5.526 acc=0.000  (best 0.002, bad 1/0)
+      [sid z_L] step 750/10000  train loss=5.512 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 2/0)
+      [sid z_L] step 1000/10000  train loss=5.523 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 3/0)
+      [sid z_L] step 1250/10000  train loss=5.515 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 4/0)
+      [sid z_L] step 1500/10000  train loss=5.518 acc=0.062  dev loss=5.524 acc=0.002  (best 0.002, bad 5/0)
+      [sid z_L] step 1750/10000  train loss=5.511 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 6/0)
+      [sid z_L] step 2000/10000  train loss=5.518 acc=0.062  dev loss=5.523 acc=0.002  (best 0.002, bad 7/0)
+      [sid z_L] step 2250/10000  train loss=5.493 acc=0.062  dev loss=5.523 acc=0.002  (best 0.002, bad 8/0)
+      [sid z_L] step 2500/10000  train loss=5.534 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 9/0)
+      [sid z_L] step 2750/10000  train loss=5.536 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 10/0)
+      [sid z_L] step 3000/10000  train loss=5.529 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 11/0)
+      [sid z_L] step 3250/10000  train loss=5.535 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 12/0)
+      [sid z_L] step 3500/10000  train loss=5.526 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 13/0)
+      [sid z_L] step 3750/10000  train loss=5.556 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 14/0)
+      [sid z_L] step 4000/10000  train loss=5.491 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 15/0)
+      [sid z_L] step 4250/10000  train loss=5.532 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 16/0)
+      [sid z_L] step 4500/10000  train loss=5.498 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 17/0)
+      [sid z_L] step 4750/10000  train loss=5.567 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 18/0)
+      [sid z_L] step 5000/10000  train loss=5.528 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 19/0)
+      [sid z_L] step 5250/10000  train loss=5.477 acc=0.125  dev loss=5.523 acc=0.002  (best 0.002, bad 20/0)
+      [sid z_L] step 5500/10000  train loss=5.525 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 21/0)
+      [sid z_L] step 5750/10000  train loss=5.528 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 22/0)
+      [sid z_L] step 6000/10000  train loss=5.488 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 23/0)
+      [sid z_L] step 6250/10000  train loss=5.527 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 24/0)
+      [sid z_L] step 6500/10000  train loss=5.541 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 25/0)
+      [sid z_L] step 6750/10000  train loss=5.513 acc=0.062  dev loss=5.523 acc=0.002  (best 0.002, bad 26/0)
+      [sid z_L] step 7000/10000  train loss=5.497 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 27/0)
+      [sid z_L] step 7250/10000  train loss=5.509 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 28/0)
+      [sid z_L] step 7500/10000  train loss=5.502 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 29/0)
+      [sid z_L] step 7750/10000  train loss=5.488 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 30/0)
+      [sid z_L] step 8000/10000  train loss=5.510 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 31/0)
+      [sid z_L] step 8250/10000  train loss=5.524 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 32/0)
+      [sid z_L] step 8500/10000  train loss=5.561 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 33/0)
+      [sid z_L] step 8750/10000  train loss=5.535 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 34/0)
+      [sid z_L] step 9000/10000  train loss=5.602 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 35/0)
+      [sid z_L] step 9250/10000  train loss=5.540 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 36/0)
+      [sid z_L] step 9500/10000  train loss=5.498 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 37/0)
+      [sid z_L] step 9750/10000  train loss=5.528 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 38/0)
+      [sid z_L] step 10000/10000  train loss=5.537 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 39/0)
+    z_L -> SID              acc test=0.002  (val 0.002)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_mlp_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_L                nan         0.002
+==================================================================
+
+
+--- probe: z_L -> SID | sid_head=stats | seed=42 ---
+[diag_probe] run=diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_stats_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] sources=['z_L']  tasks=['sid']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=0
+[diag_probe] PR task not requested — skipping PR dataloaders.
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt  (step=12000  val=1.2994)
+[diag_probe] skipped 5 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head.fc_linear.weight', 'grl_head.fc_linear.bias']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.fc.weight', 'grl_head.fc.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: skipped
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=stats
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_L] step 250/10000  train loss=5.540 acc=0.000  dev loss=5.531 acc=0.000  (best 0.000, bad 0/0)
+      [sid z_L] step 500/10000  train loss=5.547 acc=0.000  dev loss=5.531 acc=0.002  (best 0.002, bad 0/0)
+      [sid z_L] step 750/10000  train loss=5.528 acc=0.062  dev loss=5.529 acc=0.002  (best 0.002, bad 1/0)
+      [sid z_L] step 1000/10000  train loss=5.525 acc=0.000  dev loss=5.530 acc=0.006  (best 0.006, bad 0/0)
+      [sid z_L] step 1250/10000  train loss=5.530 acc=0.000  dev loss=5.528 acc=0.006  (best 0.006, bad 1/0)
+      [sid z_L] step 1500/10000  train loss=5.521 acc=0.062  dev loss=5.525 acc=0.006  (best 0.006, bad 2/0)
+      [sid z_L] step 1750/10000  train loss=5.489 acc=0.062  dev loss=5.524 acc=0.006  (best 0.006, bad 3/0)
+      [sid z_L] step 2000/10000  train loss=5.508 acc=0.000  dev loss=5.525 acc=0.000  (best 0.006, bad 4/0)
+      [sid z_L] step 2250/10000  train loss=5.500 acc=0.000  dev loss=5.525 acc=0.000  (best 0.006, bad 5/0)
+      [sid z_L] step 2500/10000  train loss=5.501 acc=0.000  dev loss=5.525 acc=0.006  (best 0.006, bad 6/0)
+      [sid z_L] step 2750/10000  train loss=5.467 acc=0.062  dev loss=5.524 acc=0.012  (best 0.012, bad 0/0)
+      [sid z_L] step 3000/10000  train loss=5.524 acc=0.062  dev loss=5.524 acc=0.012  (best 0.012, bad 1/0)
+      [sid z_L] step 3250/10000  train loss=5.504 acc=0.000  dev loss=5.522 acc=0.012  (best 0.012, bad 2/0)
+      [sid z_L] step 3500/10000  train loss=5.521 acc=0.000  dev loss=5.523 acc=0.002  (best 0.012, bad 3/0)
+      [sid z_L] step 3750/10000  train loss=5.551 acc=0.000  dev loss=5.523 acc=0.002  (best 0.012, bad 4/0)
+      [sid z_L] step 4000/10000  train loss=5.524 acc=0.000  dev loss=5.523 acc=0.002  (best 0.012, bad 5/0)
+      [sid z_L] step 4250/10000  train loss=5.499 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 6/0)
+      [sid z_L] step 4500/10000  train loss=5.588 acc=0.000  dev loss=5.523 acc=0.002  (best 0.012, bad 7/0)
+      [sid z_L] step 4750/10000  train loss=5.529 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 8/0)
+      [sid z_L] step 5000/10000  train loss=5.564 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 9/0)
+      [sid z_L] step 5250/10000  train loss=5.553 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 10/0)
+      [sid z_L] step 5500/10000  train loss=5.475 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 11/0)
+      [sid z_L] step 5750/10000  train loss=5.535 acc=0.000  dev loss=5.525 acc=0.006  (best 0.012, bad 12/0)
+      [sid z_L] step 6000/10000  train loss=5.541 acc=0.000  dev loss=5.524 acc=0.006  (best 0.012, bad 13/0)
+      [sid z_L] step 6250/10000  train loss=5.477 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 14/0)
+      [sid z_L] step 6500/10000  train loss=5.524 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 15/0)
+      [sid z_L] step 6750/10000  train loss=5.492 acc=0.000  dev loss=5.525 acc=0.002  (best 0.012, bad 16/0)
+      [sid z_L] step 7000/10000  train loss=5.509 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 17/0)
+      [sid z_L] step 7250/10000  train loss=5.560 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 18/0)
+      [sid z_L] step 7500/10000  train loss=5.481 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 19/0)
+      [sid z_L] step 7750/10000  train loss=5.543 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 20/0)
+      [sid z_L] step 8000/10000  train loss=5.495 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 21/0)
+      [sid z_L] step 8250/10000  train loss=5.518 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 22/0)
+      [sid z_L] step 8500/10000  train loss=5.440 acc=0.125  dev loss=5.524 acc=0.002  (best 0.012, bad 23/0)
+      [sid z_L] step 8750/10000  train loss=5.586 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 24/0)
+      [sid z_L] step 9000/10000  train loss=5.499 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 25/0)
+      [sid z_L] step 9250/10000  train loss=5.548 acc=0.000  dev loss=5.524 acc=0.006  (best 0.012, bad 26/0)
+      [sid z_L] step 9500/10000  train loss=5.535 acc=0.000  dev loss=5.524 acc=0.006  (best 0.012, bad 27/0)
+      [sid z_L] step 9750/10000  train loss=5.528 acc=0.000  dev loss=5.524 acc=0.002  (best 0.012, bad 28/0)
+      [sid z_L] step 10000/10000  train loss=5.517 acc=0.000  dev loss=5.524 acc=0.006  (best 0.012, bad 29/0)
+    z_L -> SID              acc test=0.002  (val 0.012)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_stats_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_L                nan         0.002
+==================================================================
+
+
+--- probe: z_P -> PR | pr_head=linear | seed=42 ---
+[diag_probe] run=diag_lr_robustgrl_gp02_hard_seed42_final_zP_pr_linear_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] sources=['z_P']  tasks=['pr']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=0
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt  (step=12000  val=1.2994)
+[diag_probe] skipped 5 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head.fc_linear.weight', 'grl_head.fc_linear.bias']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.fc.weight', 'grl_head.fc.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_P -> PR ...
+[pr_data] g2p_en loaded for OOV words
+      [pr z_P] step 250/10000  dev PER=1.000  (best 1.000, bad 0/0)
+      [pr z_P] step 500/10000  dev PER=1.000  (best 1.000, bad 1/0)
+      [pr z_P] step 750/10000  dev PER=1.000  (best 1.000, bad 2/0)
+      [pr z_P] step 1000/10000  dev PER=1.000  (best 1.000, bad 3/0)
+      [pr z_P] step 1250/10000  dev PER=1.000  (best 1.000, bad 4/0)
+      [pr z_P] step 1500/10000  dev PER=1.000  (best 1.000, bad 5/0)
+      [pr z_P] step 1750/10000  dev PER=1.000  (best 1.000, bad 6/0)
+      [pr z_P] step 2000/10000  dev PER=1.000  (best 1.000, bad 7/0)
+      [pr z_P] step 2250/10000  dev PER=1.000  (best 1.000, bad 8/0)
+      [pr z_P] step 2500/10000  dev PER=1.000  (best 1.000, bad 9/0)
+      [pr z_P] step 2750/10000  dev PER=1.000  (best 1.000, bad 10/0)
+      [pr z_P] step 3000/10000  dev PER=1.000  (best 1.000, bad 11/0)
+      [pr z_P] step 3250/10000  dev PER=1.000  (best 1.000, bad 12/0)
+      [pr z_P] step 3500/10000  dev PER=1.000  (best 1.000, bad 13/0)
+      [pr z_P] step 3750/10000  dev PER=1.000  (best 1.000, bad 14/0)
+      [pr z_P] step 4000/10000  dev PER=1.000  (best 1.000, bad 15/0)
+      [pr z_P] step 4250/10000  dev PER=1.000  (best 1.000, bad 16/0)
+      [pr z_P] step 4500/10000  dev PER=1.000  (best 1.000, bad 17/0)
+      [pr z_P] step 4750/10000  dev PER=1.000  (best 1.000, bad 18/0)
+      [pr z_P] step 5000/10000  dev PER=1.000  (best 1.000, bad 19/0)
+      [pr z_P] step 5250/10000  dev PER=1.000  (best 1.000, bad 20/0)
+      [pr z_P] step 5500/10000  dev PER=1.000  (best 1.000, bad 21/0)
+      [pr z_P] step 5750/10000  dev PER=1.000  (best 1.000, bad 22/0)
+      [pr z_P] step 6000/10000  dev PER=1.000  (best 1.000, bad 23/0)
+      [pr z_P] step 6250/10000  dev PER=1.000  (best 1.000, bad 24/0)
+      [pr z_P] step 6500/10000  dev PER=1.000  (best 1.000, bad 25/0)
+      [pr z_P] step 6750/10000  dev PER=1.000  (best 1.000, bad 26/0)
+      [pr z_P] step 7000/10000  dev PER=1.000  (best 1.000, bad 27/0)
+      [pr z_P] step 7250/10000  dev PER=1.000  (best 1.000, bad 28/0)
+      [pr z_P] step 7500/10000  dev PER=1.000  (best 1.000, bad 29/0)
+      [pr z_P] step 7750/10000  dev PER=1.000  (best 1.000, bad 30/0)
+      [pr z_P] step 8000/10000  dev PER=1.000  (best 1.000, bad 31/0)
+      [pr z_P] step 8250/10000  dev PER=1.000  (best 1.000, bad 32/0)
+      [pr z_P] step 8500/10000  dev PER=1.000  (best 1.000, bad 33/0)
+      [pr z_P] step 8750/10000  dev PER=1.000  (best 1.000, bad 34/0)
+      [pr z_P] step 9000/10000  dev PER=1.000  (best 1.000, bad 35/0)
+      [pr z_P] step 9250/10000  dev PER=1.000  (best 1.000, bad 36/0)
+      [pr z_P] step 9500/10000  dev PER=1.000  (best 1.000, bad 37/0)
+      [pr z_P] step 9750/10000  dev PER=1.000  (best 1.000, bad 38/0)
+      [pr z_P] step 10000/10000  dev PER=1.000  (best 1.000, bad 39/0)
+    z_P -> PR               PER test=1.000  (val 1.000)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_lr_robustgrl_gp02_hard_seed42_final_zP_pr_linear_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_P              1.000           nan
+==================================================================
+
+
+--- probe: z_P -> PR | pr_head=mlp | seed=42 ---
+[diag_probe] run=diag_lr_robustgrl_gp02_hard_seed42_final_zP_pr_mlp_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] sources=['z_P']  tasks=['pr']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=0
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt  (step=12000  val=1.2994)
+[diag_probe] skipped 5 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head.fc_linear.weight', 'grl_head.fc_linear.bias']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.fc.weight', 'grl_head.fc.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_P -> PR ...
+[pr_data] g2p_en loaded for OOV words
+      [pr z_P] step 250/10000  dev PER=1.000  (best 1.000, bad 0/0)
+      [pr z_P] step 500/10000  dev PER=1.000  (best 1.000, bad 1/0)
+      [pr z_P] step 750/10000  dev PER=1.000  (best 1.000, bad 2/0)
+      [pr z_P] step 1000/10000  dev PER=1.000  (best 1.000, bad 3/0)
+      [pr z_P] step 1250/10000  dev PER=1.000  (best 1.000, bad 4/0)
+      [pr z_P] step 1500/10000  dev PER=1.000  (best 1.000, bad 5/0)
+      [pr z_P] step 1750/10000  dev PER=1.000  (best 1.000, bad 6/0)
+      [pr z_P] step 2000/10000  dev PER=1.000  (best 1.000, bad 7/0)
+      [pr z_P] step 2250/10000  dev PER=1.000  (best 1.000, bad 8/0)
+      [pr z_P] step 2500/10000  dev PER=1.000  (best 1.000, bad 9/0)
+      [pr z_P] step 2750/10000  dev PER=1.000  (best 1.000, bad 10/0)
+      [pr z_P] step 3000/10000  dev PER=1.000  (best 1.000, bad 11/0)
+      [pr z_P] step 3250/10000  dev PER=1.000  (best 1.000, bad 12/0)
+      [pr z_P] step 3500/10000  dev PER=1.000  (best 1.000, bad 13/0)
+      [pr z_P] step 3750/10000  dev PER=1.000  (best 1.000, bad 14/0)
+      [pr z_P] step 4000/10000  dev PER=1.000  (best 1.000, bad 15/0)
+      [pr z_P] step 4250/10000  dev PER=1.000  (best 1.000, bad 16/0)
+      [pr z_P] step 4500/10000  dev PER=1.000  (best 1.000, bad 17/0)
+      [pr z_P] step 4750/10000  dev PER=1.000  (best 1.000, bad 18/0)
+      [pr z_P] step 5000/10000  dev PER=1.000  (best 1.000, bad 19/0)
+      [pr z_P] step 5250/10000  dev PER=1.000  (best 1.000, bad 20/0)
+      [pr z_P] step 5500/10000  dev PER=1.000  (best 1.000, bad 21/0)
+      [pr z_P] step 5750/10000  dev PER=1.000  (best 1.000, bad 22/0)
+      [pr z_P] step 6000/10000  dev PER=1.000  (best 1.000, bad 23/0)
+      [pr z_P] step 6250/10000  dev PER=1.000  (best 1.000, bad 24/0)
+      [pr z_P] step 6500/10000  dev PER=1.000  (best 1.000, bad 25/0)
+      [pr z_P] step 6750/10000  dev PER=1.000  (best 1.000, bad 26/0)
+      [pr z_P] step 7000/10000  dev PER=1.000  (best 1.000, bad 27/0)
+      [pr z_P] step 7250/10000  dev PER=1.000  (best 1.000, bad 28/0)
+      [pr z_P] step 7500/10000  dev PER=1.000  (best 1.000, bad 29/0)
+      [pr z_P] step 7750/10000  dev PER=1.000  (best 1.000, bad 30/0)
+      [pr z_P] step 8000/10000  dev PER=1.000  (best 1.000, bad 31/0)
+      [pr z_P] step 8250/10000  dev PER=1.000  (best 1.000, bad 32/0)
+      [pr z_P] step 8500/10000  dev PER=1.000  (best 1.000, bad 33/0)
+      [pr z_P] step 8750/10000  dev PER=1.000  (best 1.000, bad 34/0)
+      [pr z_P] step 9000/10000  dev PER=1.000  (best 1.000, bad 35/0)
+      [pr z_P] step 9250/10000  dev PER=1.000  (best 1.000, bad 36/0)
+      [pr z_P] step 9500/10000  dev PER=1.000  (best 1.000, bad 37/0)
+      [pr z_P] step 9750/10000  dev PER=1.000  (best 1.000, bad 38/0)
+      [pr z_P] step 10000/10000  dev PER=1.000  (best 1.000, bad 39/0)
+    z_P -> PR               PER test=1.000  (val 1.000)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_lr_robustgrl_gp02_hard_seed42_final_zP_pr_mlp_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_P              1.000           nan
+==================================================================
+
+
+--- probe: z_L -> SID | sid_head=linear | seed=7 ---
+[diag_probe] run=diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_linear_seed7  device=cuda
+[diag_probe] seed=7
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] sources=['z_L']  tasks=['sid']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=0
+[diag_probe] PR task not requested — skipping PR dataloaders.
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt  (step=12000  val=1.2994)
+[diag_probe] skipped 5 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head.fc_linear.weight', 'grl_head.fc_linear.bias']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.fc.weight', 'grl_head.fc.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: skipped
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_L] step 250/10000  train loss=15.703 acc=0.000  dev loss=15.741 acc=0.004  (best 0.004, bad 0/0)
+      [sid z_L] step 500/10000  train loss=15.032 acc=0.000  dev loss=13.474 acc=0.002  (best 0.004, bad 1/0)
+      [sid z_L] step 750/10000  train loss=10.964 acc=0.000  dev loss=11.549 acc=0.002  (best 0.004, bad 2/0)
+      [sid z_L] step 1000/10000  train loss=9.148 acc=0.000  dev loss=10.680 acc=0.004  (best 0.004, bad 3/0)
+      [sid z_L] step 1250/10000  train loss=8.442 acc=0.000  dev loss=8.970 acc=0.000  (best 0.004, bad 4/0)
+      [sid z_L] step 1500/10000  train loss=9.674 acc=0.000  dev loss=9.448 acc=0.008  (best 0.008, bad 0/0)
+      [sid z_L] step 1750/10000  train loss=8.705 acc=0.000  dev loss=8.472 acc=0.004  (best 0.008, bad 1/0)
+      [sid z_L] step 2000/10000  train loss=8.430 acc=0.000  dev loss=8.004 acc=0.004  (best 0.008, bad 2/0)
+      [sid z_L] step 2250/10000  train loss=8.724 acc=0.000  dev loss=9.039 acc=0.006  (best 0.008, bad 3/0)
+      [sid z_L] step 2500/10000  train loss=8.244 acc=0.000  dev loss=7.847 acc=0.002  (best 0.008, bad 4/0)
+      [sid z_L] step 2750/10000  train loss=8.116 acc=0.000  dev loss=7.935 acc=0.004  (best 0.008, bad 5/0)
+      [sid z_L] step 3000/10000  train loss=7.468 acc=0.000  dev loss=7.905 acc=0.004  (best 0.008, bad 6/0)
+      [sid z_L] step 3250/10000  train loss=7.641 acc=0.000  dev loss=7.253 acc=0.008  (best 0.008, bad 7/0)
+      [sid z_L] step 3500/10000  train loss=7.040 acc=0.000  dev loss=6.802 acc=0.006  (best 0.008, bad 8/0)
+      [sid z_L] step 3750/10000  train loss=6.572 acc=0.000  dev loss=6.728 acc=0.006  (best 0.008, bad 9/0)
+      [sid z_L] step 4000/10000  train loss=6.346 acc=0.000  dev loss=6.541 acc=0.006  (best 0.008, bad 10/0)
+      [sid z_L] step 4250/10000  train loss=6.321 acc=0.000  dev loss=6.415 acc=0.012  (best 0.012, bad 0/0)
+      [sid z_L] step 4500/10000  train loss=6.339 acc=0.000  dev loss=6.295 acc=0.004  (best 0.012, bad 1/0)
+      [sid z_L] step 4750/10000  train loss=6.623 acc=0.062  dev loss=6.291 acc=0.000  (best 0.012, bad 2/0)
+      [sid z_L] step 5000/10000  train loss=6.261 acc=0.000  dev loss=6.154 acc=0.008  (best 0.012, bad 3/0)
+      [sid z_L] step 5250/10000  train loss=5.924 acc=0.000  dev loss=6.211 acc=0.004  (best 0.012, bad 4/0)
+      [sid z_L] step 5500/10000  train loss=6.260 acc=0.062  dev loss=6.122 acc=0.004  (best 0.012, bad 5/0)
+      [sid z_L] step 5750/10000  train loss=5.452 acc=0.000  dev loss=6.358 acc=0.004  (best 0.012, bad 6/0)
+      [sid z_L] step 6000/10000  train loss=6.563 acc=0.000  dev loss=6.256 acc=0.004  (best 0.012, bad 7/0)
+      [sid z_L] step 6250/10000  train loss=5.733 acc=0.000  dev loss=5.880 acc=0.006  (best 0.012, bad 8/0)
+      [sid z_L] step 6500/10000  train loss=6.516 acc=0.000  dev loss=5.882 acc=0.014  (best 0.014, bad 0/0)
+      [sid z_L] step 6750/10000  train loss=6.091 acc=0.000  dev loss=5.764 acc=0.012  (best 0.014, bad 1/0)
+      [sid z_L] step 7000/10000  train loss=5.441 acc=0.000  dev loss=5.782 acc=0.004  (best 0.014, bad 2/0)
+      [sid z_L] step 7250/10000  train loss=5.423 acc=0.000  dev loss=5.705 acc=0.014  (best 0.014, bad 3/0)
+      [sid z_L] step 7500/10000  train loss=5.856 acc=0.000  dev loss=5.681 acc=0.012  (best 0.014, bad 4/0)
+      [sid z_L] step 7750/10000  train loss=5.516 acc=0.000  dev loss=5.604 acc=0.008  (best 0.014, bad 5/0)
+      [sid z_L] step 8000/10000  train loss=5.739 acc=0.000  dev loss=5.663 acc=0.008  (best 0.014, bad 6/0)
+      [sid z_L] step 8250/10000  train loss=5.316 acc=0.000  dev loss=5.523 acc=0.006  (best 0.014, bad 7/0)
+      [sid z_L] step 8500/10000  train loss=5.584 acc=0.000  dev loss=5.562 acc=0.012  (best 0.014, bad 8/0)
+      [sid z_L] step 8750/10000  train loss=5.381 acc=0.000  dev loss=5.411 acc=0.010  (best 0.014, bad 9/0)
+      [sid z_L] step 9000/10000  train loss=5.273 acc=0.000  dev loss=5.460 acc=0.008  (best 0.014, bad 10/0)
+      [sid z_L] step 9250/10000  train loss=5.406 acc=0.000  dev loss=5.425 acc=0.020  (best 0.020, bad 0/0)
+      [sid z_L] step 9500/10000  train loss=5.156 acc=0.000  dev loss=5.348 acc=0.016  (best 0.020, bad 1/0)
+      [sid z_L] step 9750/10000  train loss=5.351 acc=0.062  dev loss=5.316 acc=0.018  (best 0.020, bad 2/0)
+      [sid z_L] step 10000/10000  train loss=5.144 acc=0.062  dev loss=5.286 acc=0.020  (best 0.020, bad 3/0)
+    z_L -> SID              acc test=0.030  (val 0.020)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_linear_seed7
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_L                nan         0.030
+==================================================================
+
+
+--- probe: z_L -> SID | sid_head=mlp | seed=7 ---
+[diag_probe] run=diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_mlp_seed7  device=cuda
+[diag_probe] seed=7
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] sources=['z_L']  tasks=['sid']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=0
+[diag_probe] PR task not requested — skipping PR dataloaders.
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt  (step=12000  val=1.2994)
+[diag_probe] skipped 5 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head.fc_linear.weight', 'grl_head.fc_linear.bias']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.fc.weight', 'grl_head.fc.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: skipped
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=mlp
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_L] step 250/10000  train loss=5.527 acc=0.000  dev loss=5.528 acc=0.002  (best 0.002, bad 0/0)
+      [sid z_L] step 500/10000  train loss=5.514 acc=0.000  dev loss=5.527 acc=0.000  (best 0.002, bad 1/0)
+      [sid z_L] step 750/10000  train loss=5.528 acc=0.000  dev loss=5.526 acc=0.002  (best 0.002, bad 2/0)
+      [sid z_L] step 1000/10000  train loss=5.529 acc=0.000  dev loss=5.526 acc=0.002  (best 0.002, bad 3/0)
+      [sid z_L] step 1250/10000  train loss=5.509 acc=0.062  dev loss=5.526 acc=0.002  (best 0.002, bad 4/0)
+      [sid z_L] step 1500/10000  train loss=5.504 acc=0.000  dev loss=5.526 acc=0.002  (best 0.002, bad 5/0)
+      [sid z_L] step 1750/10000  train loss=5.551 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 6/0)
+      [sid z_L] step 2000/10000  train loss=5.533 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 7/0)
+      [sid z_L] step 2250/10000  train loss=5.512 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 8/0)
+      [sid z_L] step 2500/10000  train loss=5.528 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 9/0)
+      [sid z_L] step 2750/10000  train loss=5.502 acc=0.062  dev loss=5.525 acc=0.002  (best 0.002, bad 10/0)
+      [sid z_L] step 3000/10000  train loss=5.549 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 11/0)
+      [sid z_L] step 3250/10000  train loss=5.528 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 12/0)
+      [sid z_L] step 3500/10000  train loss=5.494 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 13/0)
+      [sid z_L] step 3750/10000  train loss=5.496 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 14/0)
+      [sid z_L] step 4000/10000  train loss=5.511 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 15/0)
+      [sid z_L] step 4250/10000  train loss=5.532 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 16/0)
+      [sid z_L] step 4500/10000  train loss=5.523 acc=0.062  dev loss=5.524 acc=0.002  (best 0.002, bad 17/0)
+      [sid z_L] step 4750/10000  train loss=5.524 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 18/0)
+      [sid z_L] step 5000/10000  train loss=5.521 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 19/0)
+      [sid z_L] step 5250/10000  train loss=5.517 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 20/0)
+      [sid z_L] step 5500/10000  train loss=5.513 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 21/0)
+      [sid z_L] step 5750/10000  train loss=5.516 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 22/0)
+      [sid z_L] step 6000/10000  train loss=5.556 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 23/0)
+      [sid z_L] step 6250/10000  train loss=5.552 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 24/0)
+      [sid z_L] step 6500/10000  train loss=5.507 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 25/0)
+      [sid z_L] step 6750/10000  train loss=5.518 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 26/0)
+      [sid z_L] step 7000/10000  train loss=5.522 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 27/0)
+      [sid z_L] step 7250/10000  train loss=5.528 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 28/0)
+      [sid z_L] step 7500/10000  train loss=5.539 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 29/0)
+      [sid z_L] step 7750/10000  train loss=5.514 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 30/0)
+      [sid z_L] step 8000/10000  train loss=5.510 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 31/0)
+      [sid z_L] step 8250/10000  train loss=5.511 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 32/0)
+      [sid z_L] step 8500/10000  train loss=5.479 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 33/0)
+      [sid z_L] step 8750/10000  train loss=5.500 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 34/0)
+      [sid z_L] step 9000/10000  train loss=5.534 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 35/0)
+      [sid z_L] step 9250/10000  train loss=5.517 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 36/0)
+      [sid z_L] step 9500/10000  train loss=5.512 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 37/0)
+      [sid z_L] step 9750/10000  train loss=5.510 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 38/0)
+      [sid z_L] step 10000/10000  train loss=5.527 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 39/0)
+    z_L -> SID              acc test=0.004  (val 0.002)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_mlp_seed7
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_L                nan         0.004
+==================================================================
+
+
+--- probe: z_L -> SID | sid_head=stats | seed=7 ---
+[diag_probe] run=diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_stats_seed7  device=cuda
+[diag_probe] seed=7
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] sources=['z_L']  tasks=['sid']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=0
+[diag_probe] PR task not requested — skipping PR dataloaders.
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt  (step=12000  val=1.2994)
+[diag_probe] skipped 5 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head.fc_linear.weight', 'grl_head.fc_linear.bias']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.fc.weight', 'grl_head.fc.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: skipped
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=stats
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_L -> SID ...
+[dis_data] g2p_en loaded for OOV words
+      [sid z_L] step 250/10000  train loss=5.523 acc=0.000  dev loss=5.526 acc=0.002  (best 0.002, bad 0/0)
+      [sid z_L] step 500/10000  train loss=5.509 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 1/0)
+      [sid z_L] step 750/10000  train loss=5.515 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 2/0)
+      [sid z_L] step 1000/10000  train loss=5.531 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 3/0)
+      [sid z_L] step 1250/10000  train loss=5.538 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 4/0)
+      [sid z_L] step 1500/10000  train loss=5.535 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 5/0)
+      [sid z_L] step 1750/10000  train loss=5.510 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 6/0)
+      [sid z_L] step 2000/10000  train loss=5.510 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 7/0)
+      [sid z_L] step 2250/10000  train loss=5.520 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 8/0)
+      [sid z_L] step 2500/10000  train loss=5.520 acc=0.000  dev loss=5.524 acc=0.002  (best 0.002, bad 9/0)
+      [sid z_L] step 2750/10000  train loss=5.519 acc=0.000  dev loss=5.525 acc=0.002  (best 0.002, bad 10/0)
+      [sid z_L] step 3000/10000  train loss=5.529 acc=0.000  dev loss=5.523 acc=0.002  (best 0.002, bad 11/0)
+      [sid z_L] step 3250/10000  train loss=5.539 acc=0.000  dev loss=5.523 acc=0.006  (best 0.006, bad 0/0)
+      [sid z_L] step 3500/10000  train loss=5.564 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 1/0)
+      [sid z_L] step 3750/10000  train loss=5.543 acc=0.000  dev loss=5.523 acc=0.002  (best 0.006, bad 2/0)
+      [sid z_L] step 4000/10000  train loss=5.508 acc=0.000  dev loss=5.523 acc=0.002  (best 0.006, bad 3/0)
+      [sid z_L] step 4250/10000  train loss=5.502 acc=0.000  dev loss=5.523 acc=0.002  (best 0.006, bad 4/0)
+      [sid z_L] step 4500/10000  train loss=5.481 acc=0.000  dev loss=5.523 acc=0.002  (best 0.006, bad 5/0)
+      [sid z_L] step 4750/10000  train loss=5.532 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 6/0)
+      [sid z_L] step 5000/10000  train loss=5.523 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 7/0)
+      [sid z_L] step 5250/10000  train loss=5.514 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 8/0)
+      [sid z_L] step 5500/10000  train loss=5.494 acc=0.062  dev loss=5.524 acc=0.006  (best 0.006, bad 9/0)
+      [sid z_L] step 5750/10000  train loss=5.568 acc=0.000  dev loss=5.524 acc=0.006  (best 0.006, bad 10/0)
+      [sid z_L] step 6000/10000  train loss=5.527 acc=0.000  dev loss=5.524 acc=0.006  (best 0.006, bad 11/0)
+      [sid z_L] step 6250/10000  train loss=5.495 acc=0.000  dev loss=5.524 acc=0.006  (best 0.006, bad 12/0)
+      [sid z_L] step 6500/10000  train loss=5.516 acc=0.000  dev loss=5.525 acc=0.006  (best 0.006, bad 13/0)
+      [sid z_L] step 6750/10000  train loss=5.505 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 14/0)
+      [sid z_L] step 7000/10000  train loss=5.523 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 15/0)
+      [sid z_L] step 7250/10000  train loss=5.490 acc=0.062  dev loss=5.524 acc=0.002  (best 0.006, bad 16/0)
+      [sid z_L] step 7500/10000  train loss=5.550 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 17/0)
+      [sid z_L] step 7750/10000  train loss=5.519 acc=0.062  dev loss=5.524 acc=0.002  (best 0.006, bad 18/0)
+      [sid z_L] step 8000/10000  train loss=5.475 acc=0.000  dev loss=5.525 acc=0.002  (best 0.006, bad 19/0)
+      [sid z_L] step 8250/10000  train loss=5.511 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 20/0)
+      [sid z_L] step 8500/10000  train loss=5.487 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 21/0)
+      [sid z_L] step 8750/10000  train loss=5.497 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 22/0)
+      [sid z_L] step 9000/10000  train loss=5.510 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 23/0)
+      [sid z_L] step 9250/10000  train loss=5.543 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 24/0)
+      [sid z_L] step 9500/10000  train loss=5.460 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 25/0)
+      [sid z_L] step 9750/10000  train loss=5.539 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 26/0)
+      [sid z_L] step 10000/10000  train loss=5.526 acc=0.000  dev loss=5.524 acc=0.002  (best 0.006, bad 27/0)
+    z_L -> SID              acc test=0.010  (val 0.006)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_lr_robustgrl_gp02_hard_seed42_final_zL_sid_stats_seed7
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_L                nan         0.010
+==================================================================
+
+
+--- probe: z_P -> PR | pr_head=linear | seed=7 ---
+[diag_probe] run=diag_lr_robustgrl_gp02_hard_seed42_final_zP_pr_linear_seed7  device=cuda
+[diag_probe] seed=7
+[diag_probe] stage1_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+[diag_probe] sources=['z_P']  tasks=['pr']
+[diag_probe] probe_steps=10000  pr_lr=0.0005  sid_lr=0.001  warmup=0  val_every=250  patience=0
+[pr_data] loaded LibriSpeech lexicon: 200,000 entries
+[pr_data] loading train-clean-100 …
+[pr_data] loading dev-clean …
+[pr_data] loading test-clean …
+[pr_data]  train=28539  val=2703  test=2620  vocab_size=74
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] loaded 3 SAE tensors from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt  (step=12000  val=1.2994)
+[diag_probe] skipped 5 shape-mismatched/stale keys (e.g. ['routing.current_logits', 'grl_head.fc_linear.weight', 'grl_head.fc_linear.bias']) — fine, probe does not use adversarial heads
+[diag_probe] WARNING missing keys: ['grl_head.fc.weight', 'grl_head.fc.bias']
+[diag_probe] loaded stage2 weights from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/checkpoints/lr_robustgrl_gp02_hard_seed42/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_P -> PR ...
+[pr_data] g2p_en loaded for OOV words
+      [pr z_P] step 250/10000  dev PER=1.000  (best 1.000, bad 0/0)
+      [pr z_P] step 500/10000  dev PER=1.000  (best 1.000, bad 1/0)
+      [pr z_P] step 750/10000  dev PER=1.000  (best 1.000, bad 2/0)
