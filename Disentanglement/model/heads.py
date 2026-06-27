@@ -126,7 +126,7 @@ class PR_GRL_Head(nn.Module):
 # ---------------------------------------------------------------- Prosody head
 
 class ProsodyHead(nn.Module):
-    """Per-frame prosody regressor on z_P: projection -> ReLU -> [log-F0, log-E].
+    """Per-frame prosody regressor on z_P: linear projection -> [log-F0, log-E].
 
     Prosody is a frame-level (suprasegmental) signal, so this predicts the F0 and
     energy contour at EVERY frame (no pooling) — the opposite of the pooled SID
@@ -141,7 +141,7 @@ class ProsodyHead(nn.Module):
         self.head = nn.Linear(256, 2)                     # [log-F0, log-energy]
 
     def forward(self, z_P: torch.Tensor) -> torch.Tensor:
-        return self.head(F.relu(self.projector(z_P)))     # (B, T, 2)
+        return self.head(self.projector(z_P))             # (B, T, 2)
 
 
 class Prosody_GRL_Head(nn.Module):
@@ -185,7 +185,7 @@ class EmotionHead(nn.Module):
         self.fc = nn.Linear(2 * P, getattr(cfg, "emotion_num_classes", 4))
 
     def forward(self, z_P: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
-        z = F.relu(self.projector(z_P))
+        z = self.projector(z_P)
         return self.fc(_masked_mean_std(z, lengths))
 
 
@@ -200,7 +200,7 @@ class Emotion_GRL_Head(nn.Module):
 
     def forward(self, z: torch.Tensor, lengths: torch.Tensor, lam: float) -> torch.Tensor:
         z = gradient_reversal(z, lam)
-        z = F.relu(self.projector(z))
+        z = F.gelu(self.projector(z))
         return self.fc(_masked_mean_std(z, lengths))
 
 
@@ -227,8 +227,8 @@ class GRLHead(nn.Module):
         # discriminator concentrate on the most speaker-informative frames →
         # a much stronger adversary than a flat mean-pool.
         self.attention_pool = bool(getattr(cfg, "grl_attention_pool", False))
-        # stats_pool=True: match the diagnostic SID-stats probe exactly after
-        # the projector: ReLU -> masked mean+std -> classifier.  This tests
+        # stats_pool=True: match the diagnostic SID-stats probe family after
+        # the projector: GELU -> masked mean+std -> classifier.  This tests
         # whether the training adversary can remove what the leakage probe sees.
         self.stats_pool     = bool(getattr(cfg, "grl_stats_pool", False))
         # dense_context=True: per-frame speaker prediction (like grl_p) but with a
@@ -314,15 +314,18 @@ class GRLHead(nn.Module):
                 logits.append(self.fc_dense(z_ctx))
             return tuple(logits)
 
-        # MLP (ReLU) — stronger than the linear SID probe it must beat, so z_L
-        # must remove speaker in a way that survives a real probe.
-        z_proj = F.relu(z_pre)                                    # (B, T, P)
         if self.dense_context:
             # local temporal context, then per-frame speaker logits (B, T, num_speakers)
+            z_proj = F.relu(z_pre)
             z_ctx = F.relu(self.context_conv(z_proj.transpose(1, 2))).transpose(1, 2)
             return self.fc(z_ctx)
         if self.frame_level:
+            z_proj = F.relu(z_pre)
             return self.fc(z_proj)                                # (B, T, num_speakers)
+
+        # Utterance-level speaker adversaries use GELU before pooling.  Frame-level
+        # dense heads above keep ReLU to avoid changing their existing behavior.
+        z_proj = F.gelu(z_pre)                                     # (B, T, P)
         if self.attention_pool:
             a = self.attn(z_proj).masked_fill(~mask, -1e9)        # (B, T, 1)
             a = torch.softmax(a, dim=1)                           # attention weights over time

@@ -331,7 +331,16 @@ class DISConfig:
     club_weight:        float = 0.3
     club_lr:            float = 1e-3
     club_inner_steps:   int   = 3
-    club_hidden:        int   = 256
+    club_hidden:        int   = 512
+    # Phoneme CLUB on z_P (frame-level, pr_head argmax as pseudo-labels).
+    # Warmup gates the loss until pr_head's argmax stabilises — before that
+    # the pseudo-labels are random and CLUB would chase noise.
+    club_phoneme_enabled:       bool  = False
+    club_phoneme_weight:        float = 0.3
+    club_phoneme_lr:            float = 1e-3
+    club_phoneme_inner_steps:   int   = 3
+    club_phoneme_hidden:        int   = 512
+    club_phoneme_warmup_steps:  int   = 1000
 
     # ---------------------------------------------------------------- Misc
     seed:   int  = 42

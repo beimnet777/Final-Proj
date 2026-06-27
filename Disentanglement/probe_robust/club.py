@@ -61,13 +61,20 @@ class CLUBSampled(nn.Module):
         self,
         in_dim: int,
         num_classes: int,
-        hidden: int = 256,
+        hidden: int = 512,
         lr: float = 1e-3,
     ) -> None:
         super().__init__()
+        # Input LayerNorm: z_pool is sparse (~5% active) high-dim (10240); without
+        # normalization, default-init Linear(10240, .) produces pre-activations
+        # of order 1e-3 -> logits ~0 -> softmax uniform -> CLUB bound stuck at 0.
+        # Mid-layer LayerNorm: keeps hidden pre-softmax scale stable as q_phi
+        # learns. GELU (not ReLU) so units do not die at near-zero init pre-acts.
         self.classifier = nn.Sequential(
+            nn.LayerNorm(in_dim),
             nn.Linear(in_dim, hidden),
-            nn.ReLU(),
+            nn.GELU(),
+            nn.LayerNorm(hidden),
             nn.Linear(hidden, num_classes),
         )
         self.optimizer = torch.optim.Adam(self.classifier.parameters(), lr=lr)

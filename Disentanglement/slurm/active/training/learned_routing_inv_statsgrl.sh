@@ -96,14 +96,14 @@ case "${METHOD}" in
     robustgrl_gp02)
         METHOD_ARGS=(
             --grl_robust_sid --grl_robust_activation gelu
-            --grl_grad_norm --grl_grad_norm_target 0.001
+            --grl_grad_norm --grl_grad_norm_target 0.0005
             --alpha 0.8 --beta 0.6
             --grl_weight 1.0 --grl_phoneme_weight 0.15
             --grl_delay_steps 0
             --dann_full_discriminator --lr_disc 1e-3 --n_disc_steps 3
             --rho 0.0 --grad_clip 1.0
         )
-        METHOD_LABEL="robust two-branch z_L GRL: signed linear mean + GELU mean/std, grad-norm target=0.001, z_P phone GRL=0.15"
+        METHOD_LABEL="robust two-branch z_L GRL: signed linear mean + GELU mean/std, grad-norm target=0.0005, z_P phone GRL=0.15"
         ;;
     *)
         echo "ERROR: unknown method=${METHOD}" >&2

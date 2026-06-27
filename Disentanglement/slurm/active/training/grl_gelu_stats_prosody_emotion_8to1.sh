@@ -7,20 +7,22 @@
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
-#SBATCH --job-name=invpem
+#SBATCH --job-name=grlgelupem
 #SBATCH --array=0-1%2
-#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/inv_dense_prosody_emotion_8to1/%x_%A_%a.out
-#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/inv_dense_prosody_emotion_8to1/%x_%A_%a.err
+#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/grl_gelu_stats_prosody_emotion_8to1/%x_%A_%a.out
+#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/grl_gelu_stats_prosody_emotion_8to1/%x_%A_%a.err
 
-# Binary learned-routing pilot for a multi-task paralinguistic z_P:
-#   0: soft learned L/P routing
-#   1: hard ST-Gumbel learned L/P routing
+# Non-invariance PEM variant.
 #
-# No fixed blocks and no z_U: --n_routes 2 only.  LibriSpeech remains the main
-# clock for reconstruction, PR, SID, speaker-invariance, dense speaker-GRL,
-# phoneme-GRL, and prosody.  IEMOCAP is an auxiliary pulse every 8 Libri steps:
-# z_P predicts 4-way emotion, z_L receives a mild emotion-GRL, and the same
-# prosody heads can see IEMOCAP audio-derived F0/energy.
+# Same binary learned L/P routing and Libri:IEMOCAP cadence as the invariance PEM
+# run, but the pitch/formant perturbed-pair invariance loss is OFF.  Speaker
+# removal from z_L comes from a robust speaker-GRL instead:
+#   branch A: signed linear masked mean
+#   branch B: GELU masked mean+std stats pooling
+#
+# No fixed blocks and no z_U: --n_routes 2 only.  This isolates whether the
+# reconstruction instability came from invariance while keeping the prosody,
+# emotion, and phoneme-leakage controls active.
 
 set -euo pipefail
 . /etc/profile.d/modules.sh
@@ -34,7 +36,7 @@ export HF_HOME="${DIS_DIR}/../Probing/data/hf_home"
 export HF_DATASETS_CACHE="${DIS_DIR}/../Probing/data/datasets_cache"
 export HF_HUB_CACHE="${DIS_DIR}/../Probing/data/hub_cache"
 
-mkdir -p "${DIS_DIR}/logs/train/stage2/inv_dense_prosody_emotion_8to1"
+mkdir -p "${DIS_DIR}/logs/train/stage2/grl_gelu_stats_prosody_emotion_8to1"
 cd "${DIS_DIR}"
 
 ROUTINGS=(soft hard)
@@ -77,11 +79,11 @@ case "${ROUTING}" in
         ;;
 esac
 
-RUN_NAME="inv_dense_prosody_emotion_8to1_${ROUTING}_seed${TRAIN_SEED}"
+RUN_NAME="grl_gelu_stats_prosody_emotion_8to1_${ROUTING}_seed${TRAIN_SEED}"
 CKPT_DIR="${DIS_DIR}/checkpoints/${RUN_NAME}"
 FINAL_CKPT="${CKPT_DIR}/stage2_step${STAGE2_STEPS}.pt"
 
-echo "=== inv_dense + prosody + emotion, binary learned routing ==="
+echo "=== GRL-GELU-stats + prosody + emotion, binary learned routing ==="
 echo "started          : $(date)"
 echo "array_task       : ${TASK_ID}"
 echo "gpu              : $(nvidia-smi --query-gpu=name --format=csv,noheader)"
@@ -94,7 +96,8 @@ echo "batch ratio      : Libri batch=16, IEMOCAP batch=${IEMOCAP_BATCH_SIZE} (de
 echo "iemocap_root     : ${IEMOCAP_ROOT}"
 echo "iemocap_fold     : ${IEMOCAP_FOLD}"
 echo "no_z_U           : --n_routes 2, no z_U adversaries"
-echo "z_L removal      : invariance w4 + dense speaker-GRL w1 + prosody-GRL + mild emotion-GRL"
+echo "invariance       : OFF"
+echo "z_L removal      : robust speaker-GRL, linear mean + GELU mean/std stats, grl_weight=1.0"
 echo "speaker grl_norm : target=0.0005"
 echo "z_P tasks        : SID + prosody + emotion, with phoneme-GRL"
 echo "phoneme grl_norm : target=0.0005"
@@ -107,8 +110,7 @@ ${PYTHON} -u run.py \
     --routing_init_std 0.5 --routing_spec_weight 0.01 --lr_routing 1e-3 \
     --local_data --train_split_dir train-clean-100 --spear_layernorm \
     --num_workers 8 \
-    --invariance --inv_weight 4.0 --inv_ramp_end 0 \
-    --grl_dense_context --grl_context_kernel 31 \
+    --grl_robust_sid --grl_robust_activation gelu \
     --grl_grad_norm --grl_grad_norm_target 0.0005 \
     --alpha 0.8 --beta 0.6 \
     --grl_weight 1.0 --grl_phoneme_weight 0.5 \

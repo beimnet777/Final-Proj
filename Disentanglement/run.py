@@ -281,6 +281,14 @@ def _parse_args():
     p.add_argument("--club_lr",           type=float, default=cfg.club_lr)
     p.add_argument("--club_inner_steps",  type=int,   default=cfg.club_inner_steps)
     p.add_argument("--club_hidden",       type=int,   default=cfg.club_hidden)
+    p.add_argument("--club_phoneme_enabled", action="store_true",
+                   help="Add frame-level CLUB MI-min on (z_P, pr_head.argmax). "
+                        "Symmetric to --club_enabled but for phoneme leakage out of z_P.")
+    p.add_argument("--club_phoneme_weight",       type=float, default=cfg.club_phoneme_weight)
+    p.add_argument("--club_phoneme_lr",           type=float, default=cfg.club_phoneme_lr)
+    p.add_argument("--club_phoneme_inner_steps",  type=int,   default=cfg.club_phoneme_inner_steps)
+    p.add_argument("--club_phoneme_hidden",       type=int,   default=cfg.club_phoneme_hidden)
+    p.add_argument("--club_phoneme_warmup_steps", type=int,   default=cfg.club_phoneme_warmup_steps)
 
     # paths
     p.add_argument("--checkpoint_dir", default=str(cfg.checkpoint_dir))
@@ -433,6 +441,12 @@ def _parse_args():
     cfg.club_lr               = args.club_lr
     cfg.club_inner_steps      = args.club_inner_steps
     cfg.club_hidden           = args.club_hidden
+    cfg.club_phoneme_enabled       = bool(args.club_phoneme_enabled)
+    cfg.club_phoneme_weight        = args.club_phoneme_weight
+    cfg.club_phoneme_lr            = args.club_phoneme_lr
+    cfg.club_phoneme_inner_steps   = args.club_phoneme_inner_steps
+    cfg.club_phoneme_hidden        = args.club_phoneme_hidden
+    cfg.club_phoneme_warmup_steps  = args.club_phoneme_warmup_steps
     cfg.checkpoint_dir        = Path(args.checkpoint_dir)
     cfg.runs_dir              = Path(args.runs_dir)
     cfg.log_dir               = Path(args.log_dir)

@@ -436,21 +436,27 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
         l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
         l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
-        l_grl   = _speaker_adv_loss(out["grl_logits"], adversary_speaker_ids, out["out_lengths"])
         l_route = (route_loss(model.routing.logits) if _routing_active
                    else l_recon.new_zeros(()))
 
         raw: Dict[str, float] = {}
-        # Exp 1: phoneme GRL on z_P
-        _grl_p_w = getattr(cfg, 'grl_phoneme_weight', 0.0)
+        # Probe-robust runs (grl_weight=0): GRL forward + grad measurement is
+        # not informative — the head receives no gradient and is essentially
+        # an untrained random projection. Skip its diagnostics entirely.
+        _grl_on   = (cfg.grl_weight > 0)
+        _grl_p_w  = getattr(cfg, 'grl_phoneme_weight', 0.0)
+        _grl_p_on = (_grl_p_w > 0)
+
+        l_grl = l_recon.new_zeros(())
+        if _grl_on:
+            l_grl = _speaker_adv_loss(out["grl_logits"], adversary_speaker_ids, out["out_lengths"])
         l_grl_p_gn = (ctc_pr_loss(out["pr_grl_logits"], targets, out["out_lengths"], target_lengths)
-                      if (_grl_p_w > 0 and "pr_grl_logits" in out)
+                      if (_grl_p_on and "pr_grl_logits" in out)
                       else l_recon.new_zeros(()))
 
         # --- PER-FRAME gradient each adversary delivers to its block (reversal
-        # strength factored out, lam=1) — exposes the pooled-vs-dense dilution:
-        # pooled grl spreads one gradient over T frames; per-frame grl_p gives each
-        # frame its own.  Reported as the mean over valid frames of ||dL/dz[t]||.
+        # strength factored out, lam=1) — exposes the pooled-vs-dense dilution.
+        # Computed only when the corresponding adversary is actually on.
         def _per_frame_grad(loss, z):
             g = torch.autograd.grad(loss, z, retain_graph=True, allow_unused=True)[0]
             if g is None:
@@ -459,11 +465,13 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
             Tg = pf.shape[1]
             m  = (torch.arange(Tg, device=z.device).unsqueeze(0) < out["out_lengths"].unsqueeze(1)).float()
             return float((pf * m).sum() / m.sum().clamp(min=1))
-        sp_lg  = model.grl_head(out["z_L"], out["out_lengths"], 1.0)
-        L_sp   = _speaker_adv_loss(sp_lg, adversary_speaker_ids, out["out_lengths"])
-        pf_grl = _per_frame_grad(L_sp, out["z_L"])
+        pf_grl = 0.0
+        if _grl_on:
+            sp_lg  = model.grl_head(out["z_L"], out["out_lengths"], 1.0)
+            L_sp   = _speaker_adv_loss(sp_lg, adversary_speaker_ids, out["out_lengths"])
+            pf_grl = _per_frame_grad(L_sp, out["z_L"])
         pf_grl_p = 0.0
-        if _grl_p_w > 0 and hasattr(model, 'pr_grl_head'):
+        if _grl_p_on and hasattr(model, 'pr_grl_head'):
             ph_lg  = model.pr_grl_head(out["z_P"], 1.0)
             L_ph   = ctc_pr_loss(ph_lg, targets, out["out_lengths"], target_lengths)
             pf_grl_p = _per_frame_grad(L_ph, out["z_P"])
@@ -472,9 +480,10 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
             ("recon",    l_recon,              True),
             ("pr",       l_pr,                 True),
             ("sid",      l_sid,                True),
-            ("grl",      l_grl,                True),
         ]
-        if _grl_p_w > 0:
+        if _grl_on:
+            loss_terms.append(("grl", l_grl, True))
+        if _grl_p_on:
             # With dann_full_discriminator the weight already lives in the lambda.
             _dann_fix = getattr(cfg, 'dann_full_discriminator', False)
             loss_terms.append(("grl_p", l_grl_p_gn if _dann_fix else _grl_p_w * l_grl_p_gn, True))
@@ -489,7 +498,9 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
                 flat_vecs[name] = v
         if not _routing_active:
             raw["route"] = 0.0
-        if _grl_p_w == 0:
+        if not _grl_on:
+            raw["grl"] = 0.0
+        if not _grl_p_on:
             raw["grl_p"] = 0.0
 
         # Pairwise cosines between per-loss gradients on the shared SAE encoder.
@@ -507,27 +518,31 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
                 cos_pairs[f"{a}_vs_{b}"] = float((va @ vb / (na * nb)).item())
 
     grl_w  = eff_grl_weight if eff_grl_weight >= 0 else cfg.grl_weight
-    _grl_p = getattr(cfg, 'grl_phoneme_weight', 0.0)
     norms = {
         "recon":        raw["recon"],
         "pr_raw":       raw["pr"],
         "pr_weighted":  raw["pr"]  * cfg.alpha,
         "sid_raw":      raw["sid"],
         "sid_weighted": raw["sid"] * cfg.beta,
-        "grl":          raw["grl"] * grl_w,
-        "grl_p":        raw.get("grl_p", 0.0),
-        "route":        raw["route"],
     }
+    if _grl_on:
+        norms["grl"]   = raw["grl"] * grl_w
+    if _grl_p_on:
+        norms["grl_p"] = raw.get("grl_p", 0.0)
+    if _routing_active:
+        norms["route"] = raw["route"]
 
     recon_n = norms["recon"]
     lines   = [f"  [grad_norms @{step}]"]
     for k, v in norms.items():
         ratio = v / recon_n if recon_n > 1e-8 else float("nan")
         lines.append(f"    {k:<16s}  |g|={v:.5f}  ratio={ratio:.3f}x recon")
-    # per-frame gradient density (mean ||dL/dz[t]|| over valid frames; lam=1)
-    ratio_pf = (pf_grl_p / pf_grl) if pf_grl > 1e-12 else float("nan")
-    lines.append(f"    per-frame |dL/dz[t]|:  grl(z_L)={pf_grl:.5f}   grl_p(z_P)={pf_grl_p:.5f}"
-                 f"   (grl_p/grl = {ratio_pf:.1f}x  <- pooled-vs-dense dilution)")
+    # per-frame adversary gradient density — only meaningful when an adversary
+    # is actually on. Probe-robust runs (CLUB / VICReg, grl_weight=0) skip it.
+    if _grl_on or _grl_p_on:
+        ratio_pf = (pf_grl_p / pf_grl) if pf_grl > 1e-12 else float("nan")
+        lines.append(f"    per-frame |dL/dz[t]|:  grl(z_L)={pf_grl:.5f}   grl_p(z_P)={pf_grl_p:.5f}"
+                     f"   (grl_p/grl = {ratio_pf:.1f}x  <- pooled-vs-dense dilution)")
     if cos_pairs:
         lines.append(f"    [grad_cos @{step}]  shared=sae.enc_weight; cos<0 = conflict")
         for pair, c in cos_pairs.items():
@@ -993,6 +1008,25 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         print(f"[stage 2] CLUB ON: weight={cfg.club_weight}  inner_steps={cfg.club_inner_steps}  "
               f"lr={cfg.club_lr}  hidden={cfg.club_hidden}  in_dim={2 * cfg.K}  "
               f"num_speakers={cfg.num_speakers}  pool=mean+std(z_L)")
+
+    # ---- probe_robust: phoneme CLUB on z_P (frame-level) ----
+    club_phn_module = None
+    if bool(getattr(cfg, 'club_phoneme_enabled', False)):
+        # Per-frame z_P -> K-dim input. Targets are pr_head argmax (pseudo
+        # labels). 74 phoneme classes by default. Warmup gates the loss until
+        # pr_head is no longer random.
+        club_phn_module = CLUBSampled(
+            in_dim=int(cfg.K),
+            num_classes=int(cfg.vocab_size),
+            hidden=int(cfg.club_phoneme_hidden),
+            lr=float(cfg.club_phoneme_lr),
+        ).to(device)
+        print(f"[stage 2] CLUB-phn ON: weight={cfg.club_phoneme_weight}  "
+              f"inner_steps={cfg.club_phoneme_inner_steps}  "
+              f"lr={cfg.club_phoneme_lr}  hidden={cfg.club_phoneme_hidden}  "
+              f"in_dim={cfg.K}  num_classes={cfg.vocab_size}  "
+              f"warmup_steps={cfg.club_phoneme_warmup_steps}  "
+              f"target=pr_head.argmax  pool=per-frame(z_P)")
     no_routing     = getattr(cfg, 'no_routing', False)
     fixed_blocks   = getattr(cfg, 'fixed_blocks', False)
     n_routes       = getattr(cfg, 'n_routes', 3)
@@ -1274,6 +1308,12 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                          vicreg_covariance_loss(out["z_P"], out["out_lengths"], mask_dim=_mP))
 
             # ---- probe_robust: CLUB MI-min on (stats_pool(z_L), speaker_id) ----
+            # bf16 throughout (matches the rest of the training pass — no fp32
+            # island, no precision-mismatch artifacts). The q_phi LayerNorm at
+            # the input normalises z_pool to unit variance per-example so that
+            # default-init Linear pre-activations land at O(1) rather than
+            # O(1e-3); that's what makes bf16 OK for this head despite its
+            # 10240-d sparse input.
             l_club = l_recon.new_zeros(())
             club_ce = float('nan')
             club_acc = float('nan')
@@ -1289,9 +1329,39 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 _std  = (_var + 1e-5).sqrt()                        # (B, K)
                 _z_pool = torch.cat([_mean, _std], dim=-1)          # (B, 2K)
                 club_ce, club_acc = club_module.inner_step(
-                    _z_pool.detach(), speaker_ids, k=int(cfg.club_inner_steps)
+                    _z_pool.detach(), speaker_ids,
+                    k=int(cfg.club_inner_steps),
                 )
                 l_club = club_module.mi_bound(_z_pool, speaker_ids)
+
+            # ---- probe_robust: phoneme CLUB MI-min on (z_P per-frame, phoneme) ----
+            # Symmetric to the speaker CLUB but operates frame-wise: input is
+            # the raw per-frame z_P (no pooling — phoneme labels are inherently
+            # frame-level), targets are the pr_head's argmax frame predictions
+            # used as pseudo-labels (we have CTC sequence targets, not forced
+            # frame alignments; pr_head's own argmax is the closest tractable
+            # frame label and aligns with what a phoneme probe would extract).
+            # Warmup gate: pr_head needs to stabilise before its argmax is
+            # meaningful — until then, q_phi_phn would be chasing random labels.
+            l_club_phn = l_recon.new_zeros(())
+            club_phn_ce  = float('nan')
+            club_phn_acc = float('nan')
+            if (club_phn_module is not None
+                    and step >= int(cfg.club_phoneme_warmup_steps)):
+                _zP = out["z_P"]
+                _olen2 = out["out_lengths"]
+                _Bp, _Tp, _Kp = _zP.shape
+                _fm2 = (torch.arange(_Tp, device=device).unsqueeze(0)
+                        < _olen2.unsqueeze(1))                      # (B, T) bool
+                _zP_flat = _zP[_fm2]                                # (N_valid, K)
+                with torch.no_grad():
+                    _phn_pseudo = out["pr_logits"].argmax(dim=-1)   # (B, T)
+                _y_phn = _phn_pseudo[_fm2]                          # (N_valid,)
+                club_phn_ce, club_phn_acc = club_phn_module.inner_step(
+                    _zP_flat.detach(), _y_phn,
+                    k=int(cfg.club_phoneme_inner_steps),
+                )
+                l_club_phn = club_phn_module.mi_bound(_zP_flat, _y_phn)
 
             # ---- IEMOCAP auxiliary emotion/prosody batch (8 Libri : 1 IEMOCAP by default) ----
             l_emo = l_emo_grl = l_emo_pros = l_emo_pros_grl = l_recon.new_zeros(())
@@ -1350,6 +1420,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + inv_var_w        * l_var
                           + float(cfg.vicreg_cov_weight) * l_cov
                           + float(cfg.club_weight)       * l_club
+                          + float(cfg.club_phoneme_weight) * l_club_phn
                           + l_emo_aux
                           + cfg.rho          * l_route
                           + spec_w           * l_spec
@@ -1498,11 +1569,15 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     num, den    = _ctc_errors(out["pr_grl_u_logits"], targets, out["out_lengths"], target_lengths)
                     grl_p_u_per = num / max(den, 1)
 
-            losses["grl_acc"] = grl_acc
-            if grl_true_acc is not None: losses["grl_true_acc"] = grl_true_acc
-            if grl_p_per   is not None: losses["grl_p_per"]   = grl_p_per
-            if grl_u_acc   is not None: losses["grl_u_acc"]   = grl_u_acc
-            if grl_p_u_per is not None: losses["grl_p_u_per"] = grl_p_u_per
+            # Probe-robust runs (grl_weight=0) suppress GRL diagnostics from
+            # TB too — they reflect a phantom head not being trained.
+            if cfg.grl_weight > 0:
+                losses["grl_acc"] = grl_acc
+                if grl_true_acc is not None: losses["grl_true_acc"] = grl_true_acc
+            if grl_p_weight > 0 and grl_p_per is not None:
+                losses["grl_p_per"] = grl_p_per
+            if grl_u_weight   > 0 and grl_u_acc   is not None: losses["grl_u_acc"]   = grl_u_acc
+            if grl_p_u_weight > 0 and grl_p_u_per is not None: losses["grl_p_u_per"] = grl_p_u_per
 
             grl_p_str = ""
             if grl_p_weight > 0:
@@ -1567,6 +1642,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 losses["probe_robust/club"]     = float(l_club.item())
                 losses["probe_robust/q_phi_ce"] = float(club_ce) if club_ce == club_ce else 0.0
                 losses["probe_robust/q_phi_acc"] = float(club_acc) if club_acc == club_acc else 0.0
+                losses["probe_robust/club_phn"]     = float(l_club_phn.item())
+                losses["probe_robust/q_phi_phn_ce"] = float(club_phn_ce) if club_phn_ce == club_phn_ce else 0.0
+                losses["probe_robust/q_phi_phn_acc"] = float(club_phn_acc) if club_phn_acc == club_phn_acc else 0.0
                 losses["eff_rank/zL"]           = _eL
                 losses["eff_rank/zP"]           = _eP
                 losses["pair_mix/alpha_arctic"] = _f_arctic
@@ -1576,6 +1654,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     f"  var={l_var.item():.4f}"
                     f"  cov={l_cov.item():.4f}"
                     f"  club={l_club.item():+.4f}  q_phi[ce={club_ce:.3f},acc={club_acc:.3f}]"
+                    f"  clubP={l_club_phn.item():+.4f}  q_phi_phn[ce={club_phn_ce:.3f},acc={club_phn_acc:.3f}]"
                     f"  k[L/P]={diag_L['k_active']}/{diag_P['k_active']}"
                     f"  Zσ10[L/P]={diag_L['p10_std']:.2f}/{diag_P['p10_std']:.2f}"
                     f"  blw[L/P]={diag_L['frac_blw_g']:.2f}/{diag_P['frac_blw_g']:.2f}"
@@ -1596,15 +1675,21 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 _gw = gn_ctrl.weights()
                 gn_str = "  gn=[" + " ".join(f"{k}:{v:.2f}" for k, v in _gw.items()) + "]"
                 losses.update({f"w_{k}": v for k, v in _gw.items()})
-            grl_true_str = (f",true={grl_true_acc:.3f}"
-                            if grl_true_acc is not None else "")
+            # Suppress GRL log fields when the GRL mechanism is off
+            # (probe-robust / CLUB runs): the head forwards still run but
+            # contribute zero gradient, and printing their CE/acc clutters
+            # the log with a phantom adversary.
+            grl_str = ""
+            if cfg.grl_weight > 0:
+                grl_true_str = (f",true={grl_true_acc:.3f}"
+                                if grl_true_acc is not None else "")
+                grl_str = f"  grl={l_grl.item():.4f}(acc={grl_acc:.3f}{grl_true_str})"
             print(
                 f"  step {step:>6d}/{cfg.stage2_steps}"
                 f"  recon={l_recon.item():.4f}"
                 f"  pr={l_pr.item():.4f}"
                 f"  sid={l_sid.item():.4f}"
-                f"  grl={l_grl.item():.4f}(acc={grl_acc:.3f}{grl_true_str})"
-                f"{grl_p_str}{u_str}{pros_str}{emo_str}{inv_str}{dual_inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
+                f"{grl_str}{grl_p_str}{u_str}{pros_str}{emo_str}{inv_str}{dual_inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
                 f"  L/P/U={n_L}/{n_P}/{n_U}"
                 f"  actL/P/U={act_L.item():.0f}/{act_P.item():.0f}/{act_U.item():.0f}"
                 f"  H={entropy:.3f}"
@@ -1627,10 +1712,18 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             # the model heads — NOT a probe.  Build heads: z_L PR (pr_head), z_P SID
             # (sid_head).  Adversary heads (co-adapted proxy): z_L SID (grl_head),
             # z_P PR (pr_grl_head), z_U PR/SID (pr_grl_u_head / grl_u_head).
-            zL_str = f"z_L PR={val_metrics['per']:.3f} SID={val_metrics['grl_acc']:.3f}"
-            zP_str = (f"z_P PR={val_metrics['grl_p_per']:.3f} SID={val_metrics['sid_acc']:.3f}"
-                      if "grl_p_per" in val_metrics
-                      else f"z_P SID={val_metrics['sid_acc']:.3f}")
+            # Probe-robust runs (grl_weight=0 / grl_phoneme_weight=0) skip the
+            # adversary readouts — those heads are untrained random projections
+            # in that mode and their accuracy/PER is not a leakage signal.
+            # Authoritative cross-leakage measurements come from diag_probe/.
+            if cfg.grl_weight > 0:
+                zL_str = f"z_L PR={val_metrics['per']:.3f} SID={val_metrics['grl_acc']:.3f}"
+            else:
+                zL_str = f"z_L PR={val_metrics['per']:.3f}"
+            if grl_p_weight > 0 and "grl_p_per" in val_metrics:
+                zP_str = f"z_P PR={val_metrics['grl_p_per']:.3f} SID={val_metrics['sid_acc']:.3f}"
+            else:
+                zP_str = f"z_P SID={val_metrics['sid_acc']:.3f}"
             bucket_str = f"  | {zL_str}  | {zP_str}"
             if "grl_u_acc" in val_metrics:
                 zU_pr = f"PR={val_metrics['grl_p_u_per']:.3f} " if "grl_p_u_per" in val_metrics else ""

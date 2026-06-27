@@ -7,15 +7,15 @@
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
-#SBATCH --job-name=inv_dense_robust
-#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/inv_dense_robust_stronger/%x_%j.out
-#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/inv_dense_robust_stronger/%x_%j.err
+#SBATCH --job-name=inv_gelu_nodense
+#SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/inv_robust_gelu_nodense/%x_%j.out
+#SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/logs/train/stage2/inv_robust_gelu_nodense/%x_%j.err
 
-# Stronger inv_dense variant:
+# Stronger invariance + robust no-dense GRL variant:
 #   - learned binary L/P routing, stage-2 from scratch (NO fixed blocks, NO z_U)
 #   - slightly stronger pitch/formant invariance on z_L
 #   - robust branched z_L speaker GRL:
-#       linear mean branch + GELU stats branch + dense-context frame branch
+#       signed linear mean branch + GELU mean+std branch
 #   - z_P phone GRL kept on, to control phone leakage into the paralinguistic bucket
 #   - probe final checkpoint only, not stage2_best.pt
 
@@ -31,7 +31,7 @@ export HF_HOME="${DIS_DIR}/../Probing/data/hf_home"
 export HF_DATASETS_CACHE="${DIS_DIR}/../Probing/data/datasets_cache"
 export HF_HUB_CACHE="${DIS_DIR}/../Probing/data/hub_cache"
 
-RUN_NAME="inv_dense_robust_stronger"
+RUN_NAME="${RUN_NAME:-inv_robust_gelu_nodense}"
 STAGE2_STEPS="${STAGE2_STEPS:-12000}"
 PROBE_STEPS="${PROBE_STEPS:-10000}"
 PROBE_VAL_EVERY="${PROBE_VAL_EVERY:-250}"
@@ -61,7 +61,7 @@ case "${ROUTING}" in
         ;;
 esac
 
-echo "=== inv_dense_robust_stronger: stronger invariance + branched dense GRL ==="
+echo "=== inv_robust_gelu_nodense: stronger invariance + robust no-dense GELU GRL ==="
 echo "started          : $(date)"
 echo "node             : ${SLURMD_NODENAME:-unknown}"
 echo "gpu              : $(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)"
@@ -69,7 +69,7 @@ echo "run_name         : ${RUN_NAME}"
 echo "stage2_steps     : ${STAGE2_STEPS}"
 echo "routing          : ${ROUTING_LABEL}; n_routes=2; no fixed_blocks; no z_U"
 echo "invariance       : w=4.0, no ramp, f0=[0.6,1.7], formant=[0.75,1.55]"
-echo "z_L grl          : robust branches = linear mean + GELU stats + dense context"
+echo "z_L grl          : robust branches = signed linear mean + GELU mean+std"
 echo "z_P grl          : PR-GRL weight=0.5"
 echo "probe seeds      : ${PROBE_SEEDS_STR}"
 echo "probe final ckpt : stage2_step${STAGE2_STEPS}.pt"
@@ -82,7 +82,6 @@ echo
     --inv_f0_low 0.6 --inv_f0_high 1.7 \
     --inv_formant_low 0.75 --inv_formant_high 1.55 \
     --grl_robust_sid --grl_robust_activation gelu \
-    --grl_dense_context --grl_context_kernel 31 \
     --local_data --train_split_dir train-clean-100 --spear_layernorm --num_workers 12 \
     --alpha 0.8 --beta 0.6 --grl_weight 2.0 --grl_phoneme_weight 0.5 \
     --grl_delay_steps 0 --dann_full_discriminator --lr_disc 1e-3 --n_disc_steps 3 --rho 0.0 \
