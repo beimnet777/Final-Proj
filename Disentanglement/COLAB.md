@@ -4,6 +4,13 @@ Use `notebooks/Disentanglement_Colab.ipynb` for MSP or LibriSpeech stage-2
 experiments. The notebook is an orchestration layer; model and loss code remains
 in the normal trainers.
 
+LibriSpeech does not need to be present on your computer. Before training or a
+smoke test, the notebook downloads the complete corpus used by this project:
+`train-clean-100`, `dev-clean`, and `test-clean`. The original OpenSLR archives
+are cached under `MyDrive/FinalProjColab/assets/openslr/`, so later sessions only
+copy and extract them. MSP is licensed and must still be prepared from an
+authorized copy.
+
 ## Prepare data once
 
 MSP is licensed data. Run this only on a machine where the corpus is available,
