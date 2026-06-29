@@ -63,9 +63,13 @@ def _parse_args():
     p.add_argument("--max_train_examples",    type=int,   default=cfg.max_train_examples)
     p.add_argument("--max_val_examples",      type=int,   default=cfg.max_val_examples)
     p.add_argument("--max_test_examples",     type=int,   default=cfg.max_test_examples)
+    p.add_argument("--speaker_stratified_holdout", action="store_true",
+                   help="construct closed-set val/test splits with per-speaker coverage")
 
     # model
     p.add_argument("--spear_model_id", default=cfg.spear_model_id)
+    p.add_argument("--spear_revision", default=cfg.spear_revision,
+                   help="optional immutable Hugging Face model commit")
     p.add_argument("--K",    type=int, default=cfg.K)
     p.add_argument("--topk", type=int, default=cfg.topk)
     p.add_argument("--aux_k", type=int, default=cfg.aux_k,
@@ -301,6 +305,17 @@ def _parse_args():
     p.add_argument("--seed",        type=int, default=cfg.seed)
     p.add_argument("--num_workers", type=int, default=cfg.num_workers)
     p.add_argument("--no_bf16",     action="store_true")
+    # Resumable segmented runtime (used by experiment_runner/Colab; harmless on HPC).
+    p.add_argument("--resume", default="none",
+                   help="format-v2 checkpoint path, 'auto', or 'none'")
+    p.add_argument("--segment_steps", type=int, default=0)
+    p.add_argument("--max_runtime_minutes", type=float, default=0.0)
+    p.add_argument("--resume_every", type=int, default=0)
+    p.add_argument("--gradient_accumulation_steps", type=int, default=1)
+    p.add_argument("--precision", choices=("auto", "bf16", "fp16", "fp32"), default="auto")
+    p.add_argument("--dataset_fingerprint", default="")
+    p.add_argument("--experiment_preset", default="")
+    p.add_argument("--drive_mirror", default="")
 
     args = p.parse_args()
 
@@ -312,7 +327,9 @@ def _parse_args():
     cfg.max_train_examples    = args.max_train_examples
     cfg.max_val_examples      = args.max_val_examples
     cfg.max_test_examples     = args.max_test_examples
+    cfg.speaker_stratified_holdout = args.speaker_stratified_holdout
     cfg.spear_model_id        = args.spear_model_id
+    cfg.spear_revision        = args.spear_revision
     cfg.K                     = args.K
     cfg.topk                  = args.topk
     cfg.aux_k                 = args.aux_k
@@ -457,6 +474,20 @@ def _parse_args():
     cfg.num_workers           = args.num_workers
     cfg.bf16                  = not args.no_bf16
     cfg.device                = "cuda" if torch.cuda.is_available() else "cpu"
+    cfg.resume                = args.resume
+    cfg.segment_steps         = args.segment_steps
+    cfg.max_runtime_minutes   = args.max_runtime_minutes
+    cfg.resume_every          = args.resume_every
+    cfg.gradient_accumulation_steps = max(1, args.gradient_accumulation_steps)
+    cfg.precision             = args.precision
+    cfg.dataset_fingerprint   = args.dataset_fingerprint
+    cfg.experiment_preset     = args.experiment_preset
+    cfg.drive_mirror          = args.drive_mirror
+    if not cfg.spear_revision and cfg.resume not in {"none", ""}:
+        _rp = cfg.checkpoint_dir / "latest-resume.pt" if cfg.resume == "auto" else Path(cfg.resume)
+        if _rp.exists():
+            _meta = torch.load(_rp, map_location="cpu", weights_only=False)
+            cfg.spear_revision = str(_meta.get("analysis_config", {}).get("spear_revision", ""))
 
     return cfg, args.stage, args.stage1_ckpt, args.stage2_from_scratch
 

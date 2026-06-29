@@ -12,6 +12,7 @@ _DIS_DIR = Path(__file__).parent
 class DISConfig:
     # ---------------------------------------------------------------- SPEAR
     spear_model_id: str = "marcoyang/spear-xlarge-speech-audio"
+    spear_revision: str = ""  # optional immutable HF commit; resolved commit is checkpointed
     D: int = 1280       # SPEAR-Large hidden size
     spear_layernorm: bool = False  # LayerNorm each SPEAR layer (no affine) before averaging → SUPERB-comparable h_t
 

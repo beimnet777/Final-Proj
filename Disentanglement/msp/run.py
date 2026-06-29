@@ -20,6 +20,8 @@ def main() -> None:
     p.add_argument("--manifest", default=d.manifest)
     p.add_argument("--audio_root", default=d.audio_root)
     p.add_argument("--transcripts", default=d.transcripts)
+    p.add_argument("--spear_revision", default="",
+                   help="optional immutable Hugging Face SPEAR commit")
     # schedule / scale
     p.add_argument("--steps", type=int, default=d.steps)
     p.add_argument("--warmup_steps", type=int, default=d.warmup_steps)
@@ -58,6 +60,8 @@ def main() -> None:
     p.add_argument("--emotion_weight", type=float, default=d.emotion_weight)
     p.add_argument("--grl_emotion_weight", type=float, default=d.grl_emotion_weight)
     p.add_argument("--inv_weight", type=float, default=d.inv_weight)
+    p.add_argument("--no_invariance", action="store_true",
+                   help="disable perturbation generation and the invariance objective")
     # misc
     p.add_argument("--run_name", default="msp_v1")
     p.add_argument("--checkpoint_dir", default=None)
@@ -65,6 +69,15 @@ def main() -> None:
                    help="optional SAE init from a stage-1 checkpoint (default: from scratch)")
     p.add_argument("--smoke", action="store_true",
                    help="tiny dry-run: 3 steps, eval every 3, to validate wiring")
+    p.add_argument("--resume", default="none")
+    p.add_argument("--segment_steps", type=int, default=0)
+    p.add_argument("--max_runtime_minutes", type=float, default=0.0)
+    p.add_argument("--resume_every", type=int, default=0)
+    p.add_argument("--gradient_accumulation_steps", type=int, default=1)
+    p.add_argument("--precision", choices=("auto", "bf16", "fp16", "fp32"), default="auto")
+    p.add_argument("--dataset_fingerprint", default="")
+    p.add_argument("--experiment_preset", default="")
+    p.add_argument("--drive_mirror", default="")
     a = p.parse_args()
 
     m = MSPConfig(
@@ -86,8 +99,27 @@ def main() -> None:
         grl_emotion_weight=a.grl_emotion_weight, inv_weight=a.inv_weight,
     )
     cfg = to_dis_cfg(m)
+    cfg.spear_revision = a.spear_revision
+    if a.no_invariance:
+        cfg.invariance = False
+        cfg.inv_weight = 0.0
     cfg.checkpoint_dir = Path(a.checkpoint_dir) if a.checkpoint_dir else \
         Path(__file__).resolve().parent / "checkpoints" / a.run_name
+    cfg.resume = a.resume
+    cfg.segment_steps = a.segment_steps
+    cfg.max_runtime_minutes = a.max_runtime_minutes
+    cfg.resume_every = a.resume_every
+    cfg.gradient_accumulation_steps = max(1, a.gradient_accumulation_steps)
+    cfg.precision = a.precision
+    cfg.dataset_fingerprint = a.dataset_fingerprint
+    cfg.experiment_preset = a.experiment_preset
+    cfg.drive_mirror = a.drive_mirror
+    if not cfg.spear_revision and cfg.resume not in {"none", ""}:
+        _rp = cfg.checkpoint_dir / "latest-resume.pt" if cfg.resume == "auto" else Path(cfg.resume)
+        if _rp.exists():
+            import torch
+            _meta = torch.load(_rp, map_location="cpu", weights_only=False)
+            cfg.spear_revision = str(_meta.get("analysis_config", {}).get("spear_revision", ""))
     if a.smoke:
         cfg.stage2_steps = 3
         cfg.warmup_steps = 1

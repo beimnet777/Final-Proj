@@ -31,6 +31,10 @@ from losses import (
 from probe_robust.losses import vicreg_invariance_loss, vicreg_covariance_loss
 from probe_robust.club import CLUBSampled
 from tb_logger import DISLogger
+from training_runtime import (
+    SegmentLimit, append_metrics, atomic_torch_save, checkpoint_payload,
+    mirror_file, restore_training_state, validate_resume,
+)
 
 
 # ---------------------------------------------------------------- shared helpers
@@ -74,8 +78,44 @@ def _count_params(model: DISModel):
     return frozen, trainable
 
 
-def _save_checkpoint(path, model, optimizer, scheduler, step, best_metric):
+def _save_checkpoint(path, model, optimizer, scheduler, step, best_metric, *,
+                     cfg=None, scaler=None, club_module=None, club_phn_module=None,
+                     kind="resume", val_metrics=None, train_sampler=None,
+                     pa_loader=None, pb_loader=None):
     path.parent.mkdir(parents=True, exist_ok=True)
+    if cfg is not None:
+        auxiliary = {"val": val_metrics or {}}
+        if club_module is not None:
+            auxiliary["club"] = {
+                "model": club_module.state_dict(),
+                "optimizer": club_module.optimizer.state_dict(),
+            }
+        if club_phn_module is not None:
+            auxiliary["club_phoneme"] = {
+                "model": club_phn_module.state_dict(),
+                "optimizer": club_phn_module.optimizer.state_dict(),
+            }
+        if train_sampler is not None and hasattr(train_sampler, "state_dict"):
+            auxiliary["train_sampler"] = train_sampler.state_dict()
+        if pa_loader is not None and hasattr(pa_loader.dataset, "rng"):
+            auxiliary["pair_alpha_rng"] = pa_loader.dataset.rng.getstate()
+        if pb_loader is not None and hasattr(pb_loader.dataset, "rng"):
+            auxiliary["pair_beta_rng"] = pb_loader.dataset.rng.getstate()
+        payload = checkpoint_payload(
+            model=model, optimizer=optimizer if kind == "resume" else None,
+            scheduler=scheduler if kind == "resume" else None,
+            scaler=scaler if kind == "resume" else None,
+            step=step, best_metric=best_metric, cfg=cfg,
+            auxiliary=auxiliary,
+            dataset_hash=str(getattr(cfg, "dataset_fingerprint", "")),
+            preset=str(getattr(cfg, "experiment_preset", "")), kind=kind,
+        )
+        atomic_torch_save(payload, path)
+        mirror = Path(cfg.drive_mirror) if str(getattr(cfg, "drive_mirror", "")) else None
+        mirror_file(path, mirror)
+        metrics = Path(cfg.checkpoint_dir) / "metrics.jsonl"
+        if metrics.exists(): mirror_file(metrics, mirror)
+        return
     trainable_state = {k: v for k, v in model.state_dict().items()
                        if not k.startswith("encoder._spear.")}
     torch.save({
@@ -356,6 +396,51 @@ def _eval_emotion(model, val_dl, device, use_bf16) -> Dict[str, float]:
     return metrics
 
 
+@torch.no_grad()
+def _eval_club_estimators(model, loader, device, use_bf16,
+                          club_module=None, club_phn_module=None) -> Dict[str, float]:
+    """Held-out q_phi fit diagnostics; these are not leakage-probe results."""
+    if club_module is None and club_phn_module is None:
+        return {}
+    was_training = model.training; model.eval()
+    totals = {"speaker_loss": 0.0, "speaker_correct": 0, "speaker_n": 0,
+              "phoneme_loss": 0.0, "phoneme_correct": 0, "phoneme_n": 0}
+    for batch in loader:
+        audios, lengths, _, _, speakers = batch[:5]
+        audios, lengths, speakers = audios.to(device), lengths.to(device), speakers.to(device)
+        ctx = (torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16
+               else torch.autocast("cuda", enabled=False))
+        with ctx:
+            out = model(audios, lengths, stage=2, grl_lambda=0.0, emit_emotion=False)
+            if club_module is not None:
+                z, olen = out["z_L"], out["out_lengths"]
+                mask = (torch.arange(z.shape[1], device=device)[None] < olen[:, None]).float().unsqueeze(-1)
+                n = olen.float().clamp_min(1).unsqueeze(1)
+                mean = (z * mask).sum(1) / n
+                var = (((z - mean[:, None]) ** 2) * mask).sum(1) / n
+                logits = club_module.classifier(torch.cat([mean, (var + 1e-5).sqrt()], -1))
+                totals["speaker_loss"] += float(F.cross_entropy(logits, speakers, reduction="sum"))
+                totals["speaker_correct"] += int((logits.argmax(-1) == speakers).sum())
+                totals["speaker_n"] += speakers.numel()
+            if club_phn_module is not None:
+                z, olen = out["z_P"], out["out_lengths"]
+                mask = torch.arange(z.shape[1], device=device)[None] < olen[:, None]
+                zf = z[mask]; labels = out["pr_logits"].argmax(-1)[mask]
+                logits = club_phn_module.classifier(zf)
+                totals["phoneme_loss"] += float(F.cross_entropy(logits, labels, reduction="sum"))
+                totals["phoneme_correct"] += int((logits.argmax(-1) == labels).sum())
+                totals["phoneme_n"] += labels.numel()
+    if was_training: model.train()
+    result = {}
+    if totals["speaker_n"]:
+        result.update(club_val_ce=totals["speaker_loss"] / totals["speaker_n"],
+                      club_val_acc=totals["speaker_correct"] / totals["speaker_n"])
+    if totals["phoneme_n"]:
+        result.update(club_phn_val_ce=totals["phoneme_loss"] / totals["phoneme_n"],
+                      club_phn_val_acc=totals["phoneme_correct"] / totals["phoneme_n"])
+    return result
+
+
 # ---------------------------------------------------------------- gradient norm snapshot
 
 def _log_grad_norms_stage1(model, batch, cfg, step, tb, use_bf16) -> None:
@@ -387,7 +472,8 @@ def _log_grad_norms_stage1(model, batch, cfg, step, tb, use_bf16) -> None:
 
 def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
                            eff_grl_weight: float = -1.0, grl_p_lam=None,
-                           shuffle_grl_labels: bool = False) -> None:
+                           shuffle_grl_labels: bool = False,
+                           club_module=None, club_phn_module=None) -> None:
     """Per-loss gradient norms on SAE params — used for weight calibration."""
     device = torch.device(cfg.device)
     audios, audio_lengths, targets, target_lengths, speaker_ids = batch[:5]   # invariance batch has a 6th (perturbed) elem
@@ -487,8 +573,67 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
             # With dann_full_discriminator the weight already lives in the lambda.
             _dann_fix = getattr(cfg, 'dann_full_discriminator', False)
             loss_terms.append(("grl_p", l_grl_p_gn if _dann_fix else _grl_p_w * l_grl_p_gn, True))
+
+        # ---- probe_robust: CLUB gradient measurement on SAE encoder ----
+        # Recompute the same z_L stats-pool / z_P frame batches the main loop
+        # uses, call mi_bound at current q_phi state, take encoder gradient.
+        # No inner_step here (we are measuring, not training q_phi).
+        _club_on     = (club_module     is not None)
+        _club_phn_on = (club_phn_module is not None
+                        and step >= int(getattr(cfg, 'club_phoneme_warmup_steps', 0)))
+        if _club_on:
+            _zL    = out["z_L"]
+            _olen2 = out["out_lengths"]
+            _Tcl   = _zL.shape[1]
+            _fm    = (torch.arange(_Tcl, device=device).unsqueeze(0)
+                      < _olen2.unsqueeze(1)).float().unsqueeze(-1)
+            _n     = _olen2.float().clamp(min=1).unsqueeze(1)
+            _mean  = (_zL * _fm).sum(1) / _n
+            _var2  = (((_zL - _mean.unsqueeze(1)) ** 2) * _fm).sum(1) / _n
+            _std   = (_var2 + 1e-5).sqrt()
+            _z_pool = torch.cat([_mean, _std], dim=-1)
+            l_club_gn = club_module.mi_bound(_z_pool, speaker_ids)
+            loss_terms.append(("club", float(cfg.club_weight) * l_club_gn, True))
+        if _club_phn_on:
+            _zP    = out["z_P"]
+            _olen3 = out["out_lengths"]
+            _Tp    = _zP.shape[1]
+            _fmP   = (torch.arange(_Tp, device=device).unsqueeze(0)
+                      < _olen3.unsqueeze(1))
+            _zP_flat = _zP[_fmP]
+            with torch.no_grad():
+                _phn_pseudo = out["pr_logits"].argmax(dim=-1)
+            _y_phn = _phn_pseudo[_fmP]
+            l_club_phn_gn = club_phn_module.mi_bound(_zP_flat, _y_phn)
+            loss_terms.append(("club_phn",
+                               float(cfg.club_phoneme_weight) * l_club_phn_gn, True))
         if _routing_active:
             loss_terms.append(("route", cfg.rho * l_route, False))
+
+        # ---- per-task gradient on the routing masks (m_L, m_P) ----
+        # Shows which mask each task is pushing on: PR/CLUB should pressure m_L,
+        # SID/GRL_p should pressure m_P. Cross-bucket pressure (e.g. PR on m_P,
+        # or CLUB on m_P) reveals leakage of the mechanism into the wrong bucket.
+        # Computed BEFORE the SAE-grad loop with retain_graph=True so the
+        # existing SAE retain pattern (last term frees) stays correct.
+        _mL_t = out.get("m_L"); _mP_t = out.get("m_P")
+        mask_grads: Dict[str, tuple] = {}
+        if _routing_active and _mL_t is not None and _mP_t is not None:
+            for name, loss, _retain in loss_terms:
+                try:
+                    g_pair = torch.autograd.grad(
+                        loss, [_mL_t, _mP_t],
+                        retain_graph=True, allow_unused=True, create_graph=False,
+                    )
+                    gL_n = (float(g_pair[0].detach().float().norm().item())
+                            if g_pair[0] is not None else 0.0)
+                    gP_n = (float(g_pair[1].detach().float().norm().item())
+                            if g_pair[1] is not None else 0.0)
+                    mask_grads[name] = (gL_n, gP_n)
+                except RuntimeError:
+                    # Loss doesn't depend on masks (e.g. recon path bypassing
+                    # the masked z) — record zeros rather than crash.
+                    mask_grads[name] = (0.0, 0.0)
 
         flat_vecs: Dict[str, torch.Tensor] = {}
         for name, loss, retain in loss_terms:
@@ -507,7 +652,8 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         # cos>0: tasks agree on which params to move; cos<0: they fight on the
         # same params and the sum-then-step optimizer cancels signal.
         cos_pairs: Dict[str, float] = {}
-        names_in_order = [n for n in ("recon", "pr", "sid", "grl", "grl_p", "route")
+        names_in_order = [n for n in ("recon", "pr", "sid", "grl", "grl_p",
+                                       "club", "club_phn", "route")
                           if n in flat_vecs]
         for i, a in enumerate(names_in_order):
             va = flat_vecs[a]
@@ -529,6 +675,12 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         norms["grl"]   = raw["grl"] * grl_w
     if _grl_p_on:
         norms["grl_p"] = raw.get("grl_p", 0.0)
+    if _club_on:
+        # raw["club"] already has cfg.club_weight baked in (we passed the
+        # weighted loss into loss_terms above).
+        norms["club"] = raw.get("club", 0.0)
+    if _club_phn_on:
+        norms["club_phn"] = raw.get("club_phn", 0.0)
     if _routing_active:
         norms["route"] = raw["route"]
 
@@ -548,12 +700,31 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         for pair, c in cos_pairs.items():
             tag = "  conflict" if c < -0.05 else ("  aligned" if c > 0.05 else "")
             lines.append(f"      cos({pair:<22s}) = {c:+.3f}{tag}")
+    if mask_grads:
+        # Per-task gradient |dL/dm| on each routing mask.
+        # tilt = (|gL| - |gP|) / (|gL| + |gP|); +1 = all pressure on m_L,
+        # -1 = all pressure on m_P, 0 = symmetric.  Healthy routing:
+        # PR & CLUB tilt -> +1 (pushing m_L); SID & GRL_p tilt -> -1.
+        lines.append(f"    [mask_grad @{step}]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)")
+        for name, (gL, gP) in mask_grads.items():
+            denom = (gL + gP)
+            tilt = ((gL - gP) / denom) if denom > 1e-12 else 0.0
+            tag = ""
+            if   tilt > +0.30: tag = "  -> L"
+            elif tilt < -0.30: tag = "  -> P"
+            lines.append(f"      {name:<16s} mL={gL:.5f}  mP={gP:.5f}  tilt={tilt:+.2f}{tag}")
     print("\n".join(lines))
     norms["grl_perframe"] = pf_grl
     norms["grl_p_perframe"] = pf_grl_p
     tb.log_grad_norms(step, norms)
     if cos_pairs:
         tb.log_grad_cosines(step, cos_pairs)
+    # Per-task mask gradient magnitudes to TB (one scalar per task per mask)
+    for name, (gL, gP) in mask_grads.items():
+        tb.log_grad_norms(step, {
+            f"mask_grad/{name}_mL": gL,
+            f"mask_grad/{name}_mP": gP,
+        })
 
 
 def _masked_mse(a: torch.Tensor, b: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
@@ -683,8 +854,15 @@ def run_stage1(cfg: DISConfig) -> Path:
     optimizer = AdamW(model.sae.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     scheduler = _make_scheduler(optimizer, cfg.warmup_steps, cfg.total_steps, cfg.lr, cfg.lr_min)
 
-    use_bf16 = cfg.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-    scaler   = torch.amp.GradScaler("cuda", enabled=(not use_bf16))
+    precision = str(getattr(cfg, "precision", "auto"))
+    use_bf16 = (torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+                and precision in {"auto", "bf16"})
+    if precision == "bf16" and not use_bf16:
+        raise RuntimeError("bf16 requested but this GPU does not support it")
+    use_fp16 = torch.cuda.is_available() and precision == "fp16"
+    if precision == "auto" and torch.cuda.is_available() and not use_bf16:
+        use_fp16 = True
+    scaler   = torch.amp.GradScaler("cuda", enabled=use_fp16)
 
     if getattr(cfg, 'geom_median_bias', False):
         _init_bias_geometric_median(model, next(iter(train_dl)), device, use_bf16)
@@ -1029,6 +1207,44 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
               f"in_dim={cfg.K}  num_classes={cfg.vocab_size}  "
               f"warmup_steps={cfg.club_phoneme_warmup_steps}  "
               f"target=pr_head.argmax  pool=per-frame(z_P)")
+
+    # Restore only after auxiliary CLUB estimators exist. Legacy checkpoints are
+    # intentionally inference/stage-init only; exact continuation requires v2.
+    start_step = 0
+    resume_value = str(getattr(cfg, "resume", "none"))
+    resume_path = cfg.checkpoint_dir / "latest-resume.pt" if resume_value == "auto" else Path(resume_value)
+    if resume_value not in {"none", ""} and resume_path.exists():
+        saved = torch.load(resume_path, map_location=device, weights_only=False)
+        validate_resume(saved, dataset_hash=str(getattr(cfg, "dataset_fingerprint", "")),
+                        preset=str(getattr(cfg, "experiment_preset", "")), cfg=cfg)
+        start_step, best_metric = restore_training_state(
+            saved, model=model, optimizer=optimizer, scheduler=scheduler, scaler=scaler)
+        aux = saved.get("auxiliary", {})
+        for module, key in ((club_module, "club"), (club_phn_module, "club_phoneme")):
+            if module is not None:
+                if key not in aux:
+                    raise ValueError(f"resume checkpoint is missing required {key} estimator state")
+                module.load_state_dict(aux[key]["model"])
+                module.optimizer.load_state_dict(aux[key]["optimizer"])
+        if aux.get("train_sampler") and hasattr(train_dl.sampler, "load_state_dict"):
+            train_dl.sampler.load_state_dict(aux["train_sampler"])
+        if pa_loader is not None and aux.get("pair_alpha_rng"):
+            pa_loader.dataset.rng.setstate(aux["pair_alpha_rng"])
+        if pb_loader is not None and aux.get("pair_beta_rng"):
+            pb_loader.dataset.rng.setstate(aux["pair_beta_rng"])
+        train_iter = iter(train_dl)
+        pa_iter = iter(pa_loader) if pa_loader is not None else None
+        pb_iter = iter(pb_loader) if pb_loader is not None else None
+        print(f"[stage 2] exact resume from {resume_path}: step={start_step} best={best_metric:.4f}")
+    elif resume_value not in {"none", "", "auto"}:
+        raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
+    segment = SegmentLimit(start_step, int(getattr(cfg, "segment_steps", 0)),
+                           float(getattr(cfg, "max_runtime_minutes", 0.0)))
+    metrics_path = cfg.checkpoint_dir / "metrics.jsonl"
+    accumulation = max(1, int(getattr(cfg, "gradient_accumulation_steps", 1)))
+    if accumulation > 1:
+        print(f"[stage 2] microbatch={cfg.batch_size} accumulation={accumulation} "
+              f"effective_batch={cfg.batch_size * accumulation}")
     no_routing     = getattr(cfg, 'no_routing', False)
     fixed_blocks   = getattr(cfg, 'fixed_blocks', False)
     n_routes       = getattr(cfg, 'n_routes', 3)
@@ -1087,7 +1303,17 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         print(f"[stage 2] GradNorm ON: tasks={gn_names}  alpha={cfg.gradnorm_alpha}  "
               f"lr={cfg.gradnorm_lr}  every={gn_every}  shared=sae.enc_weight")
 
-    for step in range(1, cfg.stage2_steps + 1):
+    first_micro = start_step * accumulation + 1
+    final_micro = cfg.stage2_steps * accumulation
+    club_pool_buffer = []
+    club_label_buffer = []
+    club_phn_pool_buffer = []
+    club_phn_label_buffer = []
+    discriminator_buffer = []
+    for micro_step in range(first_micro, final_micro + 1):
+        step = (micro_step - 1) // accumulation + 1
+        micro_in_group = (micro_step - 1) % accumulation
+        accumulation_boundary = (micro_in_group == accumulation - 1)
         try:
             batch = next(train_iter)
         except StopIteration:
@@ -1132,9 +1358,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         grl_emo_lam = grl_emo_w * ramp * emo_grl_ramp
         run_emotion_aux = emotion_on and (step % emotion_every == 0)
 
-        if step % cfg.grad_log_every == 0:
+        if accumulation_boundary and step % cfg.grad_log_every == 0:
             _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
-                                   eff_grl_weight, grl_p_lam, shuffle_grl_labels)
+                                   eff_grl_weight, grl_p_lam, shuffle_grl_labels,
+                                   club_module=club_module,
+                                   club_phn_module=club_phn_module)
 
         audios, audio_lengths, targets, target_lengths, speaker_ids = batch[:5]
         pert_audios    = batch[5].to(device, non_blocking=True) if len(batch) > 5 else None
@@ -1159,8 +1387,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             emo_lengths = emo_lengths.to(device, non_blocking=True)
             emo_labels = emo_labels.to(device, non_blocking=True)
 
-        optimizer.zero_grad(set_to_none=True)
-        ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else torch.autocast("cuda", enabled=False)
+        if micro_in_group == 0:
+            optimizer.zero_grad(set_to_none=True)
+        ctx = (torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else
+               torch.autocast("cuda", dtype=torch.float16) if use_fp16 else
+               torch.autocast("cuda", enabled=False))
         with ctx:
             out     = model(audios, audio_lengths, stage=2, grl_lambda=grl_lam,
                             grl_p_lambda=grl_p_lam,
@@ -1330,10 +1561,13 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 _var  = (((_zL - _mean.unsqueeze(1)) ** 2) * _fm).sum(1) / _n
                 _std  = (_var + 1e-5).sqrt()                        # (B, K)
                 _z_pool = torch.cat([_mean, _std], dim=-1)          # (B, 2K)
-                club_ce, club_acc = club_module.inner_step(
-                    _z_pool.detach(), speaker_ids,
-                    k=int(cfg.club_inner_steps),
-                )
+                club_pool_buffer.append(_z_pool.detach())
+                club_label_buffer.append(speaker_ids.detach())
+                if accumulation_boundary:
+                    club_ce, club_acc = club_module.inner_step(
+                        torch.cat(club_pool_buffer), torch.cat(club_label_buffer),
+                        k=int(cfg.club_inner_steps),
+                    )
                 l_club = club_module.mi_bound(_z_pool, speaker_ids)
 
             # ---- probe_robust: phoneme CLUB MI-min on (z_P per-frame, phoneme) ----
@@ -1348,6 +1582,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             l_club_phn = l_recon.new_zeros(())
             club_phn_ce  = float('nan')
             club_phn_acc = float('nan')
+            club_phn_pseudo_entropy = float('nan')
+            club_phn_pseudo_confidence = float('nan')
+            club_phn_pseudo_coverage = float('nan')
             if (club_phn_module is not None
                     and step >= int(cfg.club_phoneme_warmup_steps)):
                 _zP = out["z_P"]
@@ -1357,12 +1594,32 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                         < _olen2.unsqueeze(1))                      # (B, T) bool
                 _zP_flat = _zP[_fm2]                                # (N_valid, K)
                 with torch.no_grad():
-                    _phn_pseudo = out["pr_logits"].argmax(dim=-1)   # (B, T)
+                    _pr_probs = out["pr_logits"].float().softmax(dim=-1)
+                    _phn_pseudo = _pr_probs.argmax(dim=-1)          # (B, T)
                 _y_phn = _phn_pseudo[_fm2]                          # (N_valid,)
-                club_phn_ce, club_phn_acc = club_phn_module.inner_step(
-                    _zP_flat.detach(), _y_phn,
-                    k=int(cfg.club_phoneme_inner_steps),
-                )
+                with torch.no_grad():
+                    _valid_probs = _pr_probs[_fm2]
+                    club_phn_pseudo_entropy = float(
+                        -(_valid_probs * _valid_probs.clamp_min(1e-12).log()).sum(-1).mean())
+                    club_phn_pseudo_confidence = float(_valid_probs.max(-1).values.mean())
+                    club_phn_pseudo_coverage = float(
+                        _y_phn.unique().numel() / max(1, int(cfg.vocab_size)))
+                # Bound estimator memory deterministically while preserving the
+                # class/time distribution across the valid frame sequence.
+                _cap = max(1, 8192 // accumulation)
+                if _zP_flat.shape[0] > _cap:
+                    _pick = torch.linspace(0, _zP_flat.shape[0] - 1, _cap,
+                                           device=device).long()
+                    _q_z, _q_y = _zP_flat[_pick], _y_phn[_pick]
+                else:
+                    _q_z, _q_y = _zP_flat, _y_phn
+                club_phn_pool_buffer.append(_q_z.detach())
+                club_phn_label_buffer.append(_q_y.detach())
+                if accumulation_boundary:
+                    club_phn_ce, club_phn_acc = club_phn_module.inner_step(
+                        torch.cat(club_phn_pool_buffer), torch.cat(club_phn_label_buffer),
+                        k=int(cfg.club_phoneme_inner_steps),
+                    )
                 l_club_phn = club_phn_module.mi_bound(_zP_flat, _y_phn)
 
             # ---- IEMOCAP auxiliary emotion/prosody batch (8 Libri : 1 IEMOCAP by default) ----
@@ -1431,23 +1688,41 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + eff_vib_w        * l_vib
                           + m_aux            * l_aux)
 
+        discriminator_buffer.append({
+            "zL": out["z_L"].detach(), "zP": out["z_P"].detach(),
+            "zU": out["z_U"].detach() if "z_U" in out else None,
+            "lengths": out["out_lengths"].detach(),
+            "speakers": adversary_speaker_ids.detach(), "targets": targets.detach(),
+            "target_lengths": target_lengths.detach(),
+            "prosody": ((p_f0.detach(), p_v.detach(), p_e.detach())
+                        if prosody_on and "prosody_pred" in out else None),
+        })
+
         # GradNorm weight update (retains the graph so total.backward() still works).
-        if gradnorm_on and step % gn_every == 0:
+        if gradnorm_on and accumulation_boundary and step % gn_every == 0:
             _gn_losses = {'recon': l_recon, 'pr': l_pr, 'sid': l_sid, 'grl': l_grl,
                           'grl_p': l_grl_p, 'grl_u': l_grl_u, 'grl_p_u': l_grl_p_u,
                           'aux': l_aux}
             gn_ctrl.update({n: _gn_losses[n] for n in gn_ctrl.names})
 
-        if use_bf16:
-            total.backward()
+        scaled_total = total / accumulation
+        if not use_fp16:
+            scaled_total.backward()
+            if not accumulation_boundary:
+                continue
             nn.utils.clip_grad_norm_(all_params, cfg.grad_clip)
             optimizer.step()
         else:
-            scaler.scale(total).backward()
+            scaler.scale(scaled_total).backward()
+            if not accumulation_boundary:
+                continue
             scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(all_params, cfg.grad_clip)
             scaler.step(optimizer)
             scaler.update()
+
+        club_pool_buffer.clear(); club_label_buffer.clear()
+        club_phn_pool_buffer.clear(); club_phn_label_buffer.clear()
 
         if getattr(cfg, 'renorm_decoder', False):
             model.sae.normalize_decoder()
@@ -1458,44 +1733,41 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         # encoder instead of stalling at chance.  lam=0: z is detached anyway, this
         # is pure discriminator learning (no reversal to the encoder).
         if n_disc_steps > 1:
-            zL_d   = out["z_L"].detach()
-            zP_d   = out["z_P"].detach()
-            zU_d   = out["z_U"].detach() if "z_U" in out else None
-            lens_d = out["out_lengths"]
-            # Reuse this batch's prosody targets for the anti-prosody adversary catch-up.
             pros_adv = prosody_on and (grl_pros_w > 0 or grl_pros_u_w > 0)
-            if pros_adv:
-                pf0_d, pv_d, pe_d = _prosody_targets_fast(audios, audio_lengths, lens_d)
             for _ in range(n_disc_steps - 1):
                 optimizer.zero_grad(set_to_none=True)
-                with ctx:
-                    sp = model.grl_head(zL_d, lens_d, 0.0)
-                    l_d = _speaker_adv_loss(sp, adversary_speaker_ids, lens_d)
-                    if grl_p_weight > 0:
-                        ph = model.pr_grl_head(zP_d, 0.0)
-                        l_d = l_d + ctc_pr_loss(ph, targets, lens_d, target_lengths)
-                    if hasattr(model, 'grl_head_u') and zU_d is not None:
-                        spu = model.grl_head_u(zU_d, lens_d, 0.0)
-                        l_d = l_d + _speaker_adv_loss(spu, adversary_speaker_ids, lens_d)
-                        phu = model.pr_grl_head_u(zU_d, 0.0)
-                        l_d = l_d + ctc_pr_loss(phu, targets, lens_d, target_lengths)
-                    if pros_adv and grl_pros_w > 0:
-                        l_d = l_d + _prosody_train_loss(
-                            model.prosody_grl_head(zL_d, 0.0), pf0_d, pv_d, pe_d, lens_d)
-                    if pros_adv and grl_pros_u_w > 0 and zU_d is not None:
-                        l_d = l_d + _prosody_train_loss(
-                            model.prosody_grl_head_u(zU_d, 0.0), pf0_d, pv_d, pe_d, lens_d)
-                if use_bf16:
-                    l_d.backward()
-                    nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip)
-                    optimizer.step()
-                else:
-                    scaler.scale(l_d).backward()
-                    scaler.unscale_(optimizer)
-                    nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip)
-                    scaler.step(optimizer)
-                    scaler.update()
+                for cached in discriminator_buffer:
+                    zL_d, zP_d, zU_d = cached["zL"], cached["zP"], cached["zU"]
+                    lens_d = cached["lengths"]
+                    with ctx:
+                        sp = model.grl_head(zL_d, lens_d, 0.0)
+                        l_d = _speaker_adv_loss(sp, cached["speakers"], lens_d)
+                        if grl_p_weight > 0:
+                            ph = model.pr_grl_head(zP_d, 0.0)
+                            l_d = l_d + ctc_pr_loss(
+                                ph, cached["targets"], lens_d, cached["target_lengths"])
+                        if hasattr(model, 'grl_head_u') and zU_d is not None:
+                            spu = model.grl_head_u(zU_d, lens_d, 0.0)
+                            l_d = l_d + _speaker_adv_loss(spu, cached["speakers"], lens_d)
+                            phu = model.pr_grl_head_u(zU_d, 0.0)
+                            l_d = l_d + ctc_pr_loss(
+                                phu, cached["targets"], lens_d, cached["target_lengths"])
+                        if pros_adv and cached["prosody"] is not None:
+                            pf0_d, pv_d, pe_d = cached["prosody"]
+                            if grl_pros_w > 0:
+                                l_d = l_d + _prosody_train_loss(
+                                    model.prosody_grl_head(zL_d, 0.0), pf0_d, pv_d, pe_d, lens_d)
+                            if grl_pros_u_w > 0 and zU_d is not None:
+                                l_d = l_d + _prosody_train_loss(
+                                    model.prosody_grl_head_u(zU_d, 0.0), pf0_d, pv_d, pe_d, lens_d)
+                    if not use_fp16: (l_d / accumulation).backward()
+                    else: scaler.scale(l_d / accumulation).backward()
+                if use_fp16: scaler.unscale_(optimizer)
+                nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip)
+                if not use_fp16: optimizer.step()
+                else: scaler.step(optimizer); scaler.update()
             optimizer.zero_grad(set_to_none=True)
+        discriminator_buffer.clear()
 
         scheduler.step()
 
@@ -1644,19 +1916,34 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 losses["probe_robust/club"]     = float(l_club.item())
                 losses["probe_robust/q_phi_ce"] = float(club_ce) if club_ce == club_ce else 0.0
                 losses["probe_robust/q_phi_acc"] = float(club_acc) if club_acc == club_acc else 0.0
-                losses["probe_robust/club_phn"]     = float(l_club_phn.item())
-                losses["probe_robust/q_phi_phn_ce"] = float(club_phn_ce) if club_phn_ce == club_phn_ce else 0.0
-                losses["probe_robust/q_phi_phn_acc"] = float(club_phn_acc) if club_phn_acc == club_phn_acc else 0.0
+                if club_module is not None:
+                    for _name, _value in club_module.last_diagnostics.items():
+                        losses[f"probe_robust/club_{_name}"] = _value
+                if bool(getattr(cfg, 'club_phoneme_enabled', False)):
+                    losses["probe_robust/club_phn"]     = float(l_club_phn.item())
+                    losses["probe_robust/q_phi_phn_ce"] = float(club_phn_ce) if club_phn_ce == club_phn_ce else 0.0
+                    losses["probe_robust/q_phi_phn_acc"] = float(club_phn_acc) if club_phn_acc == club_phn_acc else 0.0
+                    losses["probe_robust/phn_pseudo_entropy"] = club_phn_pseudo_entropy
+                    losses["probe_robust/phn_pseudo_confidence"] = club_phn_pseudo_confidence
+                    losses["probe_robust/phn_pseudo_coverage"] = club_phn_pseudo_coverage
+                    if club_phn_module is not None:
+                        for _name, _value in club_phn_module.last_diagnostics.items():
+                            losses[f"probe_robust/club_phn_{_name}"] = _value
                 losses["eff_rank/zL"]           = _eL
                 losses["eff_rank/zP"]           = _eP
                 losses["pair_mix/alpha_arctic"] = _f_arctic
                 losses["pair_mix/alpha_pert"]   = _f_pert
+                _club_phn_str = (
+                    f"  clubP={l_club_phn.item():+.4f}"
+                    f"  q_phi_phn[ce={club_phn_ce:.3f},acc={club_phn_acc:.3f}]"
+                    if bool(getattr(cfg, 'club_phoneme_enabled', False)) else ""
+                )
                 dual_inv_str = (
                     f"  inv_L={l_inv_L.item():.4f}  inv_P={l_inv_P.item():.4f}"
                     f"  var={l_var.item():.4f}"
                     f"  cov={l_cov.item():.4f}"
                     f"  club={l_club.item():+.4f}  q_phi[ce={club_ce:.3f},acc={club_acc:.3f}]"
-                    f"  clubP={l_club_phn.item():+.4f}  q_phi_phn[ce={club_phn_ce:.3f},acc={club_phn_acc:.3f}]"
+                    f"{_club_phn_str}"
                     f"  k[L/P]={diag_L['k_active']}/{diag_P['k_active']}"
                     f"  Zσ10[L/P]={diag_L['p10_std']:.2f}/{diag_P['p10_std']:.2f}"
                     f"  blw[L/P]={diag_L['frac_blw_g']:.2f}/{diag_P['frac_blw_g']:.2f}"
@@ -1702,11 +1989,14 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 f"  lr={lr_now:.2e}"
             )
             tb.log_train(step, losses)
+            append_metrics(metrics_path, {"step": step, "split": "train", **losses})
             tb.log_routing(step, n_L, n_P, n_U, entropy, routing_diag)
             tb.log_sae(step, density)
 
         if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
             val_metrics = _eval_stage2(model, val_dl, device, use_bf16)
+            val_metrics.update(_eval_club_estimators(
+                model, val_dl, device, use_bf16, club_module, club_phn_module))
             if emotion_on and emo_val_dl is not None:
                 emo_val_metrics = _eval_emotion(model, emo_val_dl, device, use_bf16)
                 val_metrics.update(emo_val_metrics)
@@ -1742,6 +2032,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     emo_bucket += f"  z_L emotion={val_metrics['emotion_zL_acc']:.3f}"
                 print(f"  [iemocap val] step={step}  {emo_bucket}")
             tb.log_val(step, val_metrics)
+            append_metrics(metrics_path, {"step": step, "split": "val", **val_metrics})
             # Selection criterion.  recon-best is undertrained (lowest before the
             # task/adversary losses reshape z_t).  The previous criterion was
             # per + (1 - sid_acc) — only the two *main-task* head outputs.  That
@@ -1769,16 +2060,39 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             )
             if disent_score < best_metric:
                 best_metric = disent_score
-                _save_checkpoint(best_ckpt, model, optimizer, scheduler, step, best_metric)
+                _save_checkpoint(best_ckpt, model, optimizer, scheduler, step, best_metric,
+                                 cfg=cfg, kind="inference", val_metrics=val_metrics)
                 parts = (f"PER={val_metrics['per']:.3f} "
                          f"sid={val_metrics['sid_acc']:.3f} "
                          f"grl_acc={val_metrics.get('grl_acc', float('nan')):.3f} "
                          f"grl_p_per={val_metrics.get('grl_p_per', float('nan')):.3f}")
                 print(f"  ✓ best checkpoint (disent={best_metric:.4f}  {parts}) → {best_ckpt}")
             _save_checkpoint(cfg.checkpoint_dir / f"stage2_step{step}.pt",
-                             model, optimizer, scheduler, step, best_metric)
+                             model, optimizer, scheduler, step, best_metric,
+                             cfg=cfg, kind="inference", val_metrics=val_metrics)
             tb.flush()
 
+        resume_every = int(getattr(cfg, "resume_every", 0))
+        if resume_every > 0 and step % resume_every == 0:
+            _save_checkpoint(cfg.checkpoint_dir / "latest-resume.pt", model, optimizer,
+                             scheduler, step, best_metric, cfg=cfg, scaler=scaler,
+                             club_module=club_module, club_phn_module=club_phn_module,
+                             train_sampler=train_dl.sampler, pa_loader=pa_loader, pb_loader=pb_loader)
+        if segment.reached(step):
+            _save_checkpoint(cfg.checkpoint_dir / "latest-resume.pt", model, optimizer,
+                             scheduler, step, best_metric, cfg=cfg, scaler=scaler,
+                             club_module=club_module, club_phn_module=club_phn_module,
+                             train_sampler=train_dl.sampler, pa_loader=pa_loader, pb_loader=pb_loader)
+            tb.close()
+            print(f"[stage 2] segment complete at step {step}; resume from latest-resume.pt")
+            return cfg.checkpoint_dir / "latest-resume.pt"
+
     tb.close()
+    _save_checkpoint(cfg.checkpoint_dir / "latest-resume.pt", model, optimizer,
+                     scheduler, cfg.stage2_steps, best_metric, cfg=cfg, scaler=scaler,
+                     club_module=club_module, club_phn_module=club_phn_module,
+                     train_sampler=train_dl.sampler, pa_loader=pa_loader, pb_loader=pb_loader)
+    _save_checkpoint(cfg.checkpoint_dir / "final.pt", model, optimizer, scheduler,
+                     cfg.stage2_steps, best_metric, cfg=cfg, kind="inference")
     print(f"\n[stage 2] done.  Best disent_score={best_metric:.4f}  → {best_ckpt}")
     return best_ckpt

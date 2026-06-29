@@ -117,6 +117,20 @@ class PCGrad:
         grads = [self._flat_grad(loss) for loss in named_losses.values()]
         return torch.stack(self._project(grads)).sum(0)
 
+    def project_vectors(self, named_gradients: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """Project already-aggregated per-task gradients (microbatch-safe)."""
+        grads = list(named_gradients.values())
+        if not grads:
+            return torch.cat([p.reshape(-1) * 0 for p in self.shared])
+        return torch.stack(self._project(grads)).sum(0)
+
+    def state_dict(self) -> dict:
+        return {"rng_state": self.rng.getstate()}
+
+    def load_state_dict(self, state: dict) -> None:
+        if state and "rng_state" in state:
+            self.rng.setstate(state["rng_state"])
+
     def project_with_diagnostics(
         self,
         named_losses: Dict[str, torch.Tensor],

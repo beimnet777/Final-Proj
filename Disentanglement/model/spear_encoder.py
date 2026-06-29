@@ -24,9 +24,14 @@ class SpearEncoder(nn.Module):
         super().__init__()
         self.cfg = cfg
         self._layernorm = bool(getattr(cfg, "spear_layernorm", False))
-        self._spear = AutoModel.from_pretrained(
-            cfg.spear_model_id, trust_remote_code=True
-        )
+        kwargs = {"trust_remote_code": True}
+        if str(getattr(cfg, "spear_revision", "")):
+            kwargs["revision"] = str(cfg.spear_revision)
+        self._spear = AutoModel.from_pretrained(cfg.spear_model_id, **kwargs)
+        resolved_revision = str(
+            getattr(getattr(self._spear, "config", None), "_commit_hash", "") or "")
+        if resolved_revision:
+            cfg.spear_revision = resolved_revision
         for p in self._spear.parameters():
             p.requires_grad_(False)
         self._spear.eval()

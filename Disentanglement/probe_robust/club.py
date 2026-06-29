@@ -79,6 +79,7 @@ class CLUBSampled(nn.Module):
         )
         self.optimizer = torch.optim.Adam(self.classifier.parameters(), lr=lr)
         self.num_classes = num_classes
+        self.last_diagnostics: dict[str, float] = {}
 
     def inner_step(self, z: torch.Tensor, y: torch.Tensor, k: int = 1) -> tuple[float, float]:
         """Update q_phi for k cross-entropy steps on (z, y).
@@ -104,6 +105,9 @@ class CLUBSampled(nn.Module):
             with torch.no_grad():
                 pred = logits.argmax(dim=-1)
                 last_acc = float((pred == y).float().mean().item())
+        # Prevent stale q_phi gradients from being mistaken for gradients from
+        # the subsequent main-model MI-minimisation pass.
+        self.optimizer.zero_grad(set_to_none=True)
         return last_loss, last_acc
 
     def mi_bound(self, z: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -117,10 +121,29 @@ class CLUBSampled(nn.Module):
         params get gradient too but are normally updated only by inner_step()
         (this method's gradient w.r.t. q_phi is incidental and small).
         """
-        logits = self.classifier(z)                             # (B, num_classes)
-        log_probs = F.log_softmax(logits, dim=-1)
-        log_q_pos = log_probs.gather(1, y.unsqueeze(1)).squeeze(1)        # (B,)
-        perm = torch.randperm(y.shape[0], device=y.device)
-        y_neg = y[perm]
-        log_q_neg = log_probs.gather(1, y_neg.unsqueeze(1)).squeeze(1)    # (B,)
-        return (log_q_pos - log_q_neg).mean()
+        # q_phi is fitted only by inner_step. Freeze its parameters for this
+        # bilevel/main-model pass while preserving the differentiable path to z.
+        params = list(self.classifier.parameters())
+        old = [p.requires_grad for p in params]
+        try:
+            for p in params: p.requires_grad_(False)
+            logits = self.classifier(z)                         # (B, num_classes)
+            log_probs = F.log_softmax(logits, dim=-1)
+            log_q_pos = log_probs.gather(1, y.unsqueeze(1)).squeeze(1)
+            perm = torch.randperm(y.shape[0], device=y.device)
+            y_neg = y[perm]
+            log_q_neg = log_probs.gather(1, y_neg.unsqueeze(1)).squeeze(1)
+            bound = (log_q_pos - log_q_neg).mean()
+            with torch.no_grad():
+                probs = logits.softmax(dim=-1)
+                entropy = -(probs * probs.clamp_min(1e-12).log()).sum(-1).mean()
+                self.last_diagnostics = {
+                    "positive_log_q": float(log_q_pos.mean()),
+                    "negative_log_q": float(log_q_neg.mean()),
+                    "negative_label_collision": float((y_neg == y).float().mean()),
+                    "prediction_entropy": float(entropy),
+                    "label_class_coverage": float(y.unique().numel() / max(1, self.num_classes)),
+                }
+            return bound
+        finally:
+            for p, enabled in zip(params, old): p.requires_grad_(enabled)

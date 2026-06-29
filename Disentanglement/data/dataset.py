@@ -14,6 +14,10 @@ import numpy as np
 import soundfile as sf
 import torch
 from torch.utils.data import Dataset, DataLoader
+try:  # script-style legacy entry point vs package import
+    from training_runtime import StatefulRandomSampler
+except ImportError:  # pragma: no cover
+    from Disentanglement.training_runtime import StatefulRandomSampler
 from datasets import load_dataset, Audio
 
 from .collate import collate_stage1, collate_stage2
@@ -272,7 +276,8 @@ def make_stage1_dataloaders(cfg):
     pin = torch.cuda.is_available()
     kw  = dict(num_workers=cfg.num_workers, pin_memory=pin)
     return (
-        DataLoader(train_ds, batch_size=cfg.batch_size,      shuffle=True,  collate_fn=collate_stage1, **kw),
+        DataLoader(train_ds, batch_size=cfg.batch_size,
+                   sampler=StatefulRandomSampler(train_ds, cfg.seed), collate_fn=collate_stage1, **kw),
         DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, collate_fn=collate_stage1, **kw),
     )
 
@@ -312,9 +317,28 @@ def make_stage2_dataloaders(cfg):
     # uses dev/test-clean instead — see make_pr_eval_dataloaders.)
     n_val  = cfg.max_val_examples if cfg.max_val_examples > 0 else 0
     n_test = getattr(cfg, "max_test_examples", n_val)
-    tst_ex = all_ex[:n_test]
-    val_ex = all_ex[n_test:n_test + n_val]
-    trn_ex = all_ex[n_test + n_val:] if (n_test + n_val) < len(all_ex) else all_ex
+    if getattr(cfg, "speaker_stratified_holdout", False) and n_val > 0 and n_test > 0:
+        by_speaker: Dict[int, List[dict]] = {}
+        for ex in all_ex:
+            by_speaker.setdefault(ex["speaker_id"], []).append(ex)
+        tst_ex, val_ex = [], []
+        # Give every sufficiently represented speaker one example in each
+        # holdout before filling the remaining global budget.
+        for speaker in sorted(by_speaker):
+            items = by_speaker[speaker]
+            if len(items) >= 3 and len(tst_ex) < n_test and len(val_ex) < n_val:
+                tst_ex.append(items.pop())
+                val_ex.append(items.pop())
+        remaining = [ex for speaker in sorted(by_speaker) for ex in by_speaker[speaker]]
+        rng.shuffle(remaining)
+        need_test = max(0, n_test - len(tst_ex))
+        tst_ex.extend(remaining[:need_test]); remaining = remaining[need_test:]
+        need_val = max(0, n_val - len(val_ex))
+        val_ex.extend(remaining[:need_val]); trn_ex = remaining[need_val:]
+    else:
+        tst_ex = all_ex[:n_test]
+        val_ex = all_ex[n_test:n_test + n_val]
+        trn_ex = all_ex[n_test + n_val:] if (n_test + n_val) < len(all_ex) else all_ex
 
     kw_ds = dict(tokenizer=tokenizer, speaker_to_idx=speaker_to_idx,
                  lexicon=lexicon, sample_rate=cfg.sample_rate)
@@ -336,7 +360,9 @@ def make_stage2_dataloaders(cfg):
     kw  = dict(num_workers=cfg.num_workers, pin_memory=pin)
     return (
         tokenizer,
-        DataLoader(train_ds, batch_size=cfg.batch_size,      shuffle=True,  collate_fn=collate_stage2, **kw),
+        DataLoader(train_ds, batch_size=cfg.batch_size,
+                   sampler=StatefulRandomSampler(train_ds, cfg.seed), drop_last=True,
+                   collate_fn=collate_stage2, **kw),
         DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, collate_fn=collate_stage2, **kw),
         DataLoader(test_ds,  batch_size=cfg.eval_batch_size, shuffle=False, collate_fn=collate_stage2, **kw),
     )

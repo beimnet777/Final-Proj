@@ -35,6 +35,10 @@ import soundfile as sf
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
+try:
+    from training_runtime import StatefulRandomSampler
+except ImportError:  # pragma: no cover
+    from Disentanglement.training_runtime import StatefulRandomSampler
 
 from data.dataset import PhoneTokenizer, text_to_phones, _get_lexicon
 
@@ -210,7 +214,8 @@ def make_msp_dataloaders(cfg):
     kw = dict(num_workers=cfg.num_workers, pin_memory=pin, collate_fn=collate_msp)
     loaders = [
         tokenizer,
-        DataLoader(train_ds, batch_size=cfg.batch_size,      shuffle=True,  **kw),
+        DataLoader(train_ds, batch_size=cfg.batch_size,
+                   sampler=StatefulRandomSampler(train_ds, cfg.seed), drop_last=True, **kw),
         DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, **kw),
         DataLoader(test_ds,  batch_size=cfg.eval_batch_size, shuffle=False, **kw),
     ]

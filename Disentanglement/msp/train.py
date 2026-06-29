@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Optional
@@ -24,11 +25,29 @@ from .data import make_msp_dataloaders, EMOTION_NAMES
 from .grad_conflict import PCGrad, named_gradient_diagnostics
 from .heads import GELUSpeakerGRLHead
 from . import utils as U
+from training_runtime import (
+    SegmentLimit, append_metrics, atomic_torch_save, checkpoint_payload,
+    mirror_file, restore_training_state, validate_resume,
+)
 
 
-def _autocast(bf16: bool):
-    """bf16 CUDA autocast when available, else a no-op (CPU-safe)."""
-    return torch.autocast("cuda", dtype=torch.bfloat16) if bf16 else contextlib.nullcontext()
+def _autocast(dtype):
+    """CUDA autocast for the resolved precision, else a CPU-safe no-op."""
+    return (torch.autocast("cuda", dtype=dtype)
+            if dtype is not None and torch.cuda.is_available()
+            else contextlib.nullcontext())
+
+
+def _amp_dtype(precision: str):
+    if not torch.cuda.is_available() or precision == "fp32":
+        return None
+    if precision == "bf16":
+        if not torch.cuda.is_bf16_supported():
+            raise RuntimeError("bf16 requested but this GPU does not support it")
+        return torch.bfloat16
+    if precision == "fp16":
+        return torch.float16
+    return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
 
 def _gumbel_tau(step: int, total: int, tau_start: float, tau_end: float) -> float:
@@ -55,9 +74,8 @@ def _set_seed(seed):
 
 # ---------------------------------------------------------------- evaluation
 @torch.no_grad()
-def evaluate(model, dl, device, bf16, n_emotion) -> Dict[str, float]:
+def evaluate(model, dl, device, amp_dtype, n_emotion) -> Dict[str, float]:
     model.eval()
-    ctx = _autocast(bf16)
     pr_num = pr_den = 0
     sid_c = sid_t = 0
     grl_c = grl_t = 0                       # z_L speaker leakage (adversary)
@@ -68,7 +86,7 @@ def evaluate(model, dl, device, bf16, n_emotion) -> Dict[str, float]:
         audios = b["audios"].to(device); alen = b["audio_lengths"].to(device)
         tgt = b["targets"].to(device); tlen = b["target_lengths"].to(device)
         spk = b["speaker_ids"].to(device); emo = b["emotion"].to(device)
-        with ctx:
+        with _autocast(amp_dtype):
             out = model(audios, alen, stage=2, grl_lambda=0.0, grl_p_lambda=0.0,
                         grl_emotion_lambda=0.0, emit_emotion=True)
         olen = out["out_lengths"]
@@ -103,7 +121,7 @@ def evaluate(model, dl, device, bf16, n_emotion) -> Dict[str, float]:
 def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     _set_seed(cfg.seed)
     device = torch.device(cfg.device)
-    bf16 = cfg.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    amp_dtype = _amp_dtype(str(getattr(cfg, "precision", "auto")))
 
     loaders = make_msp_dataloaders(cfg)
     tokenizer, train_dl, val_dl, test_dl = loaders[0], loaders[1], loaders[2], loaders[3]
@@ -146,6 +164,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         {"params": disc_params, "lr": cfg.lr_disc},
     ], betas=(0.9, 0.95), weight_decay=0.0)
     lr_at = _make_lr(cfg)
+    scaler = torch.amp.GradScaler("cuda", enabled=(amp_dtype == torch.float16))
     all_params = sae_params + rout_params + head_params + disc_params
 
     pcgrad = PCGrad(sae_params, seed=cfg.seed) if cfg.pcgrad else None
@@ -153,26 +172,73 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     ckpt_dir = Path(getattr(cfg, "checkpoint_dir", Path(__file__).resolve().parent / "checkpoints" / "msp_run"))
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[msp] steps={cfg.stage2_steps} batch={cfg.batch_size} pcgrad={cfg.pcgrad} "
-          f"({sorted(coop_names)})  device={device} bf16={bf16}")
+    accumulation = max(1, int(getattr(cfg, "gradient_accumulation_steps", 1)))
+    effective_batch = cfg.batch_size * accumulation
+    print(f"[msp] steps={cfg.stage2_steps} microbatch={cfg.batch_size} "
+          f"accumulation={accumulation} effective_batch={effective_batch} pcgrad={cfg.pcgrad} "
+          f"({sorted(coop_names)})  device={device} amp={amp_dtype}")
     print(f"[msp] weights α(pr)={cfg.alpha} β(sid)={cfg.beta} grl={cfg.grl_weight} "
           f"grl_p={cfg.grl_phoneme_weight} pros={cfg.prosody_weight}/{cfg.grl_prosody_weight} "
           f"emo={cfg.emotion_weight}/{cfg.grl_emotion_weight} inv={cfg.inv_weight}")
 
     best = float("inf")
     step = 0
+    resume_value = str(getattr(cfg, "resume", "none"))
+    resume_path = ckpt_dir / "latest-resume.pt" if resume_value == "auto" else Path(resume_value)
+    if resume_value not in {"none", ""} and resume_path.exists():
+        saved = torch.load(resume_path, map_location=device, weights_only=False)
+        validate_resume(saved, dataset_hash=str(getattr(cfg, "dataset_fingerprint", "")),
+                        preset=str(getattr(cfg, "experiment_preset", "")), cfg=cfg)
+        step, best = restore_training_state(saved, model=model, optimizer=optimizer, scaler=scaler)
+        if pcgrad is not None:
+            pcgrad.load_state_dict(saved.get("auxiliary", {}).get("pcgrad", {}))
+        sampler_state = saved.get("auxiliary", {}).get("train_sampler")
+        if sampler_state and hasattr(train_dl.sampler, "load_state_dict"):
+            train_dl.sampler.load_state_dict(sampler_state)
+        print(f"[msp] exact resume from {resume_path}: step={step} best={best:.4f}")
+    elif resume_value not in {"none", "", "auto"}:
+        raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
+    segment = SegmentLimit(step, int(getattr(cfg, "segment_steps", 0)),
+                           float(getattr(cfg, "max_runtime_minutes", 0.0)))
+    metrics_path = ckpt_dir / "metrics.jsonl"
+    mirror_dir = Path(cfg.drive_mirror) if str(getattr(cfg, "drive_mirror", "")) else None
+
+    def save_runtime(name: str, *, kind: str = "resume", val=None) -> Path:
+        path = ckpt_dir / name
+        payload = checkpoint_payload(
+            model=model, optimizer=optimizer if kind == "resume" else None,
+            scaler=scaler if kind == "resume" else None, step=step,
+            best_metric=best, cfg=cfg, dataset_hash=str(getattr(cfg, "dataset_fingerprint", "")),
+            preset=str(getattr(cfg, "experiment_preset", "")), kind=kind,
+            auxiliary={"pcgrad": pcgrad.state_dict() if pcgrad is not None else {},
+                       "train_sampler": (train_dl.sampler.state_dict()
+                                         if hasattr(train_dl.sampler, "state_dict") else {}),
+                       "val": val or {}},
+        )
+        atomic_torch_save(payload, path); mirror_file(path, mirror_dir)
+        if metrics_path.exists(): mirror_file(metrics_path, mirror_dir)
+        return path
+
     train_iter = iter(train_dl)
+    micro_index = 0
+    task_grad_sums = None
+    extra_grad_sum = None
+    disc_micro_batches = []
     while step < cfg.stage2_steps:
         try:
             b = next(train_iter)
         except StopIteration:
             train_iter = iter(train_dl); b = next(train_iter)
-        step += 1
-        log_now = step % cfg.log_every == 0 or step == 1
+        micro_index += 1
+        next_step = step + 1
+        boundary = micro_index == accumulation
+        log_now = boundary and (next_step % cfg.log_every == 0 or next_step == 1)
         grad_diag = None
-        lr_now = lr_at(step)
+        lr_now = lr_at(next_step)
         optimizer.param_groups[0]["lr"] = lr_now          # SAE follows the cosine
-        ramp = min(1.0, step / max(1, cfg.warmup_steps))
+        ramp = min(1.0, next_step / max(1, cfg.warmup_steps))
+        model.routing.tau = _gumbel_tau(next_step, cfg.stage2_steps,
+                                        cfg.gumbel_tau_start, cfg.gumbel_tau_end)
 
         audios = b["audios"].to(device); alen = b["audio_lengths"].to(device)
         tgt = b["targets"].to(device); tlen = b["target_lengths"].to(device)
@@ -181,8 +247,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         if pert is not None:
             pert = pert.to(device)
 
-        ctx = _autocast(bf16)
-        with ctx:
+        with _autocast(amp_dtype):
             out = model(audios, alen, stage=2,
                         grl_lambda=ramp, grl_p_lambda=ramp,
                         grl_prosody_lambda=ramp, grl_emotion_lambda=ramp,
@@ -220,8 +285,14 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                + cfg.grl_prosody_weight * l_prosgrl + cfg.grl_emotion_weight * l_emogrl
                + cfg.routing_spec_weight * l_spec + cfg.rho * l_route)
         total = sum(coop.values()) + adv
+        disc_micro_batches.append((
+            out["z_L"].detach(), out["z_P"].detach(), olen.detach(),
+            spk.detach(), tgt.detach(), tlen.detach(), p_f0.detach(), p_v.detach(),
+            p_e.detach(), emo.detach(),
+        ))
 
-        optimizer.zero_grad(set_to_none=True)
+        if micro_index == 1:
+            optimizer.zero_grad(set_to_none=True)
         router_grad_diag = None
         adversary_losses = None
         active_freq_for_router = None
@@ -264,25 +335,34 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             managed = {k: v for k, v in coop.items() if k in coop_names}
             unmanaged = [v for k, v in coop.items() if k not in coop_names]
             shared_extra = adv + sum(unmanaged) if unmanaged else adv
-            if log_now:
-                external_losses = dict(adversary_losses)
-                external_losses.update({
-                    f"{name}_unmanaged": loss
-                    for name, loss in coop.items() if name not in coop_names
-                })
-                pc_flat, _, grad_diag = pcgrad.project_with_diagnostics(
-                    managed, external_losses)
-                adv_flat = pcgrad.flat_grad(shared_extra)
+            current = {name: pcgrad.flat_grad(loss).detach() / accumulation
+                       for name, loss in managed.items()}
+            if task_grad_sums is None:
+                task_grad_sums = {name: grad.clone() for name, grad in current.items()}
+                extra_grad_sum = pcgrad.flat_grad(shared_extra).detach() / accumulation
             else:
-                pc_flat = pcgrad.project(managed)
-                adv_flat = pcgrad.flat_grad(shared_extra)
-            total.backward()                              # heads + routing get normal grads
-            pcgrad.write_(pc_flat + adv_flat)             # overwrite SAE grads with surgery result
+                for name, grad in current.items(): task_grad_sums[name].add_(grad)
+                extra_grad_sum.add_(pcgrad.flat_grad(shared_extra).detach() / accumulation)
+            scaled_total = total / accumulation
+            if scaler.is_enabled(): scaler.scale(scaled_total).backward()
+            else: scaled_total.backward()
         else:
-            total.backward()
+            scaled_total = total / accumulation
+            if scaler.is_enabled(): scaler.scale(scaled_total).backward()
+            else: scaled_total.backward()
+        if not boundary:
+            continue
+        step = next_step
+        if scaler.is_enabled():
+            scaler.unscale_(optimizer)
+        if pcgrad is not None:
+            pcgrad.write_(pcgrad.project_vectors(task_grad_sums) + extra_grad_sum)
         main_pre_clip = float(nn.utils.clip_grad_norm_(all_params, cfg.grad_clip))
         main_clip_scale = min(1.0, cfg.grad_clip / max(main_pre_clip, 1e-12))
-        optimizer.step()
+        if scaler.is_enabled():
+            scaler.step(optimizer); scaler.update()
+        else:
+            optimizer.step()
         if log_now and active_freq_for_router is not None and not model.routing.dynamic:
             with torch.no_grad():
                 route_p_after = torch.softmax(model.routing.logits, dim=-1)[:, 1]
@@ -295,21 +375,29 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         disc_pre_clip = 0.0
         disc_clip_scale = 1.0
         if cfg.n_disc_steps > 1:
-            zL_d, zP_d, lens_d = out["z_L"].detach(), out["z_P"].detach(), olen
             for _ in range(cfg.n_disc_steps - 1):
                 optimizer.zero_grad(set_to_none=True)
-                with ctx:
-                    ld = (U.speaker_adv_loss(model.grl_head(zL_d, lens_d, 0.0), spk, lens_d)
-                          + ctc_pr_loss(model.pr_grl_head(zP_d, 0.0), tgt, lens_d, tlen)
-                          + U.prosody_train_loss(model.prosody_grl_head(zL_d, 0.0), p_f0, p_v, p_e, lens_d)
-                          + F.cross_entropy(model.emotion_grl_head(zL_d, lens_d, 0.0), emo, weight=emo_w))
-                ld.backward()
+                for (zL_d, zP_d, lens_d, spk_d, tgt_d, tlen_d,
+                     pf0_d, pv_d, pe_d, emo_d) in disc_micro_batches:
+                    with _autocast(amp_dtype):
+                        ld = (U.speaker_adv_loss(model.grl_head(zL_d, lens_d, 0.0), spk_d, lens_d)
+                              + ctc_pr_loss(model.pr_grl_head(zP_d, 0.0), tgt_d, lens_d, tlen_d)
+                              + U.prosody_train_loss(model.prosody_grl_head(zL_d, 0.0), pf0_d, pv_d, pe_d, lens_d)
+                              + F.cross_entropy(model.emotion_grl_head(zL_d, lens_d, 0.0), emo_d, weight=emo_w))
+                    if scaler.is_enabled(): scaler.scale(ld / accumulation).backward()
+                    else: (ld / accumulation).backward()
+                if scaler.is_enabled(): scaler.unscale_(optimizer)
                 disc_norm = float(nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip))
                 if disc_norm > disc_pre_clip:
                     disc_pre_clip = disc_norm
                     disc_clip_scale = min(1.0, cfg.grad_clip / max(disc_norm, 1e-12))
-                optimizer.step()
+                if scaler.is_enabled(): scaler.step(optimizer); scaler.update()
+                else: optimizer.step()
             optimizer.zero_grad(set_to_none=True)
+        micro_index = 0
+        task_grad_sums = None
+        extra_grad_sum = None
+        disc_micro_batches = []
 
         # ---- logging ----
         if log_now:
@@ -372,6 +460,15 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             print("  clipping (pre-norm -> multiplier)", flush=True)
             print(f"    main={main_pre_clip:.3e} -> {main_clip_scale:.3e}"
                   f"    discriminator_max={disc_pre_clip:.3e} -> {disc_clip_scale:.3e}", flush=True)
+            append_metrics(metrics_path, {
+                "step": step, "split": "train", "lr": lr_now,
+                "recon": float(l_recon), "pr": float(l_pr), "sid": float(l_sid),
+                "grl": float(l_grl), "grl_p": float(l_grl_p),
+                "prosody": float(l_pros), "prosody_grl": float(l_prosgrl),
+                "emotion": float(l_emo), "emotion_grl": float(l_emogrl),
+                "invariance": float(l_inv), "route_tau": float(model.routing.tau),
+                "active_L": act_L, "active_P": act_P, "dead_fraction": dead_frac,
+            })
 
             def _norm_row(norms, names):
                 return "  ".join(f"{name}={norms.get(name, 0.0):.2e}" for name in names)
@@ -445,7 +542,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
 
         # ---- eval + checkpoint ----
         if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
-            vm = evaluate(model, val_dl, device, bf16, n_emotion)
+            vm = evaluate(model, val_dl, device, amp_dtype, n_emotion)
             score = (vm["per"] + (1 - vm["sid_acc"]) + vm["zL_sid_acc"]
                      + (1 - vm["zP_pr_per"]) + (1 - vm["zP_emo_uar"]) + vm["zL_emo_uar"])
             print(f"\n[val step={step:05d}]", flush=True)
@@ -457,13 +554,22 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             print(f"  emotion     z_P UAR={vm['zP_emo_uar']:.3f} acc={vm['zP_emo_acc']:.3f}"
                   f"    z_L UAR={vm['zL_emo_uar']:.3f}", flush=True)
             print(f"  checkpoint score={score:.3f}", flush=True)
-            torch.save({"model": model.state_dict(), "step": step, "val": vm},
-                       ckpt_dir / f"step{step}.pt")
+            append_metrics(metrics_path, {"step": step, "split": "val", **vm, "score": score})
+            save_runtime(f"step{step}.pt", kind="inference", val=vm)
             if score < best:
                 best = score
-                torch.save({"model": model.state_dict(), "step": step, "val": vm},
-                           ckpt_dir / "best.pt")
+                save_runtime("best.pt", kind="inference", val=vm)
                 print(f"  [best] disent={best:.3f} -> {ckpt_dir/'best.pt'}", flush=True)
 
+        resume_every = int(getattr(cfg, "resume_every", 0))
+        if resume_every > 0 and step % resume_every == 0:
+            save_runtime("latest-resume.pt")
+        if segment.reached(step):
+            save_runtime("latest-resume.pt")
+            print(f"[msp] segment complete at step {step}; resume from latest-resume.pt")
+            return ckpt_dir / "latest-resume.pt"
+
+    save_runtime("latest-resume.pt")
+    save_runtime("final.pt", kind="inference")
     print(f"[msp] done. best disent={best:.3f}  ckpts in {ckpt_dir}")
     return ckpt_dir / "best.pt"

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import os
 import random
+import json
 import sys
 from pathlib import Path
 from typing import Dict, List
@@ -76,6 +77,8 @@ def _parse_args():
     p.add_argument("--stage1_ckpt", required=True)
     p.add_argument("--stage2_ckpt", default=None)
     p.add_argument("--run_name", default="diag_probe")
+    p.add_argument("--output_json", default="",
+                   help="optional machine-readable result path")
     p.add_argument("--sources", default="z_t,z_L,z_P",
                    help="Comma-separated sources. Default excludes fixed h_t.")
     p.add_argument("--tasks", default="pr,sid",
@@ -93,6 +96,9 @@ def _parse_args():
     p.add_argument("--topk", type=int, default=0)
     p.add_argument("--librispeech_cache_dir", default=str(cfg.librispeech_cache_dir))
     p.add_argument("--lexicon_path", default=str(cfg.lexicon_path))
+    p.add_argument("--local_data", action="store_true",
+                   help="read LibriSpeech from --librispeech_root instead of Hugging Face streaming")
+    p.add_argument("--librispeech_root", default=str(cfg.librispeech_root))
     p.add_argument("--max_train_examples", type=int, default=0)
     p.add_argument("--max_val_examples", type=int, default=500)
     p.add_argument("--max_test_examples", type=int, default=500)
@@ -216,6 +222,8 @@ def main() -> None:
     cfg = DISConfig()
     cfg.device = str(device)
     cfg.spear_layernorm = bool(args.spear_layernorm)
+    cfg.local_data = bool(args.local_data)
+    cfg.librispeech_root = Path(args.librispeech_root)
     cfg.instance_norm_zL = bool(args.instance_norm_zL)
     cfg.hard_gumbel_routing = bool(args.hard_gumbel_routing)
     cfg.gumbel_tau_start = args.gumbel_tau_start
@@ -583,6 +591,17 @@ def main() -> None:
                 print(f"  {src:<8s}  {task.upper():<4s}  {kb:>10.2f}  "
                       f"{ub:>10.2f}  {cp:>10.1f}  {n:>6d}")
         print(f"{'=' * mwidth}\n")
+
+    if args.output_json:
+        output = Path(args.output_json)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        tmp = output.with_suffix(output.suffix + ".tmp")
+        tmp.write_text(json.dumps({
+            "run_name": args.run_name, "sources": sources, "tasks": tasks,
+            "seed": args.seed, "sid_probe_arch": args.sid_probe_arch,
+            "pr_probe_arch": args.pr_probe_arch, "results": results,
+        }, indent=2, sort_keys=True) + "\n")
+        tmp.replace(output)
 
 
 if __name__ == "__main__":
