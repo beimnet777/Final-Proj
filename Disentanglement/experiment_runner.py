@@ -20,6 +20,40 @@ ROOT = Path(__file__).resolve().parents[1]
 DIS = Path(__file__).resolve().parent
 
 
+def _coerce_override(text: str, current):
+    """Parse an override using the named preset value's type."""
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        value = text
+    if isinstance(current, bool):
+        if isinstance(value, bool):
+            return value
+        lowered = str(value).lower()
+        if lowered in {"true", "1", "yes", "on"}: return True
+        if lowered in {"false", "0", "no", "off"}: return False
+        raise ValueError(f"expected a boolean, got {text!r}")
+    if isinstance(current, int) and not isinstance(current, bool): return int(value)
+    if isinstance(current, float): return float(value)
+    return value
+
+
+def apply_overrides(config: dict, values: list[str]) -> dict:
+    """Apply KEY=VALUE overrides, rejecting misspelled or irrelevant names."""
+    result = dict(config)
+    for item in values:
+        if "=" not in item:
+            raise ValueError(f"override must be KEY=VALUE, got {item!r}")
+        key, raw = item.split("=", 1)
+        key = key.strip()
+        if key not in result:
+            raise ValueError(
+                f"{key!r} is not configurable for this preset. Available keys: "
+                + ", ".join(sorted(result)))
+        result[key] = _coerce_override(raw.strip(), result[key])
+    return result
+
+
 def _find_first(candidates: list[Path], what: str) -> Path:
     for path in candidates:
         if path.exists():
@@ -172,6 +206,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max_runtime_minutes", type=float, default=600)
     p.add_argument("--resume_every", type=int, default=50)
     p.add_argument("--precision", choices=("auto", "bf16", "fp16", "fp32"), default="auto")
+    p.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
+                   help="override a preset hyperparameter; repeat as needed")
     p.add_argument("--output_dir", type=Path, required=True)
     p.add_argument("--drive_mirror", type=Path)
     p.add_argument("--seed", type=int, default=42)
@@ -194,7 +230,7 @@ def main(argv=None) -> int:
     data_args, fp_paths = _resolve_data(a.experiment, a.data_root.resolve())
     dataset_hash = dataset_fingerprint(fp_paths)
     micro, accumulation = resolve_microbatch(a.microbatch_size, a.effective_batch_size)
-    config = resolve_preset(a.experiment, a.profile)
+    config = apply_overrides(resolve_preset(a.experiment, a.profile), a.overrides)
     if a.experiment in LIBRI_EXPERIMENTS and config.get("dual_invariance") and accumulation > 1:
         for key in ("pairs_alpha_per_step", "pairs_beta_per_step"):
             total_pairs = int(config[key])

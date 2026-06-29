@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import torch
 
 from Disentanglement.experiment_presets import PRESETS, resolve_preset
-from Disentanglement.experiment_runner import main as runner_main
+from Disentanglement.experiment_runner import apply_overrides, main as runner_main
 from Disentanglement.colab_bundle import prepare_msp, verify
 from Disentanglement.training_runtime import (
     StatefulRandomSampler, checkpoint_payload, resolve_microbatch,
@@ -45,6 +45,16 @@ class PresetTests(unittest.TestCase):
     def test_microbatch_must_divide_effective(self):
         self.assertEqual((4, 4), resolve_microbatch("4", 16))
         with self.assertRaises(ValueError): resolve_microbatch("3", 16)
+
+    def test_fine_grained_overrides_are_typed_and_strict(self):
+        preset = resolve_preset("libri_grl_stats_gelu")
+        changed = apply_overrides(preset, ["lr=0.0002", "stage2_steps=25",
+                                           "dann_full_discriminator=false"])
+        self.assertEqual(0.0002, changed["lr"])
+        self.assertEqual(25, changed["stage2_steps"])
+        self.assertFalse(changed["dann_full_discriminator"])
+        with self.assertRaises(ValueError):
+            apply_overrides(preset, ["learnging_rate=1e-4"])
 
 
 class CheckpointTests(unittest.TestCase):

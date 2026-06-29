@@ -52,6 +52,38 @@ Available LibriSpeech presets are `libri_grl_stats_gelu`,
 architecture-agnostic MI-minimization objective, not proof of universal probe
 failure; use `--phase probe` on a completed checkpoint.
 
+## Fine-grained hyperparameters
+
+The notebook's `OVERRIDES` dictionary changes selected values after loading the
+named preset. For example:
+
+```python
+OVERRIDES = {
+    "stage2_steps": 10_000,  # use "steps" for MSP presets
+    "warmup_steps": 500,
+    "lr": 1e-4,
+    "lr_heads": 1e-4,
+    "lr_disc": 1e-3,
+    "lr_routing": 1e-3,
+    "alpha": 0.8,
+    "beta": 0.6,
+    "grl_weight": 1.0,
+    "grl_phoneme_weight": 0.15,
+    "grad_clip": 1.0,
+    "n_disc_steps": 3,
+    "ckpt_every": 1_000,
+}
+```
+
+The equivalent CLI form is repeatable: `--set lr=0.0001 --set alpha=0.8`.
+Unknown or misspelled keys fail before training. `SEGMENT_STEPS` remains separate:
+it limits only the current Colab session, while `stage2_steps`/`steps` is the
+experiment's total optimizer-step target.
+
+Give each distinct override set a distinct `RUN_TAG` (for example `lr2e4` or
+`club_w03`). The tag creates a separate local/Drive checkpoint directory and
+prevents `resume=auto` from mixing optimizers from different configurations.
+
 Every completed segment writes `latest-resume.pt`. `best.pt` and `final.pt` are
 compact inference/analysis checkpoints without frozen SPEAR or optimizer state.
 Exact resume rejects changed datasets and architecture-critical settings.
