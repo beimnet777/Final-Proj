@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+import csv
+import json
+import tempfile
+import unittest
+import wave
+import sys
+import types
+from pathlib import Path
+from unittest.mock import patch
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+
+from SAEUnitAnalysis.analyses import clustering_analysis, health_analysis, selectivity_analysis
+from SAEUnitAnalysis.bundle import AnalysisBundle
+from SAEUnitAnalysis.checkpoint import load_checkpoint, route_information, unresolved_critical
+from SAEUnitAnalysis.extraction import FeatureCache
+from SAEUnitAnalysis.pipeline import run_analysis
+from SAEUnitAnalysis.types import ResolvedModel
+from SAEUnitAnalysis.utils import AnalysisError
+
+
+def _wav(path: Path, sr: int = 16000) -> None:
+    t = np.arange(sr // 5) / sr
+    x = (0.15 * np.sin(2 * np.pi * 220 * t) * 32767).astype("<i2")
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(x.tobytes())
+
+
+def _bundle(root: Path, splits=("test",)) -> Path:
+    (root / "audio").mkdir(parents=True)
+    rows = []
+    align = []
+    for i, split in enumerate(splits):
+        uid = f"u{i}"; _wav(root / "audio" / f"{uid}.wav")
+        rows.append({"utterance_id":uid, "audio_path":f"audio/{uid}.wav", "split":split,
+                     "transcript":"a test", "speaker_id":f"s{i%2}", "emotion":["neutral","happy"][i%2]})
+        align += [{"utterance_id":uid,"start_sec":0.0,"end_sec":0.1,"phone":"AA"},
+                  {"utterance_id":uid,"start_sec":0.1,"end_sec":0.2,"phone":"T"}]
+    with (root / "utterances.csv").open("w", newline="") as f:
+        wri=csv.DictWriter(f, fieldnames=rows[0]); wri.writeheader(); wri.writerows(rows)
+    with (root / "alignments.csv").open("w", newline="") as f:
+        wri=csv.DictWriter(f, fieldnames=align[0]); wri.writeheader(); wri.writerows(align)
+    (root / "dataset.yaml").write_text(json.dumps({
+        "schema_version":1,"manifest":"utterances.csv","alignments":"alignments.csv",
+        "factors":[
+            {"name":"phone","family":"linguistic","level":"frame","type":"categorical","source":"alignment"},
+            {"name":"speaker_id","family":"paralinguistic","level":"utterance","type":"categorical","source":"speaker_id"},
+            {"name":"emotion","family":"paralinguistic","level":"utterance","type":"categorical","source":"emotion"},
+            {"name":"energy","family":"paralinguistic","level":"frame","type":"continuous","source":"computed:energy"},
+        ]}), encoding="utf-8")
+    return root
+
+
+def _state(K=8, D=4):
+    return {
+        "sae.enc_weight": torch.randn(K,D), "sae.dec_weight": torch.randn(D,K),
+        "sae.b_pre": torch.zeros(D), "routing.logits": torch.tensor([[4.,-4.]]*(K//2)+[[-4.,4.]]*(K-K//2)),
+    }
+
+
+class FakeSpear(nn.Module):
+    def forward(self, audio, lengths):
+        B, S = audio.shape; T=4; D=4
+        base = audio[:, :T].unsqueeze(-1).repeat(1,1,D)
+        return {"hidden_states":[base, base*.5]}
+
+
+class FakeAutoModel:
+    @staticmethod
+    def from_pretrained(*args, **kwargs):
+        return FakeSpear()
+
+
+class CoreTests(unittest.TestCase):
+    def test_bundle_validation_and_checkpoint_formats(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=_bundle(Path(td)/"bundle")
+            b=AnalysisBundle(root); self.assertEqual(len(b.utterances),1)
+            for key in ("model","model_state"):
+                cp=Path(td)/f"{key}.pt"; torch.save({key:_state(),"analysis_config":{"topk":2,"spear_layernorm":False}},cp)
+                r=load_checkpoint(cp); self.assertEqual(r.config["K"],8); self.assertTrue(r.capabilities["unit_routes"])
+
+    def test_missing_alignment_is_rejected_for_semantic_analysis(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=_bundle(Path(td)/"bundle")
+            (root/"alignments.csv").unlink()
+            config=json.loads((root/"dataset.yaml").read_text()); config.pop("alignments")
+            config["factors"]=[f for f in config["factors"] if f["name"]!="phone"]
+            (root/"dataset.yaml").write_text(json.dumps(config))
+            b=AnalysisBundle(root)
+            with self.assertRaises(AnalysisError): b.require("selectivity")
+
+    def test_synthetic_factor_alignment(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=_bundle(Path(td)/"bundle",("test",))
+            b=AnalysisBundle(root); K=4; N=100
+            idx=np.tile(np.array([[0,2],[1,3]],dtype=np.int32),(N//2,1))
+            val=np.ones_like(idx,dtype=np.float16)
+            phones=np.array((["AA","T"]*(N//2)),dtype="U8")
+            cache=FeatureCache(Path(td)/"x.npz",np.array(["u0"]),np.array([0]),np.array([N]),idx,val,
+                               phones,np.zeros(N),np.linspace(-1,1,N),np.zeros(N),np.ones((1,K)),
+                               np.ones((1,8)),np.ones((2,4)),np.array([0,1]),np.array([0,0,1,1]),
+                               np.ones(K),K,4)
+            state=_state(K,4); resolved=ResolvedModel(Path("x"),state,{"K":K,"D":4},"raw",{"unit_routes":True})
+            out=Path(td)/"out";(out/"tables").mkdir(parents=True)
+            health,_=health_analysis(cache,resolved,out); self.assertEqual((~health.dead).sum(),4)
+            scores,profiles,_=selectivity_analysis(cache,b,out)
+            self.assertTrue(len(scores)>0); self.assertEqual(len(profiles),K)
+            clustered,summary=clustering_analysis(cache,profiles,out); self.assertIn("route_nmi",summary)
+            cache.save(); loaded=FeatureCache.load(cache.path)
+            np.testing.assert_array_equal(loaded.indices,cache.indices)
+
+    def test_route_probabilities_and_unresolved_legacy_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            cp=Path(td)/"legacy.pt"; torch.save({"model_state":_state()},cp)
+            r=load_checkpoint(cp)
+            self.assertEqual(set(unresolved_critical(r)),{"topk","spear_layernorm"})
+            route,probability=route_information(r)
+            np.testing.assert_array_equal(route,np.array([0,0,0,0,1,1,1,1]))
+            self.assertTrue((probability>.99).all())
+
+    def test_fake_spear_cli_vertical_slice(self):
+        with tempfile.TemporaryDirectory() as td:
+            td=Path(td); root=_bundle(td/"bundle")
+            cp=td/"model.pt"; torch.save({"model":_state(),"analysis_config":{"topk":2,"spear_layernorm":False}},cp)
+            fake_transformers = types.ModuleType("transformers")
+            fake_transformers.AutoModel = FakeAutoModel
+            with patch.dict(sys.modules, {"transformers": fake_transformers}):
+                result=run_analysis(cp,root,"health,atlas",output_dir=td/"result",device="cpu",profile="quick")
+            self.assertTrue(result.artifacts["report"].exists())
+            self.assertTrue((td/"result"/"tables"/"units.csv").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
