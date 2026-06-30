@@ -238,6 +238,7 @@ def _parse_args():
                    help="Stage-2 LR/DANN schedule horizon (0 = use --stage2_steps).")
     p.add_argument("--warmup_steps",  type=int,   default=cfg.warmup_steps)
     p.add_argument("--batch_size",    type=int,   default=cfg.batch_size)
+    p.add_argument("--eval_batch_size", type=int, default=cfg.eval_batch_size)
     p.add_argument("--lr",            type=float, default=cfg.lr)
     p.add_argument("--lr_min",        type=float, default=cfg.lr_min)
     p.add_argument("--lr_routing",    type=float, default=cfg.lr_routing)
@@ -246,6 +247,7 @@ def _parse_args():
                    help="separate lr for the SID head (0 = use lr_heads)")
     p.add_argument("--lr_disc",       type=float, default=cfg.lr_disc,
                    help="separate lr for adversary discriminators (0 = use lr_heads)")
+    p.add_argument("--weight_decay",   type=float, default=cfg.weight_decay)
     p.add_argument("--n_disc_steps",  type=int,   default=cfg.n_disc_steps,
                    help="discriminator updates per encoder update (GAN n_critic)")
     p.add_argument("--grad_log_every",type=int,   default=cfg.grad_log_every)
@@ -429,12 +431,14 @@ def _parse_args():
     cfg.stage2_schedule_steps = args.stage2_schedule_steps
     cfg.warmup_steps          = args.warmup_steps
     cfg.batch_size            = args.batch_size
+    cfg.eval_batch_size       = args.eval_batch_size
     cfg.lr                    = args.lr
     cfg.lr_min                = args.lr_min
     cfg.lr_routing            = args.lr_routing
     cfg.lr_heads              = args.lr_heads
     cfg.lr_sid_head           = args.lr_sid_head
     cfg.lr_disc               = args.lr_disc
+    cfg.weight_decay          = args.weight_decay
     cfg.n_disc_steps          = args.n_disc_steps
     cfg.grad_log_every        = args.grad_log_every
     cfg.log_every             = args.log_every

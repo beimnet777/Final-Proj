@@ -9,7 +9,9 @@ from types import SimpleNamespace
 import torch
 
 from Disentanglement.experiment_presets import PRESETS, resolve_preset
-from Disentanglement.experiment_runner import apply_overrides, main as runner_main
+from Disentanglement.experiment_runner import (
+    _trainer_option_names, apply_overrides, main as runner_main,
+)
 from Disentanglement.colab_bundle import prepare_msp, verify
 from Disentanglement.training_runtime import (
     StatefulRandomSampler, checkpoint_payload, resolve_microbatch,
@@ -55,6 +57,23 @@ class PresetTests(unittest.TestCase):
         self.assertFalse(changed["dann_full_discriminator"])
         with self.assertRaises(ValueError):
             apply_overrides(preset, ["learnging_rate=1e-4"])
+
+    def test_libri_override_catalog_covers_all_requested_families(self):
+        available = _trainer_option_names("libri_grl_stats_gelu")
+        expected = {
+            "lr", "lr_min", "lr_heads", "lr_sid_head", "lr_disc", "lr_routing",
+            "weight_decay", "alpha", "beta", "grl_weight", "grl_phoneme_weight",
+            "prosody_weight", "grl_prosody_weight", "emotion_weight",
+            "grl_emotion_weight", "grl_grad_norm", "grl_grad_norm_target",
+            "grl_p_grad_norm", "grl_p_grad_norm_target", "club_enabled",
+            "club_weight", "club_lr", "club_inner_steps", "club_hidden",
+            "club_phoneme_enabled", "club_phoneme_weight", "club_phoneme_lr",
+            "club_phoneme_inner_steps", "club_phoneme_hidden",
+            "club_phoneme_warmup_steps", "gumbel_tau_start", "gumbel_tau_end",
+            "routing_spec_weight", "rho", "grad_clip", "n_disc_steps",
+            "ckpt_every", "log_every", "grad_log_every", "eval_batch_size",
+        }
+        self.assertFalse(expected - available, expected - available)
 
 
 class CheckpointTests(unittest.TestCase):

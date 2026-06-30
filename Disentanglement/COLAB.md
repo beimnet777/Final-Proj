@@ -84,6 +84,12 @@ Give each distinct override set a distinct `RUN_TAG` (for example `lr2e4` or
 `club_w03`). The tag creates a separate local/Drive checkpoint directory and
 prevents `resume=auto` from mixing optimizers from different configurations.
 
+The launcher validates overrides against the selected trainer's actual CLI, not
+a shortened notebook list. The dry-run cell prints every available key and the
+fully resolved command. The training cell streams stdout/stderr live, writes a
+timestamped `segment_*.log`, mirrors it to Drive, and prints the final 80 lines
+when a subprocess fails.
+
 Every completed segment writes `latest-resume.pt`. `best.pt` and `final.pt` are
 compact inference/analysis checkpoints without frozen SPEAR or optimizer state.
 Exact resume rejects changed datasets and architecture-critical settings.

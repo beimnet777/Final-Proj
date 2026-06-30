@@ -6,8 +6,10 @@ reproducible preset, Colab runtime and artifact contract.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -18,6 +20,48 @@ from .training_runtime import atomic_json_dump, dataset_fingerprint, mirror_file
 
 ROOT = Path(__file__).resolve().parents[1]
 DIS = Path(__file__).resolve().parent
+_PROTECTED_OVERRIDE_KEYS = {
+    "help", "stage", "stage1_ckpt", "stage2_from_scratch", "manifest",
+    "audio_root", "transcripts", "librispeech_root", "librispeech_cache_dir",
+    "lexicon_path", "checkpoint_dir", "runs_dir", "log_dir", "run_name",
+    "resume", "segment_steps", "max_runtime_minutes", "resume_every",
+    "gradient_accumulation_steps", "precision", "dataset_fingerprint",
+    "experiment_preset", "drive_mirror", "seed", "batch_size", "num_workers",
+}
+
+
+def _trainer_option_names(experiment: str) -> set[str]:
+    """Read registered --flags without importing either heavyweight trainer."""
+    path = DIS / "msp" / "run.py" if experiment in MSP_EXPERIMENTS else DIS / "run.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_argument"):
+            continue
+        for arg in node.args:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value.startswith("--"):
+                names.add(arg.value[2:].replace("-", "_"))
+    return names - _PROTECTED_OVERRIDE_KEYS
+
+
+def _boolean_optional_names(path: Path) -> set[str]:
+    """Return flags registered with argparse.BooleanOptionalAction."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_argument"):
+            continue
+        is_optional = any(
+            kw.arg == "action" and isinstance(kw.value, ast.Attribute)
+            and kw.value.attr == "BooleanOptionalAction" for kw in node.keywords)
+        if not is_optional:
+            continue
+        for arg in node.args:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value.startswith("--"):
+                names.add(arg.value[2:].replace("-", "_"))
+    return names
 
 
 def _coerce_override(text: str, current):
@@ -38,7 +82,7 @@ def _coerce_override(text: str, current):
     return value
 
 
-def apply_overrides(config: dict, values: list[str]) -> dict:
+def apply_overrides(config: dict, values: list[str], allowed_keys: set[str] | None = None) -> dict:
     """Apply KEY=VALUE overrides, rejecting misspelled or irrelevant names."""
     result = dict(config)
     for item in values:
@@ -46,11 +90,17 @@ def apply_overrides(config: dict, values: list[str]) -> dict:
             raise ValueError(f"override must be KEY=VALUE, got {item!r}")
         key, raw = item.split("=", 1)
         key = key.strip()
-        if key not in result:
+        if key not in result and (allowed_keys is None or key not in allowed_keys):
             raise ValueError(
                 f"{key!r} is not configurable for this preset. Available keys: "
-                + ", ".join(sorted(result)))
-        result[key] = _coerce_override(raw.strip(), result[key])
+                + ", ".join(sorted(allowed_keys or result)))
+        if key in result:
+            result[key] = _coerce_override(raw.strip(), result[key])
+        else:
+            try:
+                result[key] = json.loads(raw.strip())
+            except json.JSONDecodeError:
+                result[key] = raw.strip()
     return result
 
 
@@ -66,7 +116,7 @@ def _flag(name: str) -> str:
 
 
 def _libri_args(config: dict) -> list[str]:
-    bool_optional = {"hard_gumbel_routing", "club_enabled", "vicreg_full"}
+    bool_optional = _boolean_optional_names(DIS / "run.py")
     args: list[str] = []
     for key, value in config.items():
         if value is None:
@@ -222,15 +272,33 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     a = build_parser().parse_args(argv)
     output = a.output_dir.resolve(); output.mkdir(parents=True, exist_ok=True)
+    print("=" * 78, flush=True)
+    print(f"[runner] experiment={a.experiment} profile={a.profile} phase={a.phase} seed={a.seed}", flush=True)
+    print(f"[runner] python={sys.executable} version={platform.python_version()}", flush=True)
+    print(f"[runner] repository={ROOT} data_root={a.data_root.resolve()} output={output}", flush=True)
+    print(f"[runner] drive_mirror={a.drive_mirror or 'disabled'}", flush=True)
+    print("=" * 78, flush=True)
     if a.phase == "probe":
         if a.experiment not in LIBRI_EXPERIMENTS:
             raise ValueError("the unified diagnostic probe phase currently supports LibriSpeech presets")
         return _run_probes(a, output)
 
+    print("[runner] validating data paths ...", flush=True)
     data_args, fp_paths = _resolve_data(a.experiment, a.data_root.resolve())
+    print(f"[runner] data paths: {json.dumps({k: str(v) for k, v in data_args.items()})}", flush=True)
+    print("[runner] computing dataset fingerprint ...", flush=True)
     dataset_hash = dataset_fingerprint(fp_paths)
+    print(f"[runner] dataset fingerprint={dataset_hash}", flush=True)
     micro, accumulation = resolve_microbatch(a.microbatch_size, a.effective_batch_size)
-    config = apply_overrides(resolve_preset(a.experiment, a.profile), a.overrides)
+    print(f"[runner] batch: micro={micro} accumulation={accumulation} "
+          f"effective={a.effective_batch_size} precision={a.precision}", flush=True)
+    available_overrides = _trainer_option_names(a.experiment)
+    config = apply_overrides(
+        resolve_preset(a.experiment, a.profile), a.overrides, available_overrides)
+    print("[runner] available hyperparameter overrides:", flush=True)
+    print("  " + ", ".join(sorted(available_overrides)), flush=True)
+    print("[runner] requested overrides:",
+          json.dumps(a.overrides, indent=2) if a.overrides else "none", flush=True)
     if a.experiment in LIBRI_EXPERIMENTS and config.get("dual_invariance") and accumulation > 1:
         for key in ("pairs_alpha_per_step", "pairs_beta_per_step"):
             total_pairs = int(config[key])
@@ -275,7 +343,9 @@ def main(argv=None) -> int:
     if a.dry_run:
         return 0
     env = os.environ.copy(); env.setdefault("PYTHONUNBUFFERED", "1")
-    return subprocess.run(command, cwd=DIS, env=env).returncode
+    result = subprocess.run(command, cwd=DIS, env=env)
+    print(f"[runner] trainer exited with code {result.returncode}", flush=True)
+    return result.returncode
 
 
 if __name__ == "__main__":
