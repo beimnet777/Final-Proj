@@ -19,6 +19,29 @@ from torch.utils.data import Sampler
 FORMAT_VERSION = 2
 
 
+def resolve_amp_precision(requested: str, *, cuda_available: Optional[bool] = None,
+                          bf16_supported: Optional[bool] = None) -> tuple[bool, bool]:
+    """Return ``(use_bf16, use_fp16)`` for a requested precision policy."""
+    requested = str(requested).lower()
+    if requested not in {"auto", "bf16", "fp16", "fp32"}:
+        raise ValueError(f"unknown precision {requested!r}")
+    cuda = torch.cuda.is_available() if cuda_available is None else bool(cuda_available)
+    bf16 = (torch.cuda.is_bf16_supported() if bf16_supported is None
+            else bool(bf16_supported)) if cuda else False
+    if requested == "fp32":
+        return False, False
+    if requested == "bf16":
+        if not cuda or not bf16:
+            raise RuntimeError("bf16 requested but the CUDA device does not support it")
+        return True, False
+    if requested == "fp16":
+        if not cuda:
+            raise RuntimeError("fp16 requested but CUDA is unavailable")
+        return False, True
+    # auto: BF16 on capable GPUs, otherwise FP16 on CUDA, FP32 on CPU.
+    return (True, False) if bf16 else ((False, True) if cuda else (False, False))
+
+
 class StatefulRandomSampler(Sampler[int]):
     """Random sampler whose permutation/cursor can be checkpointed exactly."""
     def __init__(self, data_source, seed: int = 0) -> None:

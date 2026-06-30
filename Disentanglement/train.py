@@ -33,7 +33,7 @@ from probe_robust.club import CLUBSampled
 from tb_logger import DISLogger
 from training_runtime import (
     SegmentLimit, append_metrics, atomic_torch_save, checkpoint_payload,
-    mirror_file, restore_training_state, validate_resume,
+    mirror_file, resolve_amp_precision, restore_training_state, validate_resume,
 )
 
 
@@ -855,13 +855,7 @@ def run_stage1(cfg: DISConfig) -> Path:
     scheduler = _make_scheduler(optimizer, cfg.warmup_steps, cfg.total_steps, cfg.lr, cfg.lr_min)
 
     precision = str(getattr(cfg, "precision", "auto"))
-    use_bf16 = (torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-                and precision in {"auto", "bf16"})
-    if precision == "bf16" and not use_bf16:
-        raise RuntimeError("bf16 requested but this GPU does not support it")
-    use_fp16 = torch.cuda.is_available() and precision == "fp16"
-    if precision == "auto" and torch.cuda.is_available() and not use_bf16:
-        use_fp16 = True
+    use_bf16, use_fp16 = resolve_amp_precision(precision)
     scaler   = torch.amp.GradScaler("cuda", enabled=use_fp16)
 
     if getattr(cfg, 'geom_median_bias', False):
@@ -1143,8 +1137,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     optimizer = AdamW(param_groups, weight_decay=cfg.weight_decay)
     scheduler = _make_scheduler(optimizer, cfg.warmup_steps, schedule_steps, cfg.lr, cfg.lr_min)
 
-    use_bf16 = cfg.bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-    scaler   = torch.amp.GradScaler("cuda", enabled=(not use_bf16))
+    precision = str(getattr(cfg, "precision", "auto"))
+    use_bf16, use_fp16 = resolve_amp_precision(precision)
+    scaler = torch.amp.GradScaler("cuda", enabled=use_fp16)
+    resolved_precision = "bf16" if use_bf16 else "fp16" if use_fp16 else "fp32"
+    print(f"[stage 2] precision requested={precision} resolved={resolved_precision}")
 
     from datetime import datetime
     tb = DISLogger(cfg.runs_dir / "tb", run_name=f"stage2_{datetime.now().strftime('%Y%m%d_%H%M%S')}")

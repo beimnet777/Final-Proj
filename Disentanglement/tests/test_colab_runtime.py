@@ -14,13 +14,27 @@ from Disentanglement.experiment_runner import (
 )
 from Disentanglement.colab_bundle import prepare_msp, verify
 from Disentanglement.training_runtime import (
-    StatefulRandomSampler, checkpoint_payload, resolve_microbatch,
+    StatefulRandomSampler, checkpoint_payload, resolve_amp_precision, resolve_microbatch,
     restore_training_state, validate_resume,
 )
 from Disentanglement.probe_robust.club import CLUBSampled
 
 
 class PresetTests(unittest.TestCase):
+    def test_precision_resolution_covers_every_policy(self):
+        self.assertEqual((True, False), resolve_amp_precision(
+            "auto", cuda_available=True, bf16_supported=True))
+        self.assertEqual((False, True), resolve_amp_precision(
+            "auto", cuda_available=True, bf16_supported=False))
+        self.assertEqual((False, False), resolve_amp_precision(
+            "auto", cuda_available=False, bf16_supported=False))
+        self.assertEqual((False, True), resolve_amp_precision(
+            "fp16", cuda_available=True, bf16_supported=True))
+        self.assertEqual((False, False), resolve_amp_precision(
+            "fp32", cuda_available=True, bf16_supported=True))
+        with self.assertRaises(RuntimeError):
+            resolve_amp_precision("bf16", cuda_available=True, bf16_supported=False)
+
     def test_all_named_presets_exist(self):
         expected = {
             "msp_baseline", "msp_no_pcgrad", "msp_no_invariance",
