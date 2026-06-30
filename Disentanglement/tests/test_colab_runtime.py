@@ -153,6 +153,11 @@ class RunnerTests(unittest.TestCase):
         payload = json.loads(notebook.read_text())
         self.assertEqual(4, payload["nbformat"])
         self.assertGreaterEqual(len(payload["cells"]), 8)
+        source = "".join(
+            line for cell in payload["cells"] for line in cell.get("source", [])
+        )
+        self.assertIn("averaged_perceptron_tagger_eng", source)
+        self.assertIn("cmudict", source)
 
     def test_msp_bundle_roundtrip(self):
         with tempfile.TemporaryDirectory() as td:

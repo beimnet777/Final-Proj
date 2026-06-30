@@ -52,6 +52,11 @@ Available LibriSpeech presets are `libri_grl_stats_gelu`,
 architecture-agnostic MI-minimization objective, not proof of universal probe
 failure; use `--phase probe` on a completed checkpoint.
 
+The dependency cell also downloads NLTK's `cmudict` and
+`averaged_perceptron_tagger_eng` data. These are runtime data used by `g2p_en`
+for the small number of transcript words absent from the supplied lexicon;
+installing the Python package alone does not install them.
+
 ## Fine-grained hyperparameters
 
 The notebook's `OVERRIDES` dictionary changes selected values after loading the
