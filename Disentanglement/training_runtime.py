@@ -127,14 +127,29 @@ def rng_state() -> dict[str, Any]:
     return state
 
 
+def _cpu_rng_byte_tensor(value: Any) -> torch.Tensor:
+    """Canonicalize a serialized RNG state for Torch's RNG setter APIs.
+
+    Loading a checkpoint with ``map_location='cuda'`` also moves the RNG-state
+    tensor, but ``torch.set_rng_state`` and ``torch.cuda.set_rng_state_all``
+    require CPU ByteTensors. Lists/arrays are accepted for compatibility with
+    checkpoints that passed through a non-Torch serializer.
+    """
+    if torch.is_tensor(value):
+        return value.detach().to(device="cpu", dtype=torch.uint8)
+    return torch.as_tensor(value, dtype=torch.uint8, device="cpu")
+
+
 def restore_rng_state(state: Optional[Mapping[str, Any]]) -> None:
     if not state:
         return
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
-    torch.set_rng_state(state["torch"])
+    torch.set_rng_state(_cpu_rng_byte_tensor(state["torch"]))
     if torch.cuda.is_available() and state.get("cuda") is not None:
-        torch.cuda.set_rng_state_all(state["cuda"])
+        torch.cuda.set_rng_state_all([
+            _cpu_rng_byte_tensor(cuda_state) for cuda_state in state["cuda"]
+        ])
 
 
 def git_commit(root: Optional[Path] = None) -> str:

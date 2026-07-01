@@ -16,7 +16,7 @@ from Disentanglement.experiment_runner import (
 from Disentanglement.colab_bundle import prepare_msp, verify
 from Disentanglement.training_runtime import (
     StatefulRandomSampler, checkpoint_payload, resolve_amp_precision, resolve_microbatch,
-    restore_training_state, validate_resume,
+    restore_rng_state, restore_training_state, rng_state, validate_resume,
 )
 from Disentanglement.probe_robust.club import CLUBSampled, normalize_club_gradient
 
@@ -106,6 +106,22 @@ class PresetTests(unittest.TestCase):
 
 
 class CheckpointTests(unittest.TestCase):
+    def test_rng_restore_canonicalizes_serialized_state_to_cpu_bytes(self):
+        original = rng_state()
+        expected = original["torch"].clone()
+        serialized = dict(original)
+        # Reproduces a non-ByteTensor representation; CUDA map_location is the
+        # same failure class and is canonicalized through the tensor branch.
+        serialized["torch"] = expected.tolist()
+        try:
+            torch.manual_seed(123456)
+            restore_rng_state(serialized)
+            self.assertEqual(torch.uint8, torch.get_rng_state().dtype)
+            self.assertEqual("cpu", torch.get_rng_state().device.type)
+            self.assertTrue(torch.equal(expected, torch.get_rng_state()))
+        finally:
+            restore_rng_state(original)
+
     def test_compact_roundtrip_and_strict_identity(self):
         class Model(torch.nn.Module):
             def __init__(self):
