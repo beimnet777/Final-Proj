@@ -104,6 +104,17 @@ def apply_overrides(config: dict, values: list[str], allowed_keys: set[str] | No
     return result
 
 
+def validate_experiment_config(config: dict) -> None:
+    """Reject objective combinations that are valid CLI syntax but invalid science."""
+    if bool(config.get("club_grad_norm", False)):
+        if not bool(config.get("club_enabled", False)):
+            raise ValueError("club_grad_norm=true requires club_enabled=true")
+        if float(config.get("club_grad_norm_target", 0.0)) <= 0:
+            raise ValueError("club_grad_norm_target must be positive")
+        if float(config.get("club_weight", 0.0)) <= 0:
+            raise ValueError("club_grad_norm=true requires club_weight > 0")
+
+
 def _find_first(candidates: list[Path], what: str) -> Path:
     for path in candidates:
         if path.exists():
@@ -295,6 +306,7 @@ def main(argv=None) -> int:
     available_overrides = _trainer_option_names(a.experiment)
     config = apply_overrides(
         resolve_preset(a.experiment, a.profile), a.overrides, available_overrides)
+    validate_experiment_config(config)
     print("[runner] available hyperparameter overrides:", flush=True)
     print("  " + ", ".join(sorted(available_overrides)), flush=True)
     print("[runner] requested overrides:",

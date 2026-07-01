@@ -95,6 +95,20 @@ fully resolved command. The training cell streams stdout/stderr live, writes a
 timestamped `segment_*.log`, mirrors it to Drive, and prints the final 80 lines
 when a subprocess fails.
 
+Speaker CLUB can optionally use a sign-preserving, per-frame normalized gradient
+on its private `z_L` branch:
+
+```python
+OVERRIDES = {
+    "club_grad_norm": True,
+    "club_grad_norm_target": 0.005,
+}
+```
+
+This is not a GRL: the CLUB minimization direction is preserved. The delivered
+per-frame magnitude is `club_weight * club_grad_norm_target`; accumulation and
+FP16 scaling are compensated internally. Phoneme GRL-P is unchanged.
+
 Every completed segment writes `latest-resume.pt`. `best.pt` and `final.pt` are
 compact inference/analysis checkpoints without frozen SPEAR or optimizer state.
 Exact resume rejects changed datasets and architecture-critical settings.

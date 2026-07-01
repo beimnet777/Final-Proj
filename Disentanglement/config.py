@@ -337,6 +337,11 @@ class DISConfig:
     club_lr:            float = 1e-3
     club_inner_steps:   int   = 3
     club_hidden:        int   = 512
+    # Sign-preserving per-frame normalisation of only the speaker-CLUB gradient
+    # entering z_L. The objective weight is applied after normalisation, as for
+    # normalized GRL, but there is no reversal because CLUB is directly minimised.
+    club_grad_norm:        bool  = False
+    club_grad_norm_target: float = 0.005
     # Phoneme CLUB on z_P (frame-level, pr_head argmax as pseudo-labels).
     # Warmup gates the loss until pr_head's argmax stabilises — before that
     # the pseudo-labels are random and CLUB would chase noise.

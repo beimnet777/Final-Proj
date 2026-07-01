@@ -29,7 +29,7 @@ from losses import (
     variance_floor_loss, effective_rank, bucket_diag,
 )
 from probe_robust.losses import vicreg_invariance_loss, vicreg_covariance_loss
-from probe_robust.club import CLUBSampled
+from probe_robust.club import CLUBSampled, normalize_club_gradient
 from tb_logger import DISLogger
 from training_runtime import (
     SegmentLimit, append_metrics, atomic_torch_save, checkpoint_payload,
@@ -583,6 +583,12 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
                         and step >= int(getattr(cfg, 'club_phoneme_warmup_steps', 0)))
         if _club_on:
             _zL    = out["z_L"]
+            if bool(getattr(cfg, "club_grad_norm", False)):
+                _zL = normalize_club_gradient(
+                    _zL,
+                    target=float(cfg.club_grad_norm_target),
+                    weight=float(cfg.club_weight),
+                )
             _olen2 = out["out_lengths"]
             _Tcl   = _zL.shape[1]
             _fm    = (torch.arange(_Tcl, device=device).unsqueeze(0)
@@ -1182,9 +1188,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             hidden=int(cfg.club_hidden),
             lr=float(cfg.club_lr),
         ).to(device)
+        _club_gn = (f"  grad_norm_target={cfg.club_grad_norm_target}"
+                    if bool(getattr(cfg, 'club_grad_norm', False)) else "  grad_norm=off")
         print(f"[stage 2] CLUB ON: weight={cfg.club_weight}  inner_steps={cfg.club_inner_steps}  "
               f"lr={cfg.club_lr}  hidden={cfg.club_hidden}  in_dim={2 * cfg.K}  "
-              f"num_speakers={cfg.num_speakers}  pool=mean+std(z_L)")
+              f"num_speakers={cfg.num_speakers}  pool=mean+std(z_L){_club_gn}")
 
     # ---- probe_robust: phoneme CLUB on z_P (frame-level) ----
     club_phn_module = None
@@ -1549,6 +1557,17 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             club_acc = float('nan')
             if club_module is not None:
                 _zL = out["z_L"]
+                if bool(getattr(cfg, 'club_grad_norm', False)):
+                    # This branch is used only by CLUB. Other objectives retain
+                    # the original z_L and therefore keep their own gradients.
+                    _amp_scale = float(scaler.get_scale()) if use_fp16 else 1.0
+                    _zL = normalize_club_gradient(
+                        _zL,
+                        target=float(cfg.club_grad_norm_target),
+                        weight=float(cfg.club_weight),
+                        accumulation=accumulation,
+                        amp_scale=_amp_scale,
+                    )
                 _olen = out["out_lengths"]
                 _Bcl, _Tcl, _ = _zL.shape
                 _fm = (torch.arange(_Tcl, device=device).unsqueeze(0)
@@ -1911,6 +1930,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 losses["inv/zP_utt_norm_std"]   = diag_P["utt_norm_std"]
                 losses["probe_robust/cov"]      = float(l_cov.item())
                 losses["probe_robust/club"]     = float(l_club.item())
+                if bool(getattr(cfg, 'club_grad_norm', False)):
+                    losses["probe_robust/club_grad_norm_target"] = float(
+                        cfg.club_grad_norm_target)
+                    losses["probe_robust/club_grad_norm_delivered"] = float(
+                        cfg.club_weight * cfg.club_grad_norm_target)
                 losses["probe_robust/q_phi_ce"] = float(club_ce) if club_ce == club_ce else 0.0
                 losses["probe_robust/q_phi_acc"] = float(club_acc) if club_acc == club_acc else 0.0
                 if club_module is not None:

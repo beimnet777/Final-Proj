@@ -291,6 +291,13 @@ def _parse_args():
     p.add_argument("--club_lr",           type=float, default=cfg.club_lr)
     p.add_argument("--club_inner_steps",  type=int,   default=cfg.club_inner_steps)
     p.add_argument("--club_hidden",       type=int,   default=cfg.club_hidden)
+    p.add_argument("--club_grad_norm", action=argparse.BooleanOptionalAction,
+                   default=cfg.club_grad_norm,
+                   help="Normalize only the speaker-CLUB gradient entering z_L; "
+                        "preserves the minimization direction (no reversal).")
+    p.add_argument("--club_grad_norm_target", type=float,
+                   default=cfg.club_grad_norm_target,
+                   help="Per-frame z_L norm target for the normalized CLUB gradient.")
     p.add_argument("--club_phoneme_enabled", action="store_true",
                    help="Add frame-level CLUB MI-min on (z_P, pr_head.argmax). "
                         "Symmetric to --club_enabled but for phoneme leakage out of z_P.")
@@ -468,6 +475,8 @@ def _parse_args():
     cfg.club_lr               = args.club_lr
     cfg.club_inner_steps      = args.club_inner_steps
     cfg.club_hidden           = args.club_hidden
+    cfg.club_grad_norm        = bool(args.club_grad_norm)
+    cfg.club_grad_norm_target = args.club_grad_norm_target
     cfg.club_phoneme_enabled       = bool(args.club_phoneme_enabled)
     cfg.club_phoneme_weight        = args.club_phoneme_weight
     cfg.club_phoneme_lr            = args.club_phoneme_lr
@@ -490,6 +499,10 @@ def _parse_args():
     cfg.dataset_fingerprint   = args.dataset_fingerprint
     cfg.experiment_preset     = args.experiment_preset
     cfg.drive_mirror          = args.drive_mirror
+    if cfg.club_grad_norm and not cfg.club_enabled:
+        p.error("--club_grad_norm requires --club_enabled")
+    if cfg.club_grad_norm_target <= 0:
+        p.error("--club_grad_norm_target must be positive")
     if not cfg.spear_revision and cfg.resume not in {"none", ""}:
         _rp = cfg.checkpoint_dir / "latest-resume.pt" if cfg.resume == "auto" else Path(cfg.resume)
         if _rp.exists():

@@ -11,13 +11,14 @@ import torch
 from Disentanglement.experiment_presets import PRESETS, resolve_preset
 from Disentanglement.experiment_runner import (
     _trainer_option_names, apply_overrides, main as runner_main,
+    validate_experiment_config,
 )
 from Disentanglement.colab_bundle import prepare_msp, verify
 from Disentanglement.training_runtime import (
     StatefulRandomSampler, checkpoint_payload, resolve_amp_precision, resolve_microbatch,
     restore_training_state, validate_resume,
 )
-from Disentanglement.probe_robust.club import CLUBSampled
+from Disentanglement.probe_robust.club import CLUBSampled, normalize_club_gradient
 
 
 class PresetTests(unittest.TestCase):
@@ -81,6 +82,7 @@ class PresetTests(unittest.TestCase):
             "grl_emotion_weight", "grl_grad_norm", "grl_grad_norm_target",
             "grl_p_grad_norm", "grl_p_grad_norm_target", "club_enabled",
             "club_weight", "club_lr", "club_inner_steps", "club_hidden",
+            "club_grad_norm", "club_grad_norm_target",
             "club_phoneme_enabled", "club_phoneme_weight", "club_phoneme_lr",
             "club_phoneme_inner_steps", "club_phoneme_hidden",
             "club_phoneme_warmup_steps", "gumbel_tau_start", "gumbel_tau_end",
@@ -88,6 +90,19 @@ class PresetTests(unittest.TestCase):
             "ckpt_every", "log_every", "grad_log_every", "eval_batch_size",
         }
         self.assertFalse(expected - available, expected - available)
+
+    def test_club_gradient_normalization_config_is_strict(self):
+        valid = resolve_preset("libri_club_hybrid")
+        valid.update(club_grad_norm=True, club_grad_norm_target=0.005)
+        validate_experiment_config(valid)
+        for changes in (
+            {"club_enabled": False},
+            {"club_grad_norm_target": 0.0},
+            {"club_weight": 0.0},
+        ):
+            invalid = dict(valid); invalid.update(changes)
+            with self.assertRaises(ValueError):
+                validate_experiment_config(invalid)
 
 
 class CheckpointTests(unittest.TestCase):
@@ -106,6 +121,11 @@ class CheckpointTests(unittest.TestCase):
         validate_resume(payload, dataset_hash="abc", preset="unit", cfg=cfg)
         with self.assertRaises(ValueError):
             validate_resume(payload, dataset_hash="different", preset="unit", cfg=cfg)
+        normalized_cfg = SimpleNamespace(**vars(cfg), club_enabled=True,
+                                         club_grad_norm=True,
+                                         club_grad_norm_target=0.005)
+        with self.assertRaisesRegex(ValueError, "club_grad_norm"):
+            validate_resume(payload, dataset_hash="abc", preset="unit", cfg=normalized_cfg)
         for p in model.sae.parameters(): p.data.zero_()
         step, best = restore_training_state(payload, model=model, optimizer=opt)
         self.assertEqual(7, step); self.assertEqual(0.5, best)
@@ -127,6 +147,34 @@ class CheckpointTests(unittest.TestCase):
         self.assertIsNotNone(z.grad)
         self.assertTrue(all(p.grad is None for p in club.classifier.parameters()))
         self.assertIn("negative_label_collision", club.last_diagnostics)
+
+    def test_club_gradient_normalization_preserves_direction_and_target(self):
+        raw = torch.randn(2, 2, 5, requires_grad=True)
+        transformed = normalize_club_gradient(
+            raw, target=0.5, weight=0.3, accumulation=2, amp_scale=8.0)
+        upstream = torch.randn_like(transformed)
+        transformed.backward(upstream)
+        expected_norm = 0.5 * 0.3 / 2 * 8.0
+        norms = raw.grad.norm(dim=-1)
+        self.assertTrue(torch.allclose(norms, torch.full_like(norms, expected_norm)))
+        # No reversal: each normalized vector is positively collinear with the
+        # unmodified upstream CLUB gradient.
+        cosine = torch.nn.functional.cosine_similarity(raw.grad, upstream, dim=-1)
+        self.assertTrue(torch.allclose(cosine, torch.ones_like(cosine), atol=1e-6))
+        # Simulate GradScaler.unscale_: the requested effective magnitude is
+        # invariant to the temporary FP16 scale.
+        unscaled = raw.grad / 8.0
+        expected_unscaled = 0.5 * 0.3 / 2
+        self.assertTrue(torch.allclose(
+            unscaled.norm(dim=-1),
+            torch.full_like(norms, expected_unscaled),
+        ))
+
+    def test_club_gradient_normalization_keeps_zero_gradient_zero(self):
+        z = torch.randn(2, 3, 4, requires_grad=True)
+        transformed = normalize_club_gradient(z, target=0.005)
+        (transformed * 0.0).sum().backward()
+        self.assertEqual(0.0, float(z.grad.abs().sum()))
 
 
 class RunnerTests(unittest.TestCase):

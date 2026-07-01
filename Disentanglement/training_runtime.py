@@ -227,9 +227,16 @@ def validate_resume(checkpoint: Mapping[str, Any], *, dataset_hash: str,
     old = checkpoint.get("analysis_config", {})
     now = config_dict(cfg)
     for key in ("K", "topk", "n_routes", "hard_gumbel_routing", "spear_model_id", "spear_revision",
-                "batch_size", "gradient_accumulation_steps", "precision"):
+                "batch_size", "gradient_accumulation_steps", "precision",
+                "club_enabled", "club_grad_norm", "club_grad_norm_target"):
         if key in old and key in now and old[key] != now[key]:
             raise ValueError(f"resume configuration mismatch for {key}: {old[key]!r} != {now[key]!r}")
+    # Checkpoints created before CLUB gradient normalisation existed have no
+    # key and therefore represent club_grad_norm=False. Never silently turn the
+    # new backward rule on halfway through an exact-resume run.
+    if bool(now.get("club_grad_norm", False)) and not bool(old.get("club_grad_norm", False)):
+        raise ValueError(
+            "resume configuration mismatch for club_grad_norm: checkpoint=False current=True")
 
 
 def restore_training_state(checkpoint: Mapping[str, Any], *, model: torch.nn.Module,
