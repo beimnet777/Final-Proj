@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import importlib
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 
@@ -194,6 +198,51 @@ class CheckpointTests(unittest.TestCase):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_pr_loader_uses_extracted_librispeech_when_local(self):
+        repo = Path(__file__).resolve().parents[2]
+        pr_dir = repo / "Probing" / "pr"
+        if str(pr_dir) not in sys.path:
+            sys.path.insert(0, str(pr_dir))
+
+        fake_soundfile = types.ModuleType("soundfile")
+        fake_soundfile.read = lambda source: (torch.zeros(16).numpy(), 16_000)
+        fake_datasets = types.ModuleType("datasets")
+        fake_datasets.load_dataset = lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("local PR loading unexpectedly contacted Hugging Face"))
+        fake_datasets.Audio = lambda *a, **k: object()
+        with patch.dict(sys.modules, {
+            "soundfile": fake_soundfile,
+            "datasets": fake_datasets,
+        }):
+            sys.modules.pop("pr_data", None)
+            pr_data = importlib.import_module("pr_data")
+            from pr_config import PRConfig
+
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                for split in ("train-clean-100", "dev-clean", "test-clean"):
+                    chapter = root / "LibriSpeech" / split / "1" / "2"
+                    chapter.mkdir(parents=True)
+                    (chapter / "1-2.trans.txt").write_text(
+                        "1-2-0001 HELLO WORLD\n", encoding="utf-8")
+                    (chapter / "1-2-0001.flac").write_bytes(b"local-placeholder")
+                lexicon = root / "lexicon.txt"
+                lexicon.write_text("HELLO HH AH0 L OW1\nWORLD W ER1 L D\n", encoding="utf-8")
+
+                cfg = PRConfig(local_data=True,
+                               librispeech_root=root / "LibriSpeech",
+                               librispeech_lexicon=lexicon,
+                               batch_size=1, eval_batch_size=1, num_workers=0)
+                pr_data._LEXICON = None
+                _, train_dl, val_dl, test_dl = pr_data.make_pr_dataloaders(cfg)
+                self.assertEqual(1, len(train_dl.dataset))
+                self.assertEqual(1, len(val_dl.dataset))
+                self.assertEqual(1, len(test_dl.dataset))
+                self.assertIsNone(train_dl.dataset.examples[0]["audio"]["bytes"])
+                audio, _, text = train_dl.dataset[0]
+                self.assertEqual(16, audio.numel())
+                self.assertEqual("HELLO WORLD", text)
+
     def test_msp_dry_run_writes_contract(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td); (root / "Transcripts").mkdir()

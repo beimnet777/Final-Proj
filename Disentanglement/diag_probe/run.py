@@ -279,6 +279,8 @@ def main() -> None:
         pr_cfg = PRConfig()
         pr_cfg.data_cache_dir = cfg.librispeech_cache_dir
         pr_cfg.librispeech_lexicon = cfg.lexicon_path
+        pr_cfg.local_data = cfg.local_data
+        pr_cfg.librispeech_root = cfg.librispeech_root
         pr_cfg.batch_size = cfg.batch_size
         pr_cfg.eval_batch_size = cfg.eval_batch_size
         pr_cfg.num_workers = cfg.num_workers

@@ -61,6 +61,10 @@ class PRConfig:
     # Shared with the ASR probing pipeline — both read from Probing/data/.
     data_cache_dir: Path   = _PR_DIR.parent / "data"
     sample_rate: int       = 16_000
+    # Optional raw LibriSpeech tree. Streaming remains the default for existing
+    # probing/HPC jobs; Colab diagnostic probes set these explicitly.
+    local_data: bool = False
+    librispeech_root: Path = _PR_DIR.parent / "data" / "LibriSpeech"
     # Path to the official LibriSpeech lexicon file.
     # Download once:  wget -q https://www.openslr.org/resources/11/librispeech-lexicon.txt \
     #                      -O <data_cache_dir>/librispeech-lexicon.txt

@@ -181,7 +181,10 @@ def text_to_phones(text: str, lexicon: dict) -> List[str]:
 # ====================================================================
 
 def _decode_audio(audio_dict: dict, target_sr: int) -> np.ndarray:
-    arr, sr = sf.read(io.BytesIO(audio_dict["bytes"]))
+    if audio_dict.get("bytes") is not None:
+        arr, sr = sf.read(io.BytesIO(audio_dict["bytes"]))
+    else:
+        arr, sr = sf.read(audio_dict["path"])
     if arr.ndim > 1:
         arr = arr.mean(axis=1)
     if sr != target_sr:
@@ -194,8 +197,60 @@ def _decode_audio(audio_dict: dict, target_sr: int) -> np.ndarray:
 # LibriSpeech streaming helpers
 # ====================================================================
 
+_LOCAL_SPLITS = {
+    "train.100": "train-clean-100",
+    "validation": "dev-clean",
+    "test": "test-clean",
+}
+
+
+def _local_examples(split_name: str, cfg: PRConfig,
+                    n: Optional[int] = None) -> List[dict]:
+    """Read an extracted OpenSLR LibriSpeech split without Hugging Face."""
+    split_dir = _LOCAL_SPLITS.get(split_name, split_name)
+    base = Path(cfg.librispeech_root) / split_dir
+    if not base.exists():
+        raise FileNotFoundError(f"local LibriSpeech split not found: {base}")
+
+    examples: List[dict] = []
+    for speaker_dir in sorted(base.iterdir()):
+        if not speaker_dir.is_dir():
+            continue
+        for chapter_dir in sorted(speaker_dir.iterdir()):
+            if not chapter_dir.is_dir():
+                continue
+            transcript = chapter_dir / f"{speaker_dir.name}-{chapter_dir.name}.trans.txt"
+            if not transcript.exists():
+                continue
+            for line in transcript.read_text(encoding="utf-8").splitlines():
+                utterance_id, separator, text = line.partition(" ")
+                if not separator or not text:
+                    continue
+                audio_path = chapter_dir / f"{utterance_id}.flac"
+                if not audio_path.exists():
+                    continue
+                examples.append({
+                    "audio": {"path": str(audio_path), "bytes": None},
+                    "text": text,
+                    "speaker_id": speaker_dir.name,
+                    "id": utterance_id,
+                })
+                if n is not None and len(examples) >= n:
+                    return examples
+    return examples
+
+
+def _audio_payload_size(example: dict) -> int:
+    payload = example["audio"]
+    if payload.get("bytes") is not None:
+        return len(payload["bytes"])
+    path = Path(payload["path"])
+    return path.stat().st_size if path.exists() else 0
+
 def _stream_examples(split_name: str, cfg: PRConfig,
                      n: Optional[int] = None) -> List[dict]:
+    if getattr(cfg, "local_data", False):
+        return _local_examples(split_name, cfg, n=n)
     ds = load_dataset(
         "librispeech_asr", "clean",
         split=split_name,
@@ -286,7 +341,7 @@ def make_pr_dataloaders(cfg: PRConfig):
 
     print("[pr_data] loading test-clean …")
     tst_examples = _stream_examples("test", cfg, n=n_cap)
-    tst_examples.sort(key=lambda ex: len(ex["audio"]["bytes"]))
+    tst_examples.sort(key=_audio_payload_size)
 
     train_ds = LibriSpeechPhoneDataset(trn_examples, tokenizer, cfg.sample_rate, lexicon)
     val_ds   = LibriSpeechPhoneDataset(val_examples,  tokenizer, cfg.sample_rate, lexicon)
