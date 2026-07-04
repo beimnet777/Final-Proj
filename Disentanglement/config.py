@@ -69,6 +69,9 @@ class DISConfig:
     # masked mean+std pooling -> speaker classifier.  This is stronger than
     # flat mean-pooling without adding attention as a second confound.
     grl_stats_pool:      bool  = False
+    # Standalone signed-linear statistics adversary: projector -> masked
+    # mean+std -> speaker classifier, with no activation and no companion branch.
+    grl_linear_stats:    bool  = False
     # Dense speaker adversary: per-frame speaker prediction (like grl_p's per-frame
     # phoneme head) but with a temporal conv so each frame has local context — gives
     # z_L a DENSE per-frame removal gradient instead of one diluted pooled gradient.

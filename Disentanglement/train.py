@@ -1064,6 +1064,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += f"  grl_dense_context=True(k={cfg.grl_context_kernel})"
     if getattr(cfg, 'grl_robust_sid', False):
         extra_str += f"  grl_robust_sid=True(act={cfg.grl_robust_activation})"
+    if getattr(cfg, 'grl_linear_stats', False):
+        extra_str += "  grl_linear_stats=True"
     if getattr(cfg, 'grl_grad_norm', False):
         extra_str += f"  grl_grad_norm={cfg.grl_grad_norm_target}"
     if getattr(cfg, 'instance_norm_zL', False):

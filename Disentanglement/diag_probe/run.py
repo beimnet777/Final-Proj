@@ -19,11 +19,24 @@ import os
 import random
 import json
 import sys
+import warnings
 from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
 import torch
+
+# The frozen SPEAR remote implementation still calls deprecated torch.cuda.amp
+# aliases on every forward. They are harmless but otherwise flood long probe
+# logs with thousands of identical warnings. Keep project warnings visible.
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    message=r".*torch\.cuda\.amp\.(autocast|custom_fwd|custom_bwd).*deprecated.*",
+)
 
 DIAG_DIR = Path(__file__).resolve().parent
 DIS_DIR = DIAG_DIR.parent
@@ -351,7 +364,10 @@ def main() -> None:
         tasks.remove("prosody")
 
     if args.topk > 0:
-        print(f"[diag_probe] topk overridden: {cfg.topk} -> {args.topk}")
+        if args.topk != cfg.topk:
+            print(f"[diag_probe] topk overridden: {cfg.topk} -> {args.topk}")
+        else:
+            print(f"[diag_probe] topk confirmed: {args.topk}")
         cfg.topk = args.topk
 
     model = build_dis_model(cfg)

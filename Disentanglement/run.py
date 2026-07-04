@@ -97,6 +97,9 @@ def _parse_args():
                         "flat mean — a stronger speaker discriminator.")
     p.add_argument("--grl_stats_pool", action="store_true", default=cfg.grl_stats_pool,
                    help="Speaker GRL uses one GELU statistics branch: projector->GELU->mean+std->linear.")
+    p.add_argument("--grl_linear_stats", action="store_true", default=cfg.grl_linear_stats,
+                   help="Speaker GRL uses one signed-linear statistics branch only: "
+                        "projector->masked mean+std->linear (no activation or companion branch).")
     p.add_argument("--grl_dense_context", action="store_true", default=cfg.grl_dense_context,
                    help="Speaker GRL predicts per-frame (dense) with a temporal conv for context — "
                         "gives z_L a dense per-frame removal gradient like grl_p.")
@@ -360,6 +363,7 @@ def _parse_args():
     cfg.grl_frame_level       = args.grl_frame_level
     cfg.grl_attention_pool    = args.grl_attention_pool
     cfg.grl_stats_pool        = args.grl_stats_pool
+    cfg.grl_linear_stats      = args.grl_linear_stats
     cfg.grl_dense_context     = args.grl_dense_context
     cfg.grl_context_kernel    = args.grl_context_kernel
     cfg.grl_robust_sid        = args.grl_robust_sid

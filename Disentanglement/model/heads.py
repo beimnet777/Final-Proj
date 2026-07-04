@@ -231,6 +231,9 @@ class GRLHead(nn.Module):
         # the projector: GELU -> masked mean+std -> classifier.  This tests
         # whether the training adversary can remove what the leakage probe sees.
         self.stats_pool     = bool(getattr(cfg, "grl_stats_pool", False))
+        # linear_stats=True: standalone mean+std pooling directly on the signed
+        # projection.  Unlike robust_sid, this trains no companion branch.
+        self.linear_stats  = bool(getattr(cfg, "grl_linear_stats", False))
         # dense_context=True: per-frame speaker prediction (like grl_p) but with a
         # temporal conv for local context, so each frame gets its OWN removal
         # gradient (dense) instead of one diluted pooled gradient over T frames.
@@ -248,6 +251,20 @@ class GRLHead(nn.Module):
         # magnitude (decouples removal strength from discriminator confidence).
         self.grad_norm        = bool(getattr(cfg, "grl_grad_norm", False))
         self.grad_norm_target = float(getattr(cfg, "grl_grad_norm_target", 1.0))
+        if self.linear_stats:
+            incompatible = {
+                "grl_robust_sid": self.robust_sid,
+                "grl_stats_pool": self.stats_pool,
+                "grl_attention_pool": self.attention_pool,
+                "grl_dense_context": self.dense_context,
+                "grl_frame_level": self.frame_level,
+            }
+            enabled = [name for name, value in incompatible.items() if value]
+            if enabled:
+                raise ValueError(
+                    "grl_linear_stats is a standalone adversary and cannot be combined with "
+                    + ", ".join(enabled)
+                )
         if self.robust_sid:
             self.fc_linear = nn.Linear(P, cfg.num_speakers)
             self.fc_stats  = nn.Linear(2 * P, cfg.num_speakers)
@@ -258,7 +275,7 @@ class GRLHead(nn.Module):
         else:
             if self.attention_pool:
                 self.attn = nn.Sequential(nn.Linear(P, P), nn.Tanh(), nn.Linear(P, 1))
-            if self.attention_pool or self.stats_pool:
+            if self.attention_pool or self.stats_pool or self.linear_stats:
                 self.fc   = nn.Linear(2 * P, cfg.num_speakers)        # [weighted mean ; weighted std]
             else:
                 self.fc   = nn.Linear(P, cfg.num_speakers)
@@ -313,6 +330,14 @@ class GRLHead(nn.Module):
                 z_ctx = self._activate(self.context_conv(z_act.transpose(1, 2))).transpose(1, 2)
                 logits.append(self.fc_dense(z_ctx))
             return tuple(logits)
+
+        if self.linear_stats:
+            # Do not rectify the projected features: preserve their signed mean
+            # while also exposing temporal scale through standard deviation.
+            mean = (z_pre * fmask).sum(1) / n
+            var = (((z_pre - mean.unsqueeze(1)) ** 2) * fmask).sum(1) / n
+            std = (var + 1e-5).sqrt()
+            return self.fc(torch.cat([mean, std], dim=-1))
 
         if self.dense_context:
             # local temporal context, then per-frame speaker logits (B, T, num_speakers)

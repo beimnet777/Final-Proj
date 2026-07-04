@@ -51,6 +51,7 @@ class PresetTests(unittest.TestCase):
     def test_stats_gelu_is_single_branch(self):
         p = resolve_preset("libri_grl_stats_gelu")
         self.assertTrue(p["grl_stats_pool"])
+        self.assertFalse(p.get("grl_linear_stats", False))
         self.assertFalse(p["grl_robust_sid"])
         self.assertEqual(0.00025, p["grl_grad_norm_target"])
 
@@ -146,6 +147,9 @@ class CheckpointTests(unittest.TestCase):
                                          club_grad_norm_target=0.005)
         with self.assertRaisesRegex(ValueError, "club_grad_norm"):
             validate_resume(payload, dataset_hash="abc", preset="unit", cfg=normalized_cfg)
+        linear_grl_cfg = SimpleNamespace(**vars(cfg), grl_linear_stats=True)
+        with self.assertRaisesRegex(ValueError, "grl_linear_stats"):
+            validate_resume(payload, dataset_hash="abc", preset="unit", cfg=linear_grl_cfg)
         for p in model.sae.parameters(): p.data.zero_()
         step, best = restore_training_state(payload, model=model, optimizer=opt)
         self.assertEqual(7, step); self.assertEqual(0.5, best)
