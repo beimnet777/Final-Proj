@@ -40,8 +40,9 @@ checkpoints.
 ## 3. Create the environment
 
 The dependencies used by the Colab notebook are reused here. The setup retains
-a CUDA-enabled system PyTorch build if available and otherwise installs current
-PyTorch wheels. It intentionally does not initialize CUDA before you have a GPU
+a compatible system build when available and otherwise installs the repository's
+matching `torch==2.11.0` and `torchaudio==2.11.0` pair from the official CUDA
+13.0 index. It intentionally does not initialize CUDA before you have a GPU
 allocation.
 
 Check which Python versions exist, then run the setup with Python 3.10–3.14:
@@ -64,8 +65,8 @@ Hugging Face caches, NLTK data, and the virtual environment all live under
 `/scratch/$USER`. Re-run without `--download-librispeech` when only repairing
 the Python environment.
 
-If the machine administrators prescribe a particular official PyTorch index,
-pass it explicitly:
+The default official wheel index is `cu130`. If the machine administrators
+prescribe a different compatible official index, pass it explicitly:
 
 ```bash
 PYTORCH_INDEX_URL=https://download.pytorch.org/whl/NAME \

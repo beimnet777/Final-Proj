@@ -14,7 +14,7 @@ Environment overrides:
   BLACKWELL_SCRATCH_ROOT    Storage root (default: /scratch/$USER)
   BLACKWELL_VENV            Virtual environment path
   BLACKWELL_DATA_ROOT       Dataset path
-  PYTORCH_INDEX_URL         Optional official PyTorch wheel index
+  PYTORCH_INDEX_URL         Official wheel index (default: cu130)
 EOF
 }
 
@@ -57,15 +57,19 @@ fi
 source "$VENV/bin/activate"
 python -m pip install --upgrade pip setuptools wheel
 
-# Match the Colab strategy: retain a compatible system GPU build when present,
-# and do not replace it via the project requirements file. A missing or CPU-only
-# build is replaced with current PyTorch wheels.
-if ! python -c 'import torch, torchaudio; assert tuple(map(int, torch.version.cuda.split(".")[:2])) >= (12, 8)' >/dev/null 2>&1; then
-    if [[ -n "${PYTORCH_INDEX_URL:-}" ]]; then
-        python -m pip install torch torchaudio --index-url "$PYTORCH_INDEX_URL"
-    else
-        python -m pip install torch torchaudio
-    fi
+# Match the Colab strategy by keeping a compatible system build, but require the
+# exact Torch/TorchAudio release pair used by this repository. TorchAudio links
+# against Torch C++ extensions and mixed release lines are unsupported.
+if ! python - <<'PY' >/dev/null 2>&1
+import torch, torchaudio
+assert torch.__version__.split("+")[0] == "2.11.0"
+assert torchaudio.__version__.split("+")[0] == "2.11.0"
+assert tuple(map(int, torch.version.cuda.split(".")[:2])) >= (12, 8)
+PY
+then
+    PYTORCH_INDEX_URL="${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu130}"
+    python -m pip install --upgrade --force-reinstall \
+        torch==2.11.0 torchaudio==2.11.0 --index-url "$PYTORCH_INDEX_URL"
 fi
 python -m pip install -r "$REPO_ROOT/Disentanglement/requirements-colab.txt"
 
@@ -119,6 +123,8 @@ print("PyTorch CUDA build:", torch.version.cuda)
 print("torchaudio:", torchaudio.__version__)
 if torch.version.cuda is None:
     raise SystemExit("ERROR: installed PyTorch is CPU-only")
+if torch.__version__.split("+")[0] != "2.11.0" or torchaudio.__version__.split("+")[0] != "2.11.0":
+    raise SystemExit("ERROR: expected matching torch/torchaudio 2.11.0 releases")
 print("GPU initialization deferred until an allocated GPU is selected.")
 PY
 
