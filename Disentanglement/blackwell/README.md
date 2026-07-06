@@ -126,6 +126,10 @@ one allocated ID from 0 through 7, checks that PyTorch sees only logical
 `cuda:0`, records the Git commit and fully escaped command, and stores combined
 logs under `/scratch/$USER/runs/RUN_NAME/launcher_logs/`.
 
+The tracked `libri_club_hybrid_gradnorm_s42.sh` experiment can first be checked
+without training by setting `DRY_RUN=1`; this still requires an allocated GPU
+because the shared launcher performs its CUDA smoke test.
+
 ## 6. Back up irreplaceable outputs
 
 Scratch is explicitly unbacked. Periodically copy run directories to backed-up
