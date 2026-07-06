@@ -67,6 +67,7 @@ blackwell_run() {
     dirty="$(git -C "$REPO_ROOT" status --porcelain)"
     {
         printf 'run_name=%s\n' "$run_name"
+        printf 'description=%s\n' "${RUN_DESCRIPTION:-not provided}"
         printf 'started=%s\n' "$(date --iso-8601=seconds)"
         printf 'host=%s\n' "$(hostname)"
         printf 'user=%s\n' "$USER"
@@ -114,4 +115,3 @@ PY
     } | tee -a "$metadata_file"
     return "$status"
 }
-
