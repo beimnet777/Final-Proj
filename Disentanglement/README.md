@@ -53,6 +53,7 @@ but sheds content.
 | `model/` | SAE, build + adversary heads, routing |
 | `data/` | dataset, collate, perturbation |
 | `diag_probe/` | standalone post-hoc probing (`probe_runner.py`, `run.py`, grad diagnostics) |
+| `blackwell/` | setup, shared launcher, and tracked experiment scripts for CBL `blackwell` |
 | `slurm/active/training/` | **live** SLURM job scripts |
 | `logs/train/stage1/` | stage-1 SAE training `.out` logs |
 | `logs/train/stage2/<topic>/` | stage-2 training `.out` logs, grouped by topic |
