@@ -74,6 +74,11 @@ OVERRIDES = {
     "beta": 0.6,
     "grl_weight": 1.0,
     "grl_phoneme_weight": 0.15,
+    # Cap only the GRL contributions on shared representation parameters;
+    # discriminator heads still train at full strength.
+    "adversarial_task_grad_cap": True,
+    "grl_shared_grad_cap_ratio": 2.0,
+    "grl_p_shared_grad_cap_ratio": 1.0,
     "grad_clip": 1.0,
     "n_disc_steps": 3,
     "ckpt_every": 1_000,

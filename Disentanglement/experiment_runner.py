@@ -113,6 +113,10 @@ def validate_experiment_config(config: dict) -> None:
             raise ValueError("club_grad_norm_target must be positive")
         if float(config.get("club_weight", 0.0)) <= 0:
             raise ValueError("club_grad_norm=true requires club_weight > 0")
+    if bool(config.get("adversarial_task_grad_cap", False)):
+        for key in ("grl_shared_grad_cap_ratio", "grl_p_shared_grad_cap_ratio"):
+            if float(config.get(key, 0.0)) <= 0:
+                raise ValueError(f"{key} must be positive when adversarial_task_grad_cap=true")
 
 
 def _find_first(candidates: list[Path], what: str) -> Path:

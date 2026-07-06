@@ -72,6 +72,11 @@ class DISConfig:
     # Standalone signed-linear statistics adversary: projector -> masked
     # mean+std -> speaker classifier, with no activation and no companion branch.
     grl_linear_stats:    bool  = False
+    # Standalone pure-linear adversary matching the diagnostic linear SID probe:
+    # projector -> masked signed mean -> speaker classifier.  Keeping this
+    # separate from linear_stats prevents a shared classifier from relying on
+    # variance while leaving linearly decodable signed-mean leakage untouched.
+    grl_linear_mean:     bool  = False
     # Dense speaker adversary: per-frame speaker prediction (like grl_p's per-frame
     # phoneme head) but with a temporal conv so each frame has local context — gives
     # z_L a DENSE per-frame removal gradient instead of one diluted pooled gradient.
@@ -91,6 +96,12 @@ class DISConfig:
     # discriminator's confidence (counters per-frame dilution).
     grl_grad_norm:        bool  = False
     grl_grad_norm_target: float = 1.0  # per-frame target L2 norm of the (unit) reversed gradient; magnitude = grl_weight * this
+    # Optional task-level cap on the gradient that each GRL objective delivers
+    # to the shared representation parameters.  Unlike the final global clip,
+    # this bounds adversarial dominance before task gradients are combined.
+    adversarial_task_grad_cap: bool = False
+    grl_shared_grad_cap_ratio: float = 2.0
+    grl_p_shared_grad_cap_ratio: float = 1.0
     # Negative control: train speaker adversaries against deterministic random
     # targets resampled each batch, while the positive z_P SID task keeps true
     # labels. A fixed class permutation would only rename speakers.

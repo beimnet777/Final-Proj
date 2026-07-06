@@ -100,6 +100,9 @@ def _parse_args():
     p.add_argument("--grl_linear_stats", action="store_true", default=cfg.grl_linear_stats,
                    help="Speaker GRL uses one signed-linear statistics branch only: "
                         "projector->masked mean+std->linear (no activation or companion branch).")
+    p.add_argument("--grl_linear_mean", action="store_true", default=cfg.grl_linear_mean,
+                   help="Speaker GRL uses only the pure signed-mean linear branch from robust GRL: "
+                        "projector->masked mean->linear (no activation, std or companion branch).")
     p.add_argument("--grl_dense_context", action="store_true", default=cfg.grl_dense_context,
                    help="Speaker GRL predicts per-frame (dense) with a temporal conv for context — "
                         "gives z_L a dense per-frame removal gradient like grl_p.")
@@ -116,6 +119,18 @@ def _parse_args():
                         "(decouples removal strength from discriminator confidence; counters dilution).")
     p.add_argument("--grl_grad_norm_target", type=float, default=cfg.grl_grad_norm_target,
                    help="Per-frame target L2 norm for grad-normalized GRL (effective push = grl_weight * this).")
+    p.add_argument("--adversarial_task_grad_cap", action=argparse.BooleanOptionalAction,
+                   default=cfg.adversarial_task_grad_cap,
+                   help="Cap speaker/phoneme GRL gradients on shared representation parameters "
+                        "relative to the remaining objective gradient before global clipping.")
+    p.add_argument("--grl_shared_grad_cap_ratio", type=float,
+                   default=cfg.grl_shared_grad_cap_ratio,
+                   help="Maximum speaker-GRL shared-gradient norm as a multiple of the "
+                        "non-target shared-gradient norm.")
+    p.add_argument("--grl_p_shared_grad_cap_ratio", type=float,
+                   default=cfg.grl_p_shared_grad_cap_ratio,
+                   help="Maximum phoneme-GRL shared-gradient norm as a multiple of the "
+                        "non-target shared-gradient norm.")
     p.add_argument("--shuffle_grl_speaker_labels", action="store_true",
                    default=cfg.shuffle_grl_speaker_labels,
                    help="Negative control: train speaker adversaries with deterministic random "
@@ -364,12 +379,16 @@ def _parse_args():
     cfg.grl_attention_pool    = args.grl_attention_pool
     cfg.grl_stats_pool        = args.grl_stats_pool
     cfg.grl_linear_stats      = args.grl_linear_stats
+    cfg.grl_linear_mean       = args.grl_linear_mean
     cfg.grl_dense_context     = args.grl_dense_context
     cfg.grl_context_kernel    = args.grl_context_kernel
     cfg.grl_robust_sid        = args.grl_robust_sid
     cfg.grl_robust_activation = args.grl_robust_activation
     cfg.grl_grad_norm         = args.grl_grad_norm
     cfg.grl_grad_norm_target  = args.grl_grad_norm_target
+    cfg.adversarial_task_grad_cap = args.adversarial_task_grad_cap
+    cfg.grl_shared_grad_cap_ratio = args.grl_shared_grad_cap_ratio
+    cfg.grl_p_shared_grad_cap_ratio = args.grl_p_shared_grad_cap_ratio
     cfg.shuffle_grl_speaker_labels = args.shuffle_grl_speaker_labels
     cfg.grl_p_grad_norm       = args.grl_p_grad_norm
     cfg.grl_p_grad_norm_target = args.grl_p_grad_norm_target

@@ -19,7 +19,8 @@ from Disentanglement.experiment_runner import (
 )
 from Disentanglement.colab_bundle import prepare_msp, verify
 from Disentanglement.training_runtime import (
-    StatefulRandomSampler, checkpoint_payload, resolve_amp_precision, resolve_microbatch,
+    StatefulRandomSampler, accumulate_task_grads, apply_task_gradient_caps_,
+    checkpoint_payload, resolve_amp_precision, resolve_microbatch,
     restore_rng_state, restore_training_state, rng_state, validate_resume,
 )
 from Disentanglement.probe_robust.club import CLUBSampled, normalize_club_gradient
@@ -52,6 +53,7 @@ class PresetTests(unittest.TestCase):
         p = resolve_preset("libri_grl_stats_gelu")
         self.assertTrue(p["grl_stats_pool"])
         self.assertFalse(p.get("grl_linear_stats", False))
+        self.assertFalse(p.get("grl_linear_mean", False))
         self.assertFalse(p["grl_robust_sid"])
         self.assertEqual(0.00025, p["grl_grad_norm_target"])
 
@@ -86,6 +88,8 @@ class PresetTests(unittest.TestCase):
             "prosody_weight", "grl_prosody_weight", "emotion_weight",
             "grl_emotion_weight", "grl_grad_norm", "grl_grad_norm_target",
             "grl_p_grad_norm", "grl_p_grad_norm_target", "club_enabled",
+            "adversarial_task_grad_cap", "grl_shared_grad_cap_ratio",
+            "grl_p_shared_grad_cap_ratio",
             "club_weight", "club_lr", "club_inner_steps", "club_hidden",
             "club_grad_norm", "club_grad_norm_target",
             "club_phoneme_enabled", "club_phoneme_weight", "club_phoneme_lr",
@@ -95,6 +99,60 @@ class PresetTests(unittest.TestCase):
             "ckpt_every", "log_every", "grad_log_every", "eval_batch_size",
         }
         self.assertFalse(expected - available, expected - available)
+
+    def test_adversarial_cap_config_is_strict(self):
+        valid = resolve_preset("libri_grl_stats_gelu")
+        valid.update(adversarial_task_grad_cap=True,
+                     grl_shared_grad_cap_ratio=2.0,
+                     grl_p_shared_grad_cap_ratio=1.0)
+        validate_experiment_config(valid)
+        for key in ("grl_shared_grad_cap_ratio", "grl_p_shared_grad_cap_ratio"):
+            broken = dict(valid); broken[key] = 0.0
+            with self.assertRaisesRegex(ValueError, key):
+                validate_experiment_config(broken)
+
+
+class AdversarialTaskGradientCapTests(unittest.TestCase):
+    def test_cap_changes_shared_gradient_but_not_unlisted_head(self):
+        shared = torch.nn.Parameter(torch.zeros(2))
+        head = torch.nn.Parameter(torch.zeros(1))
+        reference = torch.tensor([3.0, 4.0])       # norm 5
+        adversary = torch.tensor([30.0, 40.0])    # norm 50
+        shared.grad = reference + adversary
+        head.grad = torch.tensor([7.0])
+
+        stats = apply_task_gradient_caps_(
+            [shared], {"grl": [adversary]}, {"grl": 2.0})
+
+        self.assertTrue(torch.allclose(shared.grad, torch.tensor([9.0, 12.0])))
+        self.assertTrue(torch.equal(head.grad, torch.tensor([7.0])))
+        self.assertAlmostEqual(5.0, stats["reference_norm"])
+        self.assertAlmostEqual(50.0, stats["grl_raw_norm"])
+        self.assertAlmostEqual(10.0, stats["grl_capped_norm"])
+        self.assertAlmostEqual(0.2, stats["grl_scale"])
+
+    def test_two_tasks_use_same_non_target_reference(self):
+        shared = torch.nn.Parameter(torch.zeros(2))
+        reference = torch.tensor([3.0, 4.0])
+        speaker = torch.tensor([30.0, 40.0])
+        phoneme = torch.tensor([0.0, 10.0])
+        shared.grad = reference + speaker + phoneme
+
+        stats = apply_task_gradient_caps_(
+            [shared], {"grl": [speaker], "grl_p": [phoneme]},
+            {"grl": 2.0, "grl_p": 1.0})
+
+        self.assertTrue(torch.allclose(shared.grad, torch.tensor([9.0, 17.0])))
+        self.assertAlmostEqual(10.0, stats["grl_capped_norm"])
+        self.assertAlmostEqual(5.0, stats["grl_p_capped_norm"])
+
+    def test_effective_batch_accumulation(self):
+        first = [torch.tensor([1.0, 2.0]), None]
+        second = [torch.tensor([3.0, 4.0]), torch.tensor([5.0])]
+        buffer = accumulate_task_grads(None, first)
+        buffer = accumulate_task_grads(buffer, second)
+        self.assertTrue(torch.equal(buffer[0], torch.tensor([4.0, 6.0])))
+        self.assertTrue(torch.equal(buffer[1], torch.tensor([5.0])))
 
     def test_club_gradient_normalization_config_is_strict(self):
         valid = resolve_preset("libri_club_hybrid")
@@ -150,6 +208,19 @@ class CheckpointTests(unittest.TestCase):
         linear_grl_cfg = SimpleNamespace(**vars(cfg), grl_linear_stats=True)
         with self.assertRaisesRegex(ValueError, "grl_linear_stats"):
             validate_resume(payload, dataset_hash="abc", preset="unit", cfg=linear_grl_cfg)
+        linear_mean_cfg = SimpleNamespace(**vars(cfg), grl_linear_mean=True)
+        with self.assertRaisesRegex(ValueError, "grl_linear_mean"):
+            validate_resume(payload, dataset_hash="abc", preset="unit", cfg=linear_mean_cfg)
+        capped_cfg = SimpleNamespace(**vars(cfg), adversarial_task_grad_cap=True,
+                                     grl_shared_grad_cap_ratio=2.0,
+                                     grl_p_shared_grad_cap_ratio=1.0)
+        with self.assertRaisesRegex(ValueError, "adversarial_task_grad_cap"):
+            validate_resume(payload, dataset_hash="abc", preset="unit", cfg=capped_cfg)
+        fixed_cfg = SimpleNamespace(**vars(cfg), fixed_blocks=True,
+                                    per_block_topk=True, K_L=1, K_P=1, K_U=0,
+                                    topk_L=1, topk_P=0, topk_U=0)
+        with self.assertRaisesRegex(ValueError, "fixed_blocks"):
+            validate_resume(payload, dataset_hash="abc", preset="unit", cfg=fixed_cfg)
         for p in model.sae.parameters(): p.data.zero_()
         step, best = restore_training_state(payload, model=model, optimizer=opt)
         self.assertEqual(7, step); self.assertEqual(0.5, best)
@@ -160,6 +231,18 @@ class CheckpointTests(unittest.TestCase):
         state = sampler.state_dict(); suffix = list(iterator)
         restored = StatefulRandomSampler(list(range(12)), seed=999)
         restored.load_state_dict(state)
+        self.assertEqual(suffix, list(iter(restored)))
+        self.assertEqual(12, len(prefix + suffix))
+
+    def test_sampler_restores_list_serialized_generator_state(self):
+        sampler = StatefulRandomSampler(list(range(12)), seed=9)
+        iterator = iter(sampler); prefix = [next(iterator) for _ in range(5)]
+        state = sampler.state_dict(); suffix = list(iterator)
+        state["generator_state"] = state["generator_state"].tolist()
+
+        restored = StatefulRandomSampler(list(range(12)), seed=999)
+        restored.load_state_dict(state)
+
         self.assertEqual(suffix, list(iter(restored)))
         self.assertEqual(12, len(prefix + suffix))
 

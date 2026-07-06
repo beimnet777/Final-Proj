@@ -34,6 +34,7 @@ from tb_logger import DISLogger
 from training_runtime import (
     SegmentLimit, append_metrics, atomic_torch_save, checkpoint_payload,
     mirror_file, resolve_amp_precision, restore_training_state, validate_resume,
+    accumulate_task_grads, apply_task_gradient_caps_,
 )
 
 
@@ -1066,6 +1067,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += f"  grl_robust_sid=True(act={cfg.grl_robust_activation})"
     if getattr(cfg, 'grl_linear_stats', False):
         extra_str += "  grl_linear_stats=True"
+    if getattr(cfg, 'grl_linear_mean', False):
+        extra_str += "  grl_linear_mean=True"
     if getattr(cfg, 'grl_grad_norm', False):
         extra_str += f"  grl_grad_norm={cfg.grl_grad_norm_target}"
     if getattr(cfg, 'instance_norm_zL', False):
@@ -1298,6 +1301,30 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                       emotion_task_params + emotion_adv_params +
                       ([model.vib_logvar] if hasattr(model, 'vib_logvar') else []))
 
+    # Task-level adversarial clipping operates only where utility and adversary
+    # gradients actually meet.  Exclude the decoder and adversary heads: the
+    # decoder receives no GRL gradient, while discriminator learning must remain
+    # full strength.  Include b_pre because it participates in SAE encoding.
+    adversarial_cap_on = bool(getattr(cfg, 'adversarial_task_grad_cap', False))
+    adversarial_cap_ratios = {
+        'grl': float(getattr(cfg, 'grl_shared_grad_cap_ratio', 2.0)),
+        'grl_p': float(getattr(cfg, 'grl_p_shared_grad_cap_ratio', 1.0)),
+    }
+    if adversarial_cap_on and any(value <= 0 for value in adversarial_cap_ratios.values()):
+        raise ValueError("adversarial shared-gradient cap ratios must be positive")
+    _cap_candidates = [model.sae.enc_weight, model.sae.b_pre] + routing_clip_params + projection_params
+    adversarial_cap_params = []
+    _cap_seen = set()
+    for _param in _cap_candidates:
+        if _param.requires_grad and id(_param) not in _cap_seen:
+            adversarial_cap_params.append(_param)
+            _cap_seen.add(id(_param))
+    if adversarial_cap_on:
+        print("[stage 2] adversarial task-gradient cap ON: "
+              f"speaker<={adversarial_cap_ratios['grl']:.2f}x reference  "
+              f"phoneme<={adversarial_cap_ratios['grl_p']:.2f}x reference  "
+              "scope=shared SAE encoder/routing; discriminator heads uncapped")
+
     # ---- GradNorm: learn the managed task weights online (replaces fixed weights) ----
     gradnorm_on = bool(getattr(cfg, 'gradnorm', False))
     gn_every    = max(1, int(getattr(cfg, 'gradnorm_every', 1)))
@@ -1317,6 +1344,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     club_phn_pool_buffer = []
     club_phn_label_buffer = []
     discriminator_buffer = []
+    adversarial_grad_buffers = {}
+    last_adversarial_cap_stats = {}
     for micro_step in range(first_micro, final_micro + 1):
         step = (micro_step - 1) // accumulation + 1
         micro_in_group = (micro_step - 1) % accumulation
@@ -1396,6 +1425,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
 
         if micro_in_group == 0:
             optimizer.zero_grad(set_to_none=True)
+            adversarial_grad_buffers = {}
         ctx = (torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16 else
                torch.autocast("cuda", dtype=torch.float16) if use_fp16 else
                torch.autocast("cuda", enabled=False))
@@ -1706,6 +1736,25 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + eff_vib_w        * l_vib
                           + m_aux            * l_aux)
 
+        # Isolate each adversarial contribution on the shared representation
+        # before total.backward destroys the graph.  Dividing here exactly
+        # matches gradient accumulation's effective-batch scaling.
+        if adversarial_cap_on:
+            _cap_losses = {}
+            if cfg.grl_weight > 0 and grl_lam != 0.0:
+                _cap_losses['grl'] = m_grl * l_grl
+            if grl_p_weight > 0 and grl_p_lam is not None and grl_p_lam != 0.0:
+                _cap_losses['grl_p'] = m_grl_p * l_grl_p
+            for _name, _loss in _cap_losses.items():
+                _grads = torch.autograd.grad(
+                    _loss / accumulation,
+                    adversarial_cap_params,
+                    retain_graph=True,
+                    allow_unused=True,
+                )
+                adversarial_grad_buffers[_name] = accumulate_task_grads(
+                    adversarial_grad_buffers.get(_name), _grads)
+
         discriminator_buffer.append({
             "zL": out["z_L"].detach(), "zP": out["z_P"].detach(),
             "zU": out["z_U"].detach() if "z_U" in out else None,
@@ -1728,14 +1777,25 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             scaled_total.backward()
             if not accumulation_boundary:
                 continue
-            nn.utils.clip_grad_norm_(all_params, cfg.grad_clip)
-            optimizer.step()
         else:
             scaler.scale(scaled_total).backward()
             if not accumulation_boundary:
                 continue
             scaler.unscale_(optimizer)
-            nn.utils.clip_grad_norm_(all_params, cfg.grad_clip)
+
+        if adversarial_cap_on and adversarial_grad_buffers:
+            last_adversarial_cap_stats = apply_task_gradient_caps_(
+                adversarial_cap_params,
+                adversarial_grad_buffers,
+                adversarial_cap_ratios,
+            )
+        else:
+            last_adversarial_cap_stats = {}
+
+        nn.utils.clip_grad_norm_(all_params, cfg.grad_clip)
+        if not use_fp16:
+            optimizer.step()
+        else:
             scaler.step(optimizer)
             scaler.update()
 
@@ -1871,6 +1931,21 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             if grl_u_weight   > 0 and grl_u_acc   is not None: losses["grl_u_acc"]   = grl_u_acc
             if grl_p_u_weight > 0 and grl_p_u_per is not None: losses["grl_p_u_per"] = grl_p_u_per
 
+            cap_str = ""
+            if adversarial_cap_on and last_adversarial_cap_stats:
+                for _key, _value in last_adversarial_cap_stats.items():
+                    losses[f"adv_cap/{_key}"] = float(_value)
+                _ref = last_adversarial_cap_stats.get('reference_norm', float('nan'))
+                _pieces = []
+                for _name in ('grl', 'grl_p'):
+                    if f'{_name}_raw_norm' in last_adversarial_cap_stats:
+                        _raw = last_adversarial_cap_stats[f'{_name}_raw_norm']
+                        _capped = last_adversarial_cap_stats[f'{_name}_capped_norm']
+                        _scale = last_adversarial_cap_stats[f'{_name}_scale']
+                        _pieces.append(
+                            f"{_name}={_raw:.3f}->{_capped:.3f}(x{_scale:.3f})")
+                cap_str = f"  cap[ref={_ref:.3f} {' '.join(_pieces)}]"
+
             grl_p_str = ""
             if grl_p_weight > 0:
                 grl_p_str = f"  grl_p={l_grl_p.item():.4f}"
@@ -2001,7 +2076,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 f"  recon={l_recon.item():.4f}"
                 f"  pr={l_pr.item():.4f}"
                 f"  sid={l_sid.item():.4f}"
-                f"{grl_str}{grl_p_str}{u_str}{pros_str}{emo_str}{inv_str}{dual_inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
+                f"{grl_str}{grl_p_str}{cap_str}{u_str}{pros_str}{emo_str}{inv_str}{dual_inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
                 f"  L/P/U={n_L}/{n_P}/{n_U}"
                 f"  actL/P/U={act_L.item():.0f}/{act_P.item():.0f}/{act_U.item():.0f}"
                 f"  H={entropy:.3f}"

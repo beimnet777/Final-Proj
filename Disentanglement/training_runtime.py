@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import random
 import shutil
@@ -17,6 +18,66 @@ import torch
 from torch.utils.data import Sampler
 
 FORMAT_VERSION = 2
+
+
+def accumulate_task_grads(buffer, grads):
+    """Accumulate unscaled per-task gradients across an effective batch."""
+    if buffer is None:
+        return [None if g is None else g.detach().clone() for g in grads]
+    for i, grad in enumerate(grads):
+        if grad is None:
+            continue
+        if buffer[i] is None:
+            buffer[i] = grad.detach().clone()
+        else:
+            buffer[i].add_(grad.detach())
+    return buffer
+
+
+def apply_task_gradient_caps_(params, task_grads, cap_ratios):
+    """Cap isolated task contributions already present in ``param.grad``.
+
+    The common reference is total gradient minus every isolated target task.
+    Only excess target gradient is removed, leaving parameters outside
+    ``params`` (notably discriminator heads) unchanged.
+    """
+    names = list(task_grads)
+    if not names:
+        return {}
+
+    ref_sq = 0.0
+    raw_sq = {name: 0.0 for name in names}
+    for i, param in enumerate(params):
+        if param.grad is None:
+            continue
+        ref = param.grad.detach().clone()
+        for name in names:
+            grad = task_grads[name][i]
+            if grad is not None:
+                ref.sub_(grad)
+                raw_sq[name] += float(grad.float().pow(2).sum().item())
+        ref_sq += float(ref.float().pow(2).sum().item())
+
+    ref_norm = math.sqrt(ref_sq)
+    stats = {"reference_norm": ref_norm}
+    scales = {}
+    for name in names:
+        raw_norm = math.sqrt(raw_sq[name])
+        limit = float(cap_ratios[name]) * ref_norm
+        scale = min(1.0, limit / max(raw_norm, 1e-12))
+        scales[name] = scale
+        stats[f"{name}_raw_norm"] = raw_norm
+        stats[f"{name}_capped_norm"] = raw_norm * scale
+        stats[f"{name}_scale"] = scale
+
+    for i, param in enumerate(params):
+        if param.grad is None:
+            continue
+        for name, scale in scales.items():
+            grad = task_grads[name][i]
+            if grad is not None and scale < 1.0:
+                param.grad.add_(grad, alpha=scale - 1.0)
+    return stats
 
 
 def resolve_amp_precision(requested: str, *, cuda_available: Optional[bool] = None,
@@ -70,7 +131,10 @@ class StatefulRandomSampler(Sampler[int]):
         self.permutation = list(state.get("permutation", []))
         self.position = int(state.get("position", 0))
         if state.get("generator_state") is not None:
-            self.generator.set_state(state["generator_state"])
+            # torch.Generator.set_state requires a CPU ByteTensor.  Resume files
+            # may have been loaded with map_location='cuda', or passed through a
+            # serializer that materialized tensors as lists/NumPy arrays.
+            self.generator.set_state(_cpu_rng_byte_tensor(state["generator_state"]))
 
 
 def jsonable(value: Any) -> Any:
@@ -243,9 +307,12 @@ def validate_resume(checkpoint: Mapping[str, Any], *, dataset_hash: str,
     now = config_dict(cfg)
     for key in ("K", "topk", "n_routes", "hard_gumbel_routing", "spear_model_id", "spear_revision",
                 "batch_size", "gradient_accumulation_steps", "precision",
-                "grl_linear_stats", "grl_stats_pool", "grl_robust_sid",
+                "fixed_blocks", "per_block_topk", "K_L", "K_P", "K_U",
+                "topk_L", "topk_P", "topk_U",
+                "grl_linear_stats", "grl_linear_mean", "grl_stats_pool", "grl_robust_sid",
                 "grl_robust_activation", "grl_attention_pool", "grl_dense_context",
-                "grl_frame_level", "club_enabled", "club_grad_norm", "club_grad_norm_target"):
+                "grl_frame_level", "club_enabled", "club_grad_norm", "club_grad_norm_target",
+                "adversarial_task_grad_cap"):
         if key in old and key in now and old[key] != now[key]:
             raise ValueError(f"resume configuration mismatch for {key}: {old[key]!r} != {now[key]!r}")
     # Absence of this newly introduced flag in an older checkpoint means the
@@ -254,12 +321,32 @@ def validate_resume(checkpoint: Mapping[str, Any], *, dataset_hash: str,
     if bool(now.get("grl_linear_stats", False)) and not bool(old.get("grl_linear_stats", False)):
         raise ValueError(
             "resume configuration mismatch for grl_linear_stats: checkpoint=False current=True")
+    if bool(now.get("grl_linear_mean", False)) and not bool(old.get("grl_linear_mean", False)):
+        raise ValueError(
+            "resume configuration mismatch for grl_linear_mean: checkpoint=False current=True")
     # Checkpoints created before CLUB gradient normalisation existed have no
     # key and therefore represent club_grad_norm=False. Never silently turn the
     # new backward rule on halfway through an exact-resume run.
     if bool(now.get("club_grad_norm", False)) and not bool(old.get("club_grad_norm", False)):
         raise ValueError(
             "resume configuration mismatch for club_grad_norm: checkpoint=False current=True")
+    # This option changes the representation update rule.  A checkpoint made
+    # before the option existed is equivalent to cap=False, so enabling it on
+    # resume would not be an exact continuation.
+    if bool(now.get("adversarial_task_grad_cap", False)) and not bool(
+            old.get("adversarial_task_grad_cap", False)):
+        raise ValueError(
+            "resume configuration mismatch for adversarial_task_grad_cap: "
+            "checkpoint=False current=True")
+    if bool(now.get("adversarial_task_grad_cap", False)):
+        for key in ("grl_shared_grad_cap_ratio", "grl_p_shared_grad_cap_ratio"):
+            if key in old and old[key] != now.get(key):
+                raise ValueError(
+                    f"resume configuration mismatch for {key}: "
+                    f"{old[key]!r} != {now.get(key)!r}")
+    if bool(now.get("fixed_blocks", False)) and not bool(old.get("fixed_blocks", False)):
+        raise ValueError(
+            "resume configuration mismatch for fixed_blocks: checkpoint=False current=True")
 
 
 def restore_training_state(checkpoint: Mapping[str, Any], *, model: torch.nn.Module,

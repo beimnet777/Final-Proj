@@ -234,6 +234,10 @@ class GRLHead(nn.Module):
         # linear_stats=True: standalone mean+std pooling directly on the signed
         # projection.  Unlike robust_sid, this trains no companion branch.
         self.linear_stats  = bool(getattr(cfg, "grl_linear_stats", False))
+        # linear_mean=True: isolate branch A of robust_sid.  This exactly matches
+        # the family of the diagnostic linear SID probe and cannot solve speaker
+        # classification through a standard-deviation shortcut.
+        self.linear_mean   = bool(getattr(cfg, "grl_linear_mean", False))
         # dense_context=True: per-frame speaker prediction (like grl_p) but with a
         # temporal conv for local context, so each frame gets its OWN removal
         # gradient (dense) instead of one diluted pooled gradient over T frames.
@@ -251,8 +255,12 @@ class GRLHead(nn.Module):
         # magnitude (decouples removal strength from discriminator confidence).
         self.grad_norm        = bool(getattr(cfg, "grl_grad_norm", False))
         self.grad_norm_target = float(getattr(cfg, "grl_grad_norm_target", 1.0))
-        if self.linear_stats:
+        standalone_name = ("grl_linear_mean" if self.linear_mean else
+                           "grl_linear_stats" if self.linear_stats else None)
+        if standalone_name:
             incompatible = {
+                "grl_linear_mean": self.linear_mean and self.linear_stats,
+                "grl_linear_stats": self.linear_mean and self.linear_stats,
                 "grl_robust_sid": self.robust_sid,
                 "grl_stats_pool": self.stats_pool,
                 "grl_attention_pool": self.attention_pool,
@@ -262,7 +270,7 @@ class GRLHead(nn.Module):
             enabled = [name for name, value in incompatible.items() if value]
             if enabled:
                 raise ValueError(
-                    "grl_linear_stats is a standalone adversary and cannot be combined with "
+                    f"{standalone_name} is a standalone adversary and cannot be combined with "
                     + ", ".join(enabled)
                 )
         if self.robust_sid:
@@ -330,6 +338,13 @@ class GRLHead(nn.Module):
                 z_ctx = self._activate(self.context_conv(z_act.transpose(1, 2))).transpose(1, 2)
                 logits.append(self.fc_dense(z_ctx))
             return tuple(logits)
+
+        if self.linear_mean:
+            # Pure branch A from robust_sid.  No activation and no std features:
+            # the discriminator must use the signed utterance mean, exactly the
+            # leakage family measured by the diagnostic linear SID probe.
+            mean = (z_pre * fmask).sum(1) / n
+            return self.fc(mean)
 
         if self.linear_stats:
             # Do not rectify the projected features: preserve their signed mean
