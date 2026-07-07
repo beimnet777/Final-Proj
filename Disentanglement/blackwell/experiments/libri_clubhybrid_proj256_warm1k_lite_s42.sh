@@ -18,9 +18,15 @@
 #      CE steps per accumulation boundary. After warmup the loss weight
 #      switches on and inner_steps drops to 15. This matches Cheng 2020
 #      Algorithm 1: converge q_phi before descending its bound.
-#   5. CLUB weight cut 0.3 -> 0.02, inner_steps raised 3 -> 15. Matches the
-#      VQMIVC ratio (mi_weight=0.01, mi_iters=5) rather than our earlier
-#      "large-weight, few-iter" configuration.
+#   5. CLUB weight left at 0.3 (softtau1 operating point) but inner_steps
+#      raised 3 -> 15. Cutting the weight was recommended earlier by analogy
+#      to VQMIVC's mi_weight=0.01, but that analogy compares Gaussian CLUB on
+#      continuous latents to our categorical vCLUB-S on 251-way logits;
+#      bound magnitudes are on different natural scales. The softtau1 dose
+#      of 3e-4 per frame (0.3 * grad_norm_target 0.001) was already the
+#      configuration that reached best-observed z_L PR=0.15 at step 2000.
+#      Direction quality — not magnitude — is what the other five changes
+#      are supposed to fix.
 #   6. Zero-collision negative labels. Removes the ~6% floor observed in the
 #      hard-tau full-diag run when using in-batch random permutation.
 #
@@ -63,8 +69,12 @@ COMMAND=(
     # Fix 1: drop VICReg covariance regulariser.
     --vicreg_cov_weight 0.0
     --club_enabled
-    # Fix 5: cut weight, raise inner steps.
-    --club_weight 0.02
+    # Weight held at 0.3 (the softtau1 operating point that produced the best
+    # z_L PR=0.15 at step 2000). With --club_grad_norm on, this sets delivered
+    # per-frame magnitude on z_L to 0.3*0.001=3e-4, matching the old run's
+    # dose. Direction quality is what the other five changes (projection,
+    # warmup, no-collision, cov=0, inv_L=0) are supposed to fix.
+    --club_weight 0.3
     --club_inner_steps 15
     --club_hidden 512
     --club_lr 1e-3
@@ -74,7 +84,7 @@ COMMAND=(
     --club_projection_dim 256
     # Fix 4: hold CLUB loss at 0 for 1000 steps; boost q_phi to 20 inner steps
     # during warmup so it converges to p(speaker|z) before we descend its bound.
-    --club_warmup_steps 1000
+    --club_warmup_steps 800
     --club_pretrain_inner_steps 20
     # Fix 6: rejection-sample the shuffled negatives; no collisions.
     --club_no_collision_negatives
