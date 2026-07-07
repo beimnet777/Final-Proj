@@ -1,0 +1,609 @@
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=10000  α=0.8  β=0.6  grl=0.0  ρ=0.001
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=17,488,522  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.8  β=0.6  grl=0.0  ρ=0.001  grl_p=0.2  spear_ln=True
+[stage 2] steps=10000  schedule_steps=10000  batch=16  grad_clip=1.0
+[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + (1 - grl_p_per)  — in-training head proxies, NOT a probe; run diag_probe/ for the authoritative leakage signal.
+[stage 2] precision requested=auto resolved=bf16
+[dual_inv] WARN: ARCTIC empty at /scratch/bbg25/Final-Proj/Probing/data/CMU_ARCTIC (pair-alpha will rely on perturb only)
+[stage 2] dual-invariance ON: inv_L_w=0.0  inv_P_w=1.0  inv_var_w=0.1  gamma=1.0  interp_frames=200
+[stage 2] routing: n_routes=2  hard_gumbel=False  tau 1.0 -> 1.0
+[stage 2] VICReg-full ON: per-frame L2 inv (frame-aligned pairs only); cov_weight=0.0
+[stage 2] CLUB ON: weight=0.3  inner_steps=15  lr=0.001  hidden=512  in_dim=10240  num_speakers=251  pool=mean+std(z_L)  grad_norm_target=0.001  projection=off  warmup=off  negatives=randperm
+[stage 2] CLUB FULL DIAGNOSTICS ON: every=100 optimizer steps; expensive; q_phi pre/post, raw/delivered frame gradients, objective encoder/routing gradients, clipping, optimizer groups, geometry
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [club_full_diag @1] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.36854     0.13132     0.00000
+    pr                    +14.11291     2.45640     0.01712
+    sid                    +3.31289     0.31843     0.00185
+    grl_p                  +3.52220     0.00009     0.00000
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.53534     0.13714     0.00869
+    variance               +0.13180     0.00378     0.00011
+    club                   +0.15308     1.83796     0.03475
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00641     0.00000     0.00003
+    cos(club,recon)=+0.0360
+    cos(club,pr)=-0.0021
+    cos(club,sid)=+0.0020
+    cos(club,grl_p)=+0.0069
+    cos(club,inv_P)=+0.0006
+    cos(club,variance)=-0.0038
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000009  0.000008  0.000016  0.000028  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.156226 normalized=+0.156226 (forward values must match)
+    club_actual_bound_batch: logq_pos=-3.30897 logq_neg=-3.81922 collision=0.062 pred_H=4.1344 class_cov=0.0598
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=5.75586 pre_acc=0.000 pre_H=5.3538 post_ce=5.35352 post_acc=0.000 post_H=5.3665 B=16 uniq=15 maj=0.125
+    q_phi logits: pre_std=0.59087 pre_absmax=2.29688 post_std=0.57916 post_absmax=2.26562
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=27.09217 param=110.42577 update=34.48022 update/param=3.122e-01
+    geometry: enc_row_norm=1.0000±0.0000 dec_col_norm=1.0000±0.0000 zL_rms=0.17594 zP_rms=0.17614 zL_absmax=3.2103 zP_absmax=3.1757 poolL_norm=12.5874±0.0971
+    routing_values: mL_mean=0.4995 mL_std=0.3028 mL_min=0.0001 mL_max=0.9998 mP_mean=0.5005
+    optimizer_global: preclip=6.11633 clip_limit=1.00000 applied_scale=0.163497
+    optimizer_group sae         : preclip=3.14706 lr=0.000e+00
+    optimizer_group routing     : preclip=0.04043 lr=0.000e+00
+    optimizer_group task_heads  : preclip=5.17983 lr=0.000e+00
+    optimizer_group sid_head    : preclip=0.55695 lr=0.000e+00
+    optimizer_group adversaries : preclip=0.60251 lr=0.000e+00
+    optimizer_update sae_encoder : delta=0.000000 param=71.55418 delta/param=0.000e+00
+    optimizer_update sae_decoder : delta=0.000000 param=71.55418 delta/param=0.000e+00
+    optimizer_update sae_bias    : delta=0.000000 param=0.00000 delta/param=0.000e+00
+    optimizer_update routing     : delta=0.000000 param=50.21452 delta/param=0.000e+00
+  step      1/10000  recon=0.3685  pr=17.6411  sid=5.5215  grl_p=17.6110(per=2.021)  inv_L=0.0255  inv_P=0.5353  var=1.3180  cov=0.0000  club=+0.5103  q_phi[ce=5.377,acc=0.000]  k[L/P]=2573/2547  Zσ10[L/P]=0.13/0.13  blw[L/P]=1.00/1.00  uN[L/P]=3.26±0.09/3.27±0.09  eR[L/P]=890/890  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2530/2590/0  actL/P/U=127/129/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4962  lr=2.00e-07
+  [club_full_diag @100] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.33400     0.08472     0.00000
+    pr                    +15.11013     4.46385     0.03304
+    sid                    +3.28828     0.33127     0.00192
+    grl_p                  +3.66683     0.03810     0.00026
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.54892     0.13587     0.00911
+    variance               +0.13155     0.00378     0.00011
+    club                   +0.04236     1.56206     0.02428
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00641     0.00000     0.00003
+    cos(club,recon)=-0.0033
+    cos(club,pr)=-0.0144
+    cos(club,sid)=-0.0045
+    cos(club,grl_p)=+0.0397
+    cos(club,inv_P)=-0.0032
+    cos(club,variance)=-0.0057
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000023  0.000022  0.000038  0.000181  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.041345 normalized=+0.041345 (forward values must match)
+    club_actual_bound_batch: logq_pos=-4.97595 logq_neg=-5.11716 collision=0.062 pred_H=5.4168 class_cov=0.0637
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=5.41602 pre_acc=0.000 pre_H=5.4554 post_ce=5.33789 post_acc=0.000 post_H=5.4576 B=16 uniq=16 maj=0.062
+    q_phi logits: pre_std=0.37410 pre_absmax=1.93750 post_std=0.35576 post_absmax=1.80469
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=0.55421 param=129.61903 update=3.08973 update/param=2.384e-02
+    geometry: enc_row_norm=1.0001±0.0006 dec_col_norm=0.9941±0.0010 zL_rms=0.17873 zP_rms=0.17713 zL_absmax=3.1742 zP_absmax=2.8518 poolL_norm=12.7772±0.1302
+    routing_values: mL_mean=0.5015 mL_std=0.3010 mL_min=0.0002 mL_max=0.9994 mP_mean=0.4985
+    optimizer_global: preclip=10.71576 clip_limit=1.00000 applied_scale=0.093320
+    optimizer_group sae         : preclip=4.91492 lr=1.980e-05
+    optimizer_group routing     : preclip=0.04076 lr=1.980e-04
+    optimizer_group task_heads  : preclip=9.30324 lr=1.980e-05
+    optimizer_group sid_head    : preclip=0.55445 lr=9.900e-05
+    optimizer_group adversaries : preclip=1.95236 lr=1.980e-05
+    optimizer_update sae_encoder : delta=0.029664 param=71.56461 delta/param=4.145e-04
+    optimizer_update sae_decoder : delta=0.023182 param=71.12192 delta/param=3.259e-04
+    optimizer_update sae_bias    : delta=0.000717 param=0.02733 delta/param=2.624e-02
+    optimizer_update routing     : delta=0.010080 param=50.25553 delta/param=2.006e-04
+  step    100/10000  recon=0.3340  pr=18.8877  sid=5.4805  grl_p=18.3342(per=1.000)  inv_L=0.0261  inv_P=0.5489  var=1.3155  cov=0.0000  club=+0.1412  q_phi[ce=5.342,acc=0.000]  k[L/P]=2588/2532  Zσ10[L/P]=0.13/0.13  blw[L/P]=1.00/1.00  uN[L/P]=3.48±0.32/3.42±0.30  eR[L/P]=887/885  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2531/2589/0  actL/P/U=128/128/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4966  lr=2.00e-05
+  [grad_norms @200]
+    recon             |g|=0.06734  ratio=1.000x recon
+    pr_raw            |g|=10.63073  ratio=157.867x recon
+    pr_weighted       |g|=8.50458  ratio=126.294x recon
+    sid_raw           |g|=0.53853  ratio=7.997x recon
+    sid_weighted      |g|=0.32312  ratio=4.798x recon
+    grl_p             |g|=0.17805  ratio=2.644x recon
+    club              |g|=1.86007  ratio=27.622x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00028   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.001
+      cos(recon_vs_sid          ) = -0.002
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(recon_vs_club         ) = -0.007
+      cos(pr_vs_sid             ) = -0.020
+      cos(pr_vs_grl_p           ) = -0.267  conflict
+      cos(pr_vs_club            ) = -0.122  conflict
+      cos(sid_vs_grl_p          ) = +0.060  aligned
+      cos(sid_vs_club           ) = +0.005
+      cos(grl_p_vs_club         ) = +0.072  aligned
+    [mask_grad @200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.01106  mP=0.01106  tilt=+0.00
+      pr               mL=0.34771  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.01466  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00612  tilt=-1.00  -> P
+      club             mL=0.15838  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  [club_full_diag @200] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.34059     0.06197     0.00000
+    pr                     +9.29781     6.12157     0.06920
+    sid                    +3.29531     0.31715     0.00214
+    grl_p                  +1.20868     0.16398     0.00155
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.56162     0.14219     0.01047
+    variance               +0.13089     0.00351     0.00011
+    club                   +0.49900     1.78842     0.03682
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00640     0.00000     0.00003
+    cos(club,recon)=-0.0023
+    cos(club,pr)=-0.0671
+    cos(club,sid)=+0.0043
+    cos(club,grl_p)=+0.0680
+    cos(club,inv_P)=-0.0026
+    cos(club,variance)=-0.0094
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000169  0.000157  0.000238  0.001219  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.644225 normalized=+0.644225 (forward values must match)
+    club_actual_bound_batch: logq_pos=-3.47515 logq_neg=-5.13848 collision=0.062 pred_H=4.1968 class_cov=0.0637
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=4.66797 pre_acc=0.062 pre_H=4.8169 post_ce=4.45312 post_acc=0.062 post_H=4.8008 B=16 uniq=16 maj=0.062
+    q_phi logits: pre_std=1.35398 pre_absmax=6.62500 post_std=1.36884 post_absmax=7.90625
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=1.29175 param=179.07346 update=6.63188 update/param=3.703e-02
+    geometry: enc_row_norm=1.0030±0.0028 dec_col_norm=0.9766±0.0074 zL_rms=0.19857 zP_rms=0.19366 zL_absmax=3.5584 zP_absmax=3.2811 poolL_norm=14.2314±0.1916
+    routing_values: mL_mean=0.5024 mL_std=0.2994 mL_min=0.0001 mL_max=0.9998 mP_mean=0.4976
+    optimizer_global: preclip=15.48974 clip_limit=1.00000 applied_scale=0.064559
+    optimizer_group sae         : preclip=8.48294 lr=3.980e-05
+    optimizer_group routing     : preclip=0.07700 lr=3.980e-04
+    optimizer_group task_heads  : preclip=12.31796 lr=3.980e-05
+    optimizer_group sid_head    : preclip=0.64577 lr=1.990e-04
+    optimizer_group adversaries : preclip=3.97702 lr=3.980e-05
+    optimizer_update sae_encoder : delta=0.062109 param=71.77075 delta/param=8.654e-04
+    optimizer_update sae_decoder : delta=0.034429 param=69.86429 delta/param=4.928e-04
+    optimizer_update sae_bias    : delta=0.002458 param=0.17162 delta/param=1.432e-02
+    optimizer_update routing     : delta=0.027085 param=50.41729 delta/param=5.372e-04
+  step    200/10000  recon=0.3406  pr=11.6223  sid=5.4922  grl_p=6.0434(per=1.000)  inv_L=0.0309  inv_P=0.5616  var=1.3089  cov=0.0000  club=+1.6633  q_phi[ce=4.469,acc=0.062]  k[L/P]=2560/2560  Zσ10[L/P]=0.09/0.09  blw[L/P]=1.00/1.00  uN[L/P]=4.17±0.24/4.04±0.23  eR[L/P]=870/866  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2563/2557/0  actL/P/U=137/119/0  H=0.693  Hu=0.640  spec<.5=0.05  marg=0.262  lstd=0.4982  lr=4.00e-05
+  [club_full_diag @300] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.39409     0.04873     0.00000
+    pr                     +3.21223     1.22101     0.01969
+    sid                    +3.23438     0.34215     0.00354
+    grl_p                  +0.73248     0.00382     0.00003
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.57139     0.11367     0.01307
+    variance               +0.12830     0.00273     0.00010
+    club                   +1.30456     3.22755     0.10274
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00638     0.00000     0.00003
+    cos(club,recon)=-0.0111
+    cos(club,pr)=-0.0829
+    cos(club,sid)=+0.0018
+    cos(club,grl_p)=-0.0097
+    cos(club,inv_P)=-0.0180
+    cos(club,variance)=-0.0003
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000294  0.000275  0.000438  0.001256  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+1.290949 normalized=+1.290949 (forward values must match)
+    club_actual_bound_batch: logq_pos=-2.69844 logq_neg=-7.04698 collision=0.000 pred_H=3.5161 class_cov=0.0637
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=3.77002 pre_acc=0.250 pre_H=3.9700 post_ce=3.07373 post_acc=0.375 post_H=4.0316 B=16 uniq=16 maj=0.062
+    q_phi logits: pre_std=2.20217 pre_absmax=9.56250 post_std=2.03696 post_absmax=8.43750
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=1.78155 param=223.84734 update=7.70015 update/param=3.440e-02
+    geometry: enc_row_norm=1.0150±0.0123 dec_col_norm=0.9312±0.0424 zL_rms=0.26758 zP_rms=0.23913 zL_absmax=4.1497 zP_absmax=3.8654 poolL_norm=19.1587±0.4615
+    routing_values: mL_mean=0.5008 mL_std=0.3043 mL_min=0.0001 mL_max=1.0000 mP_mean=0.4992
+    optimizer_global: preclip=4.86625 clip_limit=1.00000 applied_scale=0.205497
+    optimizer_group sae         : preclip=4.21671 lr=5.980e-05
+    optimizer_group routing     : preclip=0.10654 lr=5.980e-04
+    optimizer_group task_heads  : preclip=2.25785 lr=5.980e-05
+    optimizer_group sid_head    : preclip=0.87465 lr=2.990e-04
+    optimizer_group adversaries : preclip=0.15969 lr=5.980e-05
+    optimizer_update sae_encoder : delta=0.096368 param=72.64190 delta/param=1.327e-03
+    optimizer_update sae_decoder : delta=0.138115 param=66.62959 delta/param=2.073e-03
+    optimizer_update sae_bias    : delta=0.003494 param=0.48465 delta/param=7.208e-03
+    optimizer_update routing     : delta=0.064587 param=50.92731 delta/param=1.268e-03
+  step    300/10000  recon=0.3941  pr=4.0153  sid=5.3906  grl_p=3.6624(per=1.000)  inv_L=0.0495  inv_P=0.5714  var=1.2830  cov=0.0000  club=+4.3485  q_phi[ce=3.116,acc=0.312]  k[L/P]=2581/2539  Zσ10[L/P]=0.02/0.02  blw[L/P]=1.00/1.00  uN[L/P]=6.67±0.23/5.46±0.16  eR[L/P]=825/836  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2647/2473/0  actL/P/U=158/98/0  H=0.693  Hu=0.638  spec<.5=0.05  marg=0.267  lstd=0.5033  lr=6.00e-05
+  [grad_norms @400]
+    recon             |g|=0.04437  ratio=1.000x recon
+    pr_raw            |g|=0.75164  ratio=16.940x recon
+    pr_weighted       |g|=0.60131  ratio=13.552x recon
+    sid_raw           |g|=0.83171  ratio=18.745x recon
+    sid_weighted      |g|=0.49903  ratio=11.247x recon
+    grl_p             |g|=0.03389  ratio=0.764x recon
+    club              |g|=1.95112  ratio=43.973x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00003   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.011
+      cos(recon_vs_sid          ) = +0.046
+      cos(recon_vs_grl_p        ) = -0.000
+      cos(recon_vs_club         ) = -0.037
+      cos(pr_vs_sid             ) = -0.008
+      cos(pr_vs_grl_p           ) = -0.114  conflict
+      cos(pr_vs_club            ) = -0.003
+      cos(sid_vs_grl_p          ) = +0.069  aligned
+      cos(sid_vs_club           ) = -0.017
+      cos(grl_p_vs_club         ) = +0.015
+    [mask_grad @400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00670  mP=0.00670  tilt=+0.00
+      pr               mL=0.04683  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.05253  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00175  tilt=-1.00  -> P
+      club             mL=0.19005  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  [club_full_diag @400] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.22455     0.03269     0.00000
+    pr                     +2.46351     0.61081     0.01562
+    sid                    +3.11602     0.49647     0.00793
+    grl_p                  +0.70691     0.01298     0.00011
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.57624     0.14091     0.01792
+    variance               +0.13484     0.00249     0.00008
+    club                   +0.25912     2.10431     0.04556
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00636     0.00000     0.00003
+    cos(club,recon)=-0.0308
+    cos(club,pr)=-0.0211
+    cos(club,sid)=-0.0230
+    cos(club,grl_p)=-0.0049
+    cos(club,inv_P)=+0.0035
+    cos(club,variance)=-0.0057
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000164  0.000137  0.000228  0.001088  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.221995 normalized=+0.221995 (forward values must match)
+    club_actual_bound_batch: logq_pos=-4.27054 logq_neg=-5.13428 collision=0.000 pred_H=4.7230 class_cov=0.0637
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=5.36328 pre_acc=0.125 pre_H=5.1014 post_ce=5.10449 post_acc=0.125 post_H=5.1016 B=16 uniq=16 maj=0.062
+    q_phi logits: pre_std=1.05343 pre_absmax=4.65625 post_std=1.02585 post_absmax=4.56250
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=1.19870 param=257.48502 update=5.56884 update/param=2.163e-02
+    geometry: enc_row_norm=1.0226±0.0219 dec_col_norm=0.8215±0.1292 zL_rms=0.29939 zP_rms=0.26908 zL_absmax=4.7610 zP_absmax=5.2076 poolL_norm=21.5134±0.8229
+    routing_values: mL_mean=0.4956 mL_std=0.3015 mL_min=0.0003 mL_max=0.9998 mP_mean=0.5044
+    optimizer_global: preclip=3.03513 clip_limit=1.00000 applied_scale=0.329475
+    optimizer_group sae         : preclip=2.41525 lr=7.980e-05
+    optimizer_group routing     : preclip=0.04991 lr=7.980e-04
+    optimizer_group task_heads  : preclip=1.31037 lr=7.980e-05
+    optimizer_group sid_head    : preclip=1.27554 lr=3.990e-04
+    optimizer_group adversaries : preclip=0.17901 lr=7.980e-05
+    optimizer_update sae_encoder : delta=0.097042 param=73.19420 delta/param=1.326e-03
+    optimizer_update sae_decoder : delta=0.106393 param=59.45158 delta/param=1.790e-03
+    optimizer_update sae_bias    : delta=0.000922 param=0.60045 delta/param=1.535e-03
+    optimizer_update routing     : delta=0.031854 param=51.60231 delta/param=6.173e-04
+  step    400/10000  recon=0.2246  pr=3.0794  sid=5.1934  grl_p=3.5345(per=1.000)  inv_L=0.0577  inv_P=0.5762  var=1.3484  cov=0.0000  club=+0.8637  q_phi[ce=5.130,acc=0.125]  k[L/P]=2550/2570  Zσ10[L/P]=0.01/0.01  blw[L/P]=0.99/0.99  uN[L/P]=9.78±0.80/7.88±0.52  eR[L/P]=761/776  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2595/2525/0  actL/P/U=169/87/0  H=0.693  Hu=0.636  spec<.5=0.06  marg=0.273  lstd=0.5099  lr=8.00e-05
+  [club_full_diag @500] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.16998     0.03039     0.00000
+    pr                     +1.46287     0.36429     0.01177
+    sid                    +3.19805     0.57663     0.00976
+    grl_p                  +0.53166     0.02120     0.00076
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.58483     0.13023     0.01912
+    variance               +0.13347     0.00250     0.00008
+    club                   +0.02483     1.95899     0.06161
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00633     0.00000     0.00003
+    cos(club,recon)=-0.0143
+    cos(club,pr)=-0.0014
+    cos(club,sid)=-0.0074
+    cos(club,grl_p)=+0.0016
+    cos(club,inv_P)=-0.0058
+    cos(club,variance)=-0.0182
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000052  0.000046  0.000087  0.000228  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.033105 normalized=+0.033105 (forward values must match)
+    club_actual_bound_batch: logq_pos=-4.86899 logq_neg=-4.95176 collision=0.188 pred_H=5.2572 class_cov=0.0637
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=5.54297 pre_acc=0.000 pre_H=5.3174 post_ce=5.41406 post_acc=0.000 post_H=5.3025 B=16 uniq=16 maj=0.062
+    q_phi logits: pre_std=0.63950 pre_absmax=2.82812 post_std=0.65379 post_absmax=2.95312
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=1.36057 param=274.95935 update=3.54753 update/param=1.290e-02
+    geometry: enc_row_norm=1.0385±0.0247 dec_col_norm=0.7527±0.1759 zL_rms=0.32571 zP_rms=0.27679 zL_absmax=5.2645 zP_absmax=5.6663 poolL_norm=23.3919±0.6372
+    routing_values: mL_mean=0.5008 mL_std=0.3045 mL_min=0.0001 mL_max=0.9998 mP_mean=0.4992
+    optimizer_global: preclip=2.55877 clip_limit=1.00000 applied_scale=0.390813
+    optimizer_group sae         : preclip=2.10112 lr=9.980e-05
+    optimizer_group routing     : preclip=0.06296 lr=9.980e-04
+    optimizer_group task_heads  : preclip=0.53424 lr=9.980e-05
+    optimizer_group sid_head    : preclip=1.33945 lr=4.990e-04
+    optimizer_group adversaries : preclip=0.22159 lr=9.980e-05
+    optimizer_update sae_encoder : delta=0.102373 param=74.34080 delta/param=1.377e-03
+    optimizer_update sae_decoder : delta=0.091227 param=55.26915 delta/param=1.651e-03
+    optimizer_update sae_bias    : delta=0.000431 param=0.65655 delta/param=6.561e-04
+    optimizer_update routing     : delta=0.037044 param=52.40937 delta/param=7.068e-04
+  step    500/10000  recon=0.1700  pr=1.8286  sid=5.3301  grl_p=2.6583(per=0.981)  inv_L=0.0684  inv_P=0.5848  var=1.3347  cov=0.0000  club=+0.0828  q_phi[ce=5.432,acc=0.000]  k[L/P]=2563/2557  Zσ10[L/P]=0.01/0.01  blw[L/P]=0.98/0.99  uN[L/P]=10.81±0.57/8.30±0.46  eR[L/P]=743/755  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2584/2536/0  actL/P/U=172/84/0  H=0.693  Hu=0.633  spec<.5=0.07  marg=0.280  lstd=0.5179  lr=1.00e-04
+  [grad_norms @600]
+    recon             |g|=0.04007  ratio=1.000x recon
+    pr_raw            |g|=0.34844  ratio=8.695x recon
+    pr_weighted       |g|=0.27875  ratio=6.956x recon
+    sid_raw           |g|=1.32067  ratio=32.955x recon
+    sid_weighted      |g|=0.79240  ratio=19.773x recon
+    grl_p             |g|=0.03257  ratio=0.813x recon
+    club              |g|=1.96636  ratio=49.068x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00009   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.018
+      cos(recon_vs_sid          ) = +0.098  aligned
+      cos(recon_vs_grl_p        ) = -0.022
+      cos(recon_vs_club         ) = -0.040
+      cos(pr_vs_sid             ) = -0.003
+      cos(pr_vs_grl_p           ) = -0.187  conflict
+      cos(pr_vs_club            ) = +0.007
+      cos(sid_vs_grl_p          ) = -0.044
+      cos(sid_vs_club           ) = -0.035
+      cos(grl_p_vs_club         ) = +0.024
+    [mask_grad @600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00185  mP=0.00185  tilt=+0.00
+      pr               mL=0.04657  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.08852  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00286  tilt=-1.00  -> P
+      club             mL=0.26511  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  [club_full_diag @600] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.14340     0.02594     0.00000
+    pr                     +0.97517     0.33604     0.00689
+    sid                    +3.05273     0.73886     0.01314
+    grl_p                  +0.30055     0.02705     0.00095
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.56407     0.13693     0.01848
+    variance               +0.13315     0.00244     0.00008
+    club                   +0.00888     1.62770     0.05167
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00630     0.00000     0.00003
+    cos(club,recon)=-0.0274
+    cos(club,pr)=-0.0044
+    cos(club,sid)=-0.0233
+    cos(club,grl_p)=-0.0031
+    cos(club,inv_P)=-0.0015
+    cos(club,variance)=-0.0002
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000012  0.000012  0.000019  0.000051  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.006757 normalized=+0.006757 (forward values must match)
+    club_actual_bound_batch: logq_pos=-4.95714 logq_neg=-4.98674 collision=0.000 pred_H=5.3138 class_cov=0.0598
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=5.88086 pre_acc=0.000 pre_H=5.2657 post_ce=5.53906 post_acc=0.000 post_H=5.3353 B=16 uniq=15 maj=0.125
+    q_phi logits: pre_std=0.67061 pre_absmax=2.34375 post_std=0.61713 post_absmax=2.23438
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=1.74054 param=286.62140 update=6.25794 update/param=2.183e-02
+    geometry: enc_row_norm=1.0573±0.0285 dec_col_norm=0.7016±0.2005 zL_rms=0.33792 zP_rms=0.27621 zL_absmax=6.3442 zP_absmax=5.9015 poolL_norm=24.2903±0.6087
+    routing_values: mL_mean=0.4989 mL_std=0.3070 mL_min=0.0003 mL_max=0.9998 mP_mean=0.5011
+    optimizer_global: preclip=2.42639 clip_limit=1.00000 applied_scale=0.412135
+    optimizer_group sae         : preclip=1.88652 lr=9.997e-05
+    optimizer_group routing     : preclip=0.05799 lr=9.997e-04
+    optimizer_group task_heads  : preclip=0.53654 lr=9.997e-05
+    optimizer_group sid_head    : preclip=1.41131 lr=4.999e-04
+    optimizer_group adversaries : preclip=0.21296 lr=9.997e-05
+    optimizer_update sae_encoder : delta=0.089069 param=75.69542 delta/param=1.177e-03
+    optimizer_update sae_decoder : delta=0.070334 param=52.18335 delta/param=1.348e-03
+    optimizer_update sae_bias    : delta=0.000612 param=0.66603 delta/param=9.186e-04
+    optimizer_update routing     : delta=0.033725 param=53.25532 delta/param=6.333e-04
+  step    600/10000  recon=0.1434  pr=1.2190  sid=5.0879  grl_p=1.5027(per=0.691)  inv_L=0.0621  inv_P=0.5641  var=1.3315  cov=0.0000  club=+0.0296  q_phi[ce=5.564,acc=0.000]  k[L/P]=2528/2592  Zσ10[L/P]=0.02/0.02  blw[L/P]=0.98/0.99  uN[L/P]=11.49±0.54/8.21±0.40  eR[L/P]=732/748  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2575/2545/0  actL/P/U=173/83/0  H=0.693  Hu=0.630  spec<.5=0.08  marg=0.287  lstd=0.5263  lr=1.00e-04
+  [club_full_diag @700] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.13105     0.02346     0.00000
+    pr                     +0.81895     0.26376     0.00739
+    sid                    +2.61973     0.82203     0.01360
+    grl_p                  +0.21852     0.03154     0.00072
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.56278     0.13478     0.01816
+    variance               +0.13169     0.00245     0.00009
+    club                   +0.01063     1.78093     0.04706
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00627     0.00000     0.00003
+    cos(club,recon)=+0.0101
+    cos(club,pr)=-0.0095
+    cos(club,sid)=+0.0017
+    cos(club,grl_p)=-0.0072
+    cos(club,inv_P)=-0.0021
+    cos(club,variance)=-0.0049
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000017  0.000015  0.000030  0.000077  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.022378 normalized=+0.022378 (forward values must match)
+    club_actual_bound_batch: logq_pos=-5.04330 logq_neg=-5.07875 collision=0.000 pred_H=5.3710 class_cov=0.0637
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=5.57422 pre_acc=0.062 pre_H=5.3682 post_ce=5.36523 post_acc=0.062 post_H=5.3945 B=16 uniq=16 maj=0.062
+    q_phi logits: pre_std=0.52285 pre_absmax=2.01562 post_std=0.48309 post_absmax=1.84375
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=1.35050 param=293.99844 update=3.46363 update/param=1.178e-02
+    geometry: enc_row_norm=1.0760±0.0355 dec_col_norm=0.6652±0.2110 zL_rms=0.33417 zP_rms=0.28893 zL_absmax=6.1785 zP_absmax=6.8277 poolL_norm=24.0119±0.5756
+    routing_values: mL_mean=0.5016 mL_std=0.3072 mL_min=0.0002 mL_max=1.0000 mP_mean=0.4984
+    optimizer_global: preclip=2.49226 clip_limit=1.00000 applied_scale=0.401242
+    optimizer_group sae         : preclip=2.02378 lr=9.989e-05
+    optimizer_group routing     : preclip=0.05439 lr=9.989e-04
+    optimizer_group task_heads  : preclip=0.33343 lr=9.989e-05
+    optimizer_group sid_head    : preclip=1.39845 lr=4.995e-04
+    optimizer_group adversaries : preclip=0.21424 lr=9.989e-05
+    optimizer_update sae_encoder : delta=0.087477 param=77.05122 delta/param=1.135e-03
+    optimizer_update sae_decoder : delta=0.061103 param=49.91155 delta/param=1.224e-03
+    optimizer_update sae_bias    : delta=0.001063 param=0.67120 delta/param=1.584e-03
+    optimizer_update routing     : delta=0.039291 param=54.04247 delta/param=7.270e-04
+  step    700/10000  recon=0.1310  pr=1.0237  sid=4.3662  grl_p=1.0926(per=0.470)  inv_L=0.0660  inv_P=0.5628  var=1.3169  cov=0.0000  club=+0.0354  q_phi[ce=5.384,acc=0.062]  k[L/P]=2549/2571  Zσ10[L/P]=0.02/0.02  blw[L/P]=0.98/0.98  uN[L/P]=11.14±0.54/9.02±0.40  eR[L/P]=734/737  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2558/2562/0  actL/P/U=171/85/0  H=0.693  Hu=0.627  spec<.5=0.08  marg=0.293  lstd=0.5341  lr=9.99e-05
+  [grad_norms @800]
+    recon             |g|=0.03737  ratio=1.000x recon
+    pr_raw            |g|=0.32850  ratio=8.792x recon
+    pr_weighted       |g|=0.26280  ratio=7.033x recon
+    sid_raw           |g|=1.55737  ratio=41.680x recon
+    sid_weighted      |g|=0.93442  ratio=25.008x recon
+    grl_p             |g|=0.03207  ratio=0.858x recon
+    club              |g|=1.84960  ratio=49.500x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00011   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.016
+      cos(recon_vs_sid          ) = +0.077  aligned
+      cos(recon_vs_grl_p        ) = -0.012
+      cos(recon_vs_club         ) = -0.013
+      cos(pr_vs_sid             ) = -0.001
+      cos(pr_vs_grl_p           ) = -0.184  conflict
+      cos(pr_vs_club            ) = -0.003
+      cos(sid_vs_grl_p          ) = -0.004
+      cos(sid_vs_club           ) = -0.023
+      cos(grl_p_vs_club         ) = +0.002
+    [mask_grad @800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00079  mP=0.00079  tilt=+0.00
+      pr               mL=0.03247  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.11295  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00322  tilt=-1.00  -> P
+      club             mL=0.25715  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  [club_full_diag @800] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.12364     0.02337     0.00000
+    pr                     +0.72188     0.24002     0.00689
+    sid                    +2.59395     0.90320     0.01674
+    grl_p                  +0.17756     0.03714     0.00079
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.57018     0.14772     0.02279
+    variance               +0.13287     0.00247     0.00008
+    club                   +0.05487     1.60494     0.04920
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00624     0.00000     0.00003
+    cos(club,recon)=-0.0007
+    cos(club,pr)=+0.0141
+    cos(club,sid)=-0.0094
+    cos(club,grl_p)=+0.0078
+    cos(club,inv_P)=+0.0015
+    cos(club,variance)=-0.0204
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000018  0.000012  0.000048  0.000189  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.066688 normalized=+0.066688 (forward values must match)
+    club_actual_bound_batch: logq_pos=-5.10396 logq_neg=-5.28687 collision=0.062 pred_H=5.2814 class_cov=0.0637
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=5.93359 pre_acc=0.000 pre_H=5.1449 post_ce=5.45117 post_acc=0.000 post_H=5.3010 B=16 uniq=16 maj=0.062
+    q_phi logits: pre_std=0.78592 pre_absmax=3.23438 post_std=0.64673 post_absmax=2.68750
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=2.10593 param=314.36206 update=8.51898 update/param=2.710e-02
+    geometry: enc_row_norm=1.0961±0.0457 dec_col_norm=0.6372±0.2148 zL_rms=0.34114 zP_rms=0.30404 zL_absmax=7.3629 zP_absmax=9.9893 poolL_norm=24.5030±0.8608
+    routing_values: mL_mean=0.5008 mL_std=0.3049 mL_min=0.0004 mL_max=1.0000 mP_mean=0.4992
+    optimizer_global: preclip=2.49289 clip_limit=1.00000 applied_scale=0.401141
+    optimizer_group sae         : preclip=1.89531 lr=9.976e-05
+    optimizer_group routing     : preclip=0.05636 lr=9.976e-04
+    optimizer_group task_heads  : preclip=0.30272 lr=9.976e-05
+    optimizer_group sid_head    : preclip=1.57495 lr=4.988e-04
+    optimizer_group adversaries : preclip=0.21690 lr=9.976e-05
+    optimizer_update sae_encoder : delta=0.086901 param=78.51366 delta/param=1.107e-03
+    optimizer_update sae_decoder : delta=0.054029 param=48.09792 delta/param=1.123e-03
+    optimizer_update sae_bias    : delta=0.000908 param=0.71319 delta/param=1.274e-03
+    optimizer_update routing     : delta=0.040377 param=55.00673 delta/param=7.340e-04
+  step    800/10000  recon=0.1236  pr=0.9024  sid=4.3232  grl_p=0.8878(per=0.325)  inv_L=0.0644  inv_P=0.5702  var=1.3287  cov=0.0000  club=+0.1829  q_phi[ce=5.490,acc=0.000]  k[L/P]=2553/2567  Zσ10[L/P]=0.02/0.02  blw[L/P]=0.97/0.98  uN[L/P]=11.76±0.88/10.05±0.64  eR[L/P]=720/715  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2522/2598/0  actL/P/U=170/86/0  H=0.693  Hu=0.624  spec<.5=0.09  marg=0.299  lstd=0.5436  lr=9.98e-05
+  [club_full_diag @900] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.12317     0.02463     0.00000
+    pr                     +0.68480     0.25128     0.00637
+    sid                    +2.57432     1.10653     0.02450
+    grl_p                  +0.17120     0.04732     0.00097
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.47039     0.13001     0.01738
+    variance               +0.13596     0.00233     0.00008
+    club                   +0.32098     1.82114     0.07710
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00619     0.00000     0.00003
+    cos(club,recon)=-0.0075
+    cos(club,pr)=-0.0140
+    cos(club,sid)=-0.0288
+    cos(club,grl_p)=-0.0090
+    cos(club,inv_P)=-0.0104
+    cos(club,variance)=-0.0106
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000084  0.000072  0.000133  0.000757  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.309814 normalized=+0.309814 (forward values must match)
+    club_actual_bound_batch: logq_pos=-3.75310 logq_neg=-4.82304 collision=0.188 pred_H=4.6705 class_cov=0.0558
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=5.63574 pre_acc=0.000 pre_H=4.6529 post_ce=5.13477 post_acc=0.062 post_H=4.7152 B=16 uniq=14 maj=0.125
+    q_phi logits: pre_std=1.50250 pre_absmax=7.87500 post_std=1.46605 post_absmax=8.06250
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=2.30565 param=363.40311 update=11.65241 update/param=3.206e-02
+    geometry: enc_row_norm=1.1194±0.0589 dec_col_norm=0.6181±0.2169 zL_rms=0.35582 zP_rms=0.32256 zL_absmax=7.3824 zP_absmax=12.6631 poolL_norm=25.4782±0.9058
+    routing_values: mL_mean=0.4932 mL_std=0.3115 mL_min=0.0000 mL_max=0.9999 mP_mean=0.5068
+    optimizer_global: preclip=2.95945 clip_limit=1.00000 applied_scale=0.337901
+    optimizer_group sae         : preclip=2.18942 lr=9.957e-05
+    optimizer_group routing     : preclip=0.08529 lr=9.957e-04
+    optimizer_group task_heads  : preclip=0.32185 lr=9.957e-05
+    optimizer_group sid_head    : preclip=1.94839 lr=4.978e-04
+    optimizer_group adversaries : preclip=0.24021 lr=9.957e-05
+    optimizer_update sae_encoder : delta=0.091106 param=80.22736 delta/param=1.136e-03
+    optimizer_update sae_decoder : delta=0.050421 param=46.86550 delta/param=1.076e-03
+    optimizer_update sae_bias    : delta=0.002267 param=0.83118 delta/param=2.727e-03
+    optimizer_update routing     : delta=0.053878 param=56.50246 delta/param=9.535e-04
+  step    900/10000  recon=0.1232  pr=0.8560  sid=4.2905  grl_p=0.8560(per=0.276)  inv_L=0.0694  inv_P=0.4704  var=1.3596  cov=0.0000  club=+1.0699  q_phi[ce=5.187,acc=0.062]  k[L/P]=2511/2609  Zσ10[L/P]=0.01/0.01  blw[L/P]=0.96/0.97  uN[L/P]=12.59±0.81/11.11±0.61  eR[L/P]=695/686  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2481/2639/0  actL/P/U=171/85/0  H=0.693  Hu=0.619  spec<.5=0.11  marg=0.309  lstd=0.5584  lr=9.96e-05
+  [grad_norms @1000]
+    recon             |g|=0.05317  ratio=1.000x recon
+    pr_raw            |g|=0.40278  ratio=7.575x recon
+    pr_weighted       |g|=0.32222  ratio=6.060x recon
+    sid_raw           |g|=2.73429  ratio=51.421x recon
+    sid_weighted      |g|=1.64057  ratio=30.853x recon
+    grl_p             |g|=0.05666  ratio=1.066x recon
+    club              |g|=1.97884  ratio=37.214x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00013   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @1000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.013
+      cos(recon_vs_sid          ) = +0.098  aligned
+      cos(recon_vs_grl_p        ) = -0.006
+      cos(recon_vs_club         ) = -0.005
+      cos(pr_vs_sid             ) = +0.003
+      cos(pr_vs_grl_p           ) = -0.212  conflict
+      cos(pr_vs_club            ) = -0.007
+      cos(sid_vs_grl_p          ) = +0.001
+      cos(sid_vs_club           ) = -0.003
+      cos(grl_p_vs_club         ) = -0.009
+    [mask_grad @1000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00082  mP=0.00082  tilt=+0.00
+      pr               mL=0.03507  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.20067  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00590  tilt=-1.00  -> P
+      club             mL=0.41701  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  [club_full_diag @1000] objective=weighted_current_microbatch
+    objective             value       |g_enc|    |g_route|
+    recon                  +0.12720     0.02722     0.00000
+    pr                     +0.61546     0.32568     0.00708
+    sid                    +2.39590     1.30691     0.02777
+    grl_p                  +0.15551     0.05735     0.00131
+    inv_L                  +0.00000     0.00000     0.00000
+    inv_P                  +0.49945     0.13466     0.02255
+    variance               +0.14158     0.00212     0.00008
+    club                   +0.72843     1.47193     0.07417
+    route_balance          -0.00069     0.00000     0.00000
+    route_specialize       +0.00614     0.00000     0.00003
+    cos(club,recon)=-0.0033
+    cos(club,pr)=+0.0029
+    cos(club,sid)=-0.0118
+    cos(club,grl_p)=-0.0076
+    cos(club,inv_P)=-0.0145
+    cos(club,variance)=-0.0219
+    club_frame_grad       mean       p50       p90       max      zero_frac
+    raw                 0.000199  0.000173  0.000288  0.001695  0.000000
+    normalized          0.000300  0.000300  0.000300  0.000300  0.000000
+    club_controlled_bound: raw=+0.943231 normalized=+0.943231 (forward values must match)
+    club_actual_bound_batch: logq_pos=-3.05799 logq_neg=-5.48609 collision=0.188 pred_H=3.6282 class_cov=0.0637
+    club_controlled_negatives: collision=0.000 policy=roll(1)
+    q_phi same_effective_batch: pre_ce=4.87500 pre_acc=0.000 pre_H=4.3206 post_ce=3.96582 post_acc=0.188 post_H=4.2798 B=16 uniq=16 maj=0.062
+    q_phi logits: pre_std=2.14615 pre_absmax=10.56250 post_std=2.33419 post_absmax=10.62500
+    q_phi optimizer: inner_steps=15 lr=1.000e-03 last_grad=1.97389 param=419.18341 update=10.43706 update/param=2.490e-02
+    geometry: enc_row_norm=1.1422±0.0731 dec_col_norm=0.6070±0.2191 zL_rms=0.39226 zP_rms=0.34083 zL_absmax=7.7386 zP_absmax=12.6130 poolL_norm=28.1557±0.8362
+    routing_values: mL_mean=0.4915 mL_std=0.3103 mL_min=0.0002 mL_max=0.9997 mP_mean=0.5085
+    optimizer_global: preclip=3.03830 clip_limit=1.00000 applied_scale=0.329131
+    optimizer_group sae         : preclip=2.17643 lr=9.933e-05
+    optimizer_group routing     : preclip=0.08809 lr=9.933e-04
+    optimizer_group task_heads  : preclip=0.46546 lr=9.933e-05
+    optimizer_group sid_head    : preclip=2.05637 lr=4.966e-04
+    optimizer_group adversaries : preclip=0.20335 lr=9.933e-05
+    optimizer_update sae_encoder : delta=0.086970 param=81.91257 delta/param=1.062e-03
+    optimizer_update sae_decoder : delta=0.051150 param=46.16732 delta/param=1.108e-03
+    optimizer_update sae_bias    : delta=0.001918 param=1.00382 delta/param=1.911e-03
+    optimizer_update routing     : delta=0.051857 param=58.11747 delta/param=8.923e-04
+  step   1000/10000  recon=0.1272  pr=0.7693  sid=3.9932  grl_p=0.7776(per=0.232)  inv_L=0.0766  inv_P=0.4995  var=1.4158  cov=0.0000  club=+2.4281  q_phi[ce=4.026,acc=0.125]  k[L/P]=2500/2620  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.94/0.96  uN[L/P]=15.58±0.92/13.24±0.66  eR[L/P]=652/641  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2455/2665/0  actL/P/U=172/84/0  H=0.693  Hu=0.614  spec<.5=0.12  marg=0.319  lstd=0.5743  lr=9.93e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=1000  recon=0.1273  pr=0.7898  | z_L PR=0.267  | z_P PR=0.227 SID=0.520
+  ✓ best checkpoint (disent=1.5260  PER=0.267 sid=0.520 grl_acc=0.006 grl_p_per=0.227) → /scratch/bbg25/runs/libri_clubhybrid_proj256_warm1k_lite_s42/checkpoints/stage2_best.pt
