@@ -47,6 +47,10 @@ class DISConfig:
     # adapts per utterance. False = static (one fixed partition for all inputs).
     routing_dynamic:        bool = False
     routing_dynamic_hidden: int  = 256   # hidden width of the dynamic router MLP
+    # Continuation-only mode: restore a learned-routing resume checkpoint, then
+    # keep its learned partition deterministic and fixed while SAE/head training
+    # continues. Unlike fixed_routing, this does not create a predetermined split.
+    freeze_learned_routing_on_resume: bool = False
 
     # ---------------------------------------------------------------- GradNorm (automatic loss balancing)
     # When on, the listed task weights are LEARNED online (Chen et al. 2018): each

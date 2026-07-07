@@ -520,6 +520,7 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         _no_routing     = getattr(cfg, 'no_routing', False)
         _projection     = getattr(cfg, 'projection_disentanglement', False)
         _routing_active = (not _no_routing and not _projection and
+                           not getattr(cfg, 'freeze_learned_routing_on_resume', False) and
                            any(p.requires_grad for p in model.routing.parameters()))
 
         out     = model(audios, audio_lengths, stage=2, grl_lambda=grl_lam,
@@ -1445,6 +1446,24 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         print(f"[stage 2] exact resume from {resume_path}: step={start_step} best={best_metric:.4f}")
     elif resume_value not in {"none", "", "auto"}:
         raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
+    freeze_learned_routing = bool(
+        getattr(cfg, "freeze_learned_routing_on_resume", False))
+    if freeze_learned_routing:
+        if start_step <= 0:
+            raise ValueError(
+                "freeze_learned_routing_on_resume requires a restored stage-2 resume checkpoint")
+        if (getattr(cfg, "no_routing", False)
+                or getattr(cfg, "fixed_blocks", False)
+                or getattr(cfg, "fixed_routing", False)
+                or projection_mode):
+            raise ValueError(
+                "freeze_learned_routing_on_resume requires ordinary learned routing "
+                "(not fixed blocks, fixed routing, no-routing, or projection mode)")
+        model.routing.freeze_learned_routing()
+        n_l, n_p, n_u = model.routing.hard_counts
+        print("[stage 2] learned routing FROZEN after resume: "
+              f"step={start_step} deterministic=True hard_counts={n_l}/{n_p}/{n_u} "
+              "routing_optimizer_updates=off")
     segment = SegmentLimit(start_step, int(getattr(cfg, "segment_steps", 0)),
                            float(getattr(cfg, "max_runtime_minutes", 0.0)))
     metrics_path = cfg.checkpoint_dir / "metrics.jsonl"
@@ -1455,7 +1474,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     no_routing     = getattr(cfg, 'no_routing', False)
     fixed_blocks   = getattr(cfg, 'fixed_blocks', False)
     n_routes       = getattr(cfg, 'n_routes', 3)
-    routing_active = not no_routing and not projection_mode and not fixed_blocks and bool(routing_params)
+    routing_active = (not no_routing and not projection_mode and not fixed_blocks
+                      and not freeze_learned_routing and bool(routing_params))
     grl_p_weight   = getattr(cfg, 'grl_phoneme_weight', 0.0)
     dann_fix       = getattr(cfg, 'dann_full_discriminator', False)
     n_disc_steps   = max(1, int(getattr(cfg, 'n_disc_steps', 1)))

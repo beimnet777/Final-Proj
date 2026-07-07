@@ -26,6 +26,16 @@ from Disentanglement.training_runtime import (
 )
 from Disentanglement.probe_robust.club import CLUBSampled, normalize_club_gradient
 
+# Import the routing module without executing Disentanglement.model.__init__,
+# which imports the optional Transformers/SPEAR stack unavailable in CPU-only
+# unit-test environments.
+_routing_spec = importlib.util.spec_from_file_location(
+    "_routing_under_test", Path(__file__).resolve().parents[1] / "model" / "routing.py")
+_routing_module = importlib.util.module_from_spec(_routing_spec)
+assert _routing_spec.loader is not None
+_routing_spec.loader.exec_module(_routing_module)
+RoutingModule = _routing_module.RoutingModule
+
 
 class PresetTests(unittest.TestCase):
     def test_precision_resolution_covers_every_policy(self):
@@ -113,6 +123,77 @@ class PresetTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, key):
                 validate_experiment_config(broken)
 
+
+class FrozenLearnedRoutingTests(unittest.TestCase):
+    def _cfg(self, *, hard=True):
+        return SimpleNamespace(
+            K=4, D=3, n_routes=2, gumbel_tau_start=1.0,
+            gumbel_tau_end=0.1, hard_gumbel_routing=hard,
+            routing_init_std=0.0, routing_dynamic=False,
+            fixed_routing=False,
+        )
+
+    def test_hard_freeze_keeps_loaded_argmax_and_disables_gumbel(self):
+        routing = RoutingModule(self._cfg(hard=True))
+        with torch.no_grad():
+            routing.logits.copy_(torch.tensor([
+                [3.0, -1.0], [-2.0, 4.0], [0.5, 0.1], [-1.0, 2.0],
+            ]))
+        # Constructing the optimizer first mirrors stage-2 resume: freezing must
+        # not change parameter-group shape or invalidate its saved state.
+        optimizer = torch.optim.AdamW([routing.logits], lr=1e-3)
+        group_size = len(optimizer.param_groups[0]["params"])
+
+        routing.train()
+        routing.freeze_learned_routing()
+        first = routing()[0]
+        second = routing()[0]
+
+        self.assertTrue(torch.equal(first, torch.tensor([1., 0., 1., 0.])))
+        self.assertTrue(torch.equal(first, second))
+        self.assertFalse(first.requires_grad)
+        self.assertEqual(group_size, len(optimizer.param_groups[0]["params"]))
+
+    def test_soft_freeze_uses_deterministic_final_temperature(self):
+        routing = RoutingModule(self._cfg(hard=False))
+        with torch.no_grad():
+            routing.logits.copy_(torch.tensor([
+                [1.0, 0.0], [0.0, 1.0], [0.5, 0.5], [-1.0, 1.0],
+            ]))
+        routing.train()
+        routing.freeze_learned_routing()
+        first = routing()[0]
+        second = routing()[0]
+        expected = torch.softmax(routing.logits.detach() / 0.1, dim=-1)[:, 0]
+        self.assertTrue(torch.allclose(first, expected))
+        self.assertTrue(torch.equal(first, second))
+
+    def test_optimizer_continues_heads_without_moving_frozen_logits(self):
+        routing = RoutingModule(self._cfg(hard=True))
+        head = torch.nn.Parameter(torch.ones(4))
+        optimizer = torch.optim.AdamW([
+            {"params": [routing.logits], "lr": 1e-2},
+            {"params": [head], "lr": 1e-2},
+        ], weight_decay=0.1)
+        routing.freeze_learned_routing()
+        logits_before = routing.logits.detach().clone()
+        head_before = head.detach().clone()
+
+        loss = (routing()[0] * head).sum()
+        loss.backward()
+        optimizer.step()
+
+        self.assertIsNone(routing.logits.grad)
+        self.assertTrue(torch.equal(routing.logits, logits_before))
+        self.assertFalse(torch.equal(head, head_before))
+
+    def test_dynamic_freeze_is_rejected(self):
+        cfg = self._cfg()
+        cfg.routing_dynamic = True
+        cfg.routing_dynamic_hidden = 2
+        routing = RoutingModule(cfg)
+        with self.assertRaisesRegex(ValueError, "static routing only"):
+            routing.freeze_learned_routing()
 
 class AdversarialTaskGradientCapTests(unittest.TestCase):
     def test_cap_changes_shared_gradient_but_not_unlisted_head(self):
@@ -235,6 +316,16 @@ class CheckpointTests(unittest.TestCase):
                                     topk_L=1, topk_P=0, topk_U=0)
         with self.assertRaisesRegex(ValueError, "fixed_blocks"):
             validate_resume(payload, dataset_hash="abc", preset="unit", cfg=fixed_cfg)
+        # Unfrozen -> frozen is the intentional branching transition.
+        freeze_cfg = SimpleNamespace(**vars(cfg), freeze_learned_routing_on_resume=True)
+        validate_resume(payload, dataset_hash="abc", preset="unit", cfg=freeze_cfg)
+        # Once a continuation checkpoint records frozen routing, silently
+        # resuming it as trainable routing must fail.
+        frozen_payload = dict(payload)
+        frozen_payload["analysis_config"] = dict(payload["analysis_config"])
+        frozen_payload["analysis_config"]["freeze_learned_routing_on_resume"] = True
+        with self.assertRaisesRegex(ValueError, "freeze_learned_routing_on_resume"):
+            validate_resume(frozen_payload, dataset_hash="abc", preset="unit", cfg=cfg)
         for p in model.sae.parameters(): p.data.zero_()
         step, best = restore_training_state(payload, model=model, optimizer=opt)
         self.assertEqual(7, step); self.assertEqual(0.5, best)

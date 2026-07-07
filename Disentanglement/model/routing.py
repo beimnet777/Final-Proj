@@ -54,6 +54,9 @@ class RoutingModule(nn.Module):
             nn.init.normal_(self.router[-1].weight, std=1e-2)  # tiny delta → start ≈ static, but trainable
             nn.init.zeros_(self.router[-1].bias)
         self.current_logits = None   # last forward's effective logits (grad-carrying)
+        # Enabled only after checkpoint restoration. Keep the parameter itself
+        # registered/trainable-on-paper so legacy optimizer groups restore exactly.
+        self.learned_routing_frozen = False
 
         if getattr(cfg, 'fixed_routing', False):
             self._init_fixed(cfg.K, getattr(cfg, 'fixed_routing_split', 0.7))
@@ -73,10 +76,26 @@ class RoutingModule(nn.Module):
         delta = self.router(ctx).view(-1, self.K, self.n_routes)   # (B, K, n_routes)
         return self.logits.unsqueeze(0) + delta                    # static base + dynamic delta
 
+    def freeze_learned_routing(self) -> None:
+        """Freeze the currently loaded static partition without changing it."""
+        if self.dynamic:
+            raise ValueError(
+                "freeze_learned_routing_on_resume currently supports static routing only"
+            )
+        self.learned_routing_frozen = True
+
     def forward(self, context=None):
         """Returns (m_L, m_P[, m_U]).  Static → each (K,); dynamic → each (B,1,K)."""
         logits = self._effective_logits(context)
-        if self.training:
+        if self.learned_routing_frozen:
+            # No Gumbel resampling and no gradient into the learned logits.
+            logits = logits.detach()
+            if self.hard_gumbel_routing:
+                idx = logits.argmax(dim=-1)
+                soft = F.one_hot(idx, num_classes=self.n_routes).float()
+            else:
+                soft = F.softmax(logits / self.tau_end, dim=-1)
+        elif self.training:
             soft = F.gumbel_softmax(logits, tau=self.tau, hard=self.hard_gumbel_routing, dim=-1)
         elif self.hard_gumbel_routing:
             idx  = logits.argmax(dim=-1)

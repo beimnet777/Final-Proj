@@ -347,6 +347,13 @@ def validate_resume(checkpoint: Mapping[str, Any], *, dataset_hash: str,
     if bool(now.get("fixed_blocks", False)) and not bool(old.get("fixed_blocks", False)):
         raise ValueError(
             "resume configuration mismatch for fixed_blocks: checkpoint=False current=True")
+    # Freezing is an intentional one-way continuation transition. Once a resume
+    # checkpoint records frozen learned routing, never silently make it trainable.
+    if bool(old.get("freeze_learned_routing_on_resume", False)) and not bool(
+            now.get("freeze_learned_routing_on_resume", False)):
+        raise ValueError(
+            "resume configuration mismatch for freeze_learned_routing_on_resume: "
+            "checkpoint=True current=False")
 
 
 def restore_training_state(checkpoint: Mapping[str, Any], *, model: torch.nn.Module,

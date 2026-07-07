@@ -182,6 +182,13 @@ def _parse_args():
     p.add_argument("--routing_dynamic", action="store_true", default=cfg.routing_dynamic,
                    help="Input-dependent (per-utterance) routing vs the static partition.")
     p.add_argument("--routing_dynamic_hidden", type=int, default=cfg.routing_dynamic_hidden)
+    p.add_argument(
+        "--freeze_learned_routing_on_resume",
+        action=argparse.BooleanOptionalAction,
+        default=cfg.freeze_learned_routing_on_resume,
+        help=("Restore a stage-2 resume checkpoint, then freeze its learned logits "
+              "and use deterministic routing masks while SAE/head training continues."),
+    )
 
     # experiment flags
     p.add_argument("--grl_phoneme_weight",  type=float, default=cfg.grl_phoneme_weight)
@@ -443,6 +450,7 @@ def _parse_args():
     cfg.routing_spec_weight   = args.routing_spec_weight
     cfg.routing_dynamic       = args.routing_dynamic
     cfg.routing_dynamic_hidden = args.routing_dynamic_hidden
+    cfg.freeze_learned_routing_on_resume = args.freeze_learned_routing_on_resume
     cfg.grl_phoneme_weight    = args.grl_phoneme_weight
     cfg.grl_u_weight          = args.grl_u_weight
     cfg.grl_phoneme_u_weight  = args.grl_phoneme_u_weight
