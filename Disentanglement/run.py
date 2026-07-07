@@ -522,6 +522,10 @@ def _parse_args():
     cfg.club_hidden           = args.club_hidden
     cfg.club_grad_norm        = bool(args.club_grad_norm)
     cfg.club_grad_norm_target = args.club_grad_norm_target
+    cfg.club_projection_dim         = args.club_projection_dim
+    cfg.club_warmup_steps           = args.club_warmup_steps
+    cfg.club_pretrain_inner_steps   = args.club_pretrain_inner_steps
+    cfg.club_no_collision_negatives = bool(args.club_no_collision_negatives)
     cfg.club_full_diagnostics = bool(args.club_full_diagnostics)
     cfg.club_diagnostics_every = args.club_diagnostics_every
     cfg.club_phoneme_enabled       = bool(args.club_phoneme_enabled)
