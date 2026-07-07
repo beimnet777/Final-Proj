@@ -1,24 +1,14 @@
 #!/usr/bin/env bash
-# Full LibriSpeech CLUB-hybrid run with normalized speaker-CLUB gradients.
+# One full, opt-in diagnostic reproduction of the failed CLUB-hybrid run.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
-RUN_NAME="libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42"
-RUN_DESCRIPTION="LibriSpeech CLUB-hybrid + VICReg; soft routing tau=1; speaker CLUB grad target=0.001; phoneme GRL=0.2; seed=42"
-if [[ "${SMOKE:-0}" == "1" ]]; then
-    RUN_NAME="${RUN_NAME}_smoke"
-    RUN_DESCRIPTION="SMOKE: ${RUN_DESCRIPTION}"
-fi
+RUN_NAME="libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_fulldiag10k_s42"
+RUN_DESCRIPTION="ONE-SHOT FULL DIAGNOSTIC: exact 10k Libri CLUB-hybrid/VICReg soft-tau1 CLUB-grad-0.001 phoneme-GRL-0.2 seed-42 configuration; exhaustive CLUB/q_phi/objective/routing/clipping/optimizer/geometry logging"
 
-# Scientific configuration:
-#   - soft two-route learned routing
-#   - pair-alpha/pair-beta dual invariance with VICReg variance + covariance
-#   - speaker CLUB on z_L; speaker GRL off
-#   - sign-preserving normalized CLUB gradient, target 0.001
-#   - phoneme GRL on z_P; phoneme CLUB off
-# This is an HPC-style direct trainer launch: every non-default scientific
-# choice is recorded below, without the Colab/experiment_runner layer.
+# This intentionally matches the failed full run scientifically. The only new
+# flags enable observation; they do not alter the loss or optimizer update.
 COMMAND=(
     python -u Disentanglement/run.py
     --stage 2
@@ -50,6 +40,8 @@ COMMAND=(
     --club_lr 1e-3
     --club_grad_norm
     --club_grad_norm_target 0.001
+    --club_full_diagnostics
+    --club_diagnostics_every 100
     --pair_alpha_arctic_w 0.0
     --pair_alpha_pert_w 1.0
     --pair_beta_libri_w 1.0
@@ -86,21 +78,5 @@ COMMAND=(
     --num_workers 2
     --seed 42
 )
-
-# Exercise the complete training path without polluting the full run directory.
-# Repeated argparse options below intentionally override the full-run values.
-if [[ "${SMOKE:-0}" == "1" ]]; then
-    COMMAND+=(
-        --stage2_steps 3
-        --warmup_steps 1
-        --max_train_examples 64
-        --max_val_examples 32
-        --max_test_examples 32
-        --ckpt_every 1
-        --log_every 1
-        --grad_log_every 1
-        --num_workers 0
-    )
-fi
 
 blackwell_run "$RUN_NAME" "${COMMAND[@]}"

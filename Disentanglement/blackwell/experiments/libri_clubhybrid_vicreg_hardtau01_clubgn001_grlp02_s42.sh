@@ -1,32 +1,33 @@
 #!/usr/bin/env bash
-# Full LibriSpeech CLUB-hybrid run with normalized speaker-CLUB gradients.
+# Full LibriSpeech CLUB-hybrid run with hard Gumbel routing and full diagnostics.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
-RUN_NAME="libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42"
-RUN_DESCRIPTION="LibriSpeech CLUB-hybrid + VICReg; soft routing tau=1; speaker CLUB grad target=0.001; phoneme GRL=0.2; seed=42"
+RUN_NAME="libri_clubhybrid_vicreg_hardtau01_clubgn001_grlp02_fulldiag_s42"
+RUN_DESCRIPTION="LibriSpeech CLUB-hybrid + VICReg; hard routing tau 1.0->0.1; speaker CLUB grad target=0.001; phoneme GRL=0.2; seed=42; full CLUB/q_phi/objective/routing/clipping/optimizer/geometry diagnostics"
 if [[ "${SMOKE:-0}" == "1" ]]; then
     RUN_NAME="${RUN_NAME}_smoke"
     RUN_DESCRIPTION="SMOKE: ${RUN_DESCRIPTION}"
 fi
 
 # Scientific configuration:
-#   - soft two-route learned routing
+#   - hard two-route learned routing (the only intended scientific change vs the
+#     softtau1 baseline)
 #   - pair-alpha/pair-beta dual invariance with VICReg variance + covariance
 #   - speaker CLUB on z_L; speaker GRL off
 #   - sign-preserving normalized CLUB gradient, target 0.001
 #   - phoneme GRL on z_P; phoneme CLUB off
-# This is an HPC-style direct trainer launch: every non-default scientific
-# choice is recorded below, without the Colab/experiment_runner layer.
+#   - full one-shot diagnostic logging enabled so this run does not need to be
+#     repeated just to inspect CLUB/routing/optimizer behavior
 COMMAND=(
     python -u Disentanglement/run.py
     --stage 2
     --stage2_from_scratch
     --n_routes 2
-    --no-hard_gumbel_routing
+    --hard_gumbel_routing
     --gumbel_tau_start 1.0
-    --gumbel_tau_end 1.0
+    --gumbel_tau_end 0.1
     --routing_init_std 0.5
     --local_data
     --librispeech_root "$BLACKWELL_DATA_ROOT/LibriSpeech"
@@ -50,6 +51,8 @@ COMMAND=(
     --club_lr 1e-3
     --club_grad_norm
     --club_grad_norm_target 0.001
+    --club_full_diagnostics
+    --club_diagnostics_every 100
     --pair_alpha_arctic_w 0.0
     --pair_alpha_pert_w 1.0
     --pair_beta_libri_w 1.0
@@ -63,7 +66,7 @@ COMMAND=(
     --alpha 0.8
     --beta 0.6
     --grl_weight 0.0
-    --grl_phoneme_weight 0.2
+    --grl_phoneme_weight 0.4
     --rho 0.001
     --routing_spec_weight 0.01
     --stage2_steps 10000
@@ -87,8 +90,6 @@ COMMAND=(
     --seed 42
 )
 
-# Exercise the complete training path without polluting the full run directory.
-# Repeated argparse options below intentionally override the full-run values.
 if [[ "${SMOKE:-0}" == "1" ]]; then
     COMMAND+=(
         --stage2_steps 3

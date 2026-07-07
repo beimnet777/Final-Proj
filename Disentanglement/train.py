@@ -742,6 +742,147 @@ def _masked_mse(a: torch.Tensor, b: torch.Tensor, lengths: torch.Tensor) -> torc
     return (((a - b) ** 2) * mask).sum() / mask.sum().clamp(min=1) / a.shape[-1]
 
 
+def _stats_pool(z: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    """Masked mean+std pooling used by speaker CLUB and its diagnostics."""
+    T = z.shape[1]
+    mask = (torch.arange(T, device=z.device).unsqueeze(0) < lengths.unsqueeze(1)
+            ).to(z.dtype).unsqueeze(-1)
+    n = lengths.to(z.dtype).clamp(min=1).unsqueeze(1)
+    mean = (z * mask).sum(1) / n
+    var = (((z - mean.unsqueeze(1)) ** 2) * mask).sum(1) / n
+    return torch.cat([mean, (var + 1e-5).sqrt()], dim=-1)
+
+
+def _current_grad_norm(params) -> float:
+    parts = [p.grad.detach().float().pow(2).sum() for p in params if p.grad is not None]
+    return float(torch.stack(parts).sum().sqrt().item()) if parts else 0.0
+
+
+def _club_full_diagnostics(
+    *, model, step: int, objective_terms: Dict[str, torch.Tensor],
+    routing_params, out, club_module, raw_club_loss: torch.Tensor,
+    normalized_club_loss: torch.Tensor,
+    controlled_negative_collision: float,
+) -> list[str]:
+    """Expensive opt-in evidence for a one-shot CLUB calibration run.
+
+    All objective gradients are measured on the graph used by the actual
+    optimizer step. CLUB's raw and normalized paths use the same negative
+    labels, so their difference is solely the gradient transform.
+    """
+    enc = model.sae.enc_weight
+    params = [enc] + list(routing_params)
+    vectors: Dict[str, torch.Tensor] = {}
+    rows = []
+    for name, loss in objective_terms.items():
+        if not isinstance(loss, torch.Tensor) or not loss.requires_grad:
+            continue
+        grads = torch.autograd.grad(
+            loss, params, retain_graph=True, allow_unused=True, create_graph=False)
+        g_enc = grads[0]
+        enc_norm = float(g_enc.detach().float().norm().item()) if g_enc is not None else 0.0
+        route_parts = [g.detach().float().pow(2).sum() for g in grads[1:] if g is not None]
+        route_norm = (float(torch.stack(route_parts).sum().sqrt().item())
+                      if route_parts else 0.0)
+        rows.append((name, float(loss.detach().float().item()), enc_norm, route_norm))
+        if g_enc is not None and enc_norm > 1e-12:
+            vectors[name] = g_enc.detach().float().flatten()
+
+    def _frame_summary(loss: torch.Tensor):
+        grad = torch.autograd.grad(loss, out["z_L"], retain_graph=True,
+                                   allow_unused=True, create_graph=False)[0]
+        if grad is None:
+            return (0.0,) * 5
+        norms = grad.detach().float().norm(dim=-1)
+        T = norms.shape[1]
+        valid = torch.arange(T, device=norms.device).unsqueeze(0) < out["out_lengths"].unsqueeze(1)
+        values = norms[valid]
+        if values.numel() == 0:
+            return (0.0,) * 5
+        qs = torch.quantile(values, values.new_tensor([0.5, 0.9]))
+        return (float(values.mean()), float(qs[0]), float(qs[1]),
+                float(values.max()), float((values <= 1e-12).float().mean()))
+
+    raw_stats = _frame_summary(raw_club_loss)
+    normalized_stats = _frame_summary(normalized_club_loss)
+    lines = [f"  [club_full_diag @{step}] objective=weighted_current_microbatch"]
+    lines.append("    objective             value       |g_enc|    |g_route|")
+    for name, value, enc_norm, route_norm in rows:
+        lines.append(f"    {name:<20s} {value:+10.5f}  {enc_norm:10.5f}  {route_norm:10.5f}")
+    if "club" in vectors:
+        for name, vec in vectors.items():
+            if name == "club":
+                continue
+            cosine = float(F.cosine_similarity(vectors["club"], vec, dim=0).item())
+            lines.append(f"    cos(club,{name})={cosine:+.4f}")
+    lines.append("    club_frame_grad       mean       p50       p90       max      zero_frac")
+    lines.append("    raw                " + " ".join(f"{x:9.6f}" for x in raw_stats))
+    lines.append("    normalized         " + " ".join(f"{x:9.6f}" for x in normalized_stats))
+    lines.append(
+        f"    club_controlled_bound: raw={float(raw_club_loss.detach()):+.6f} "
+        f"normalized={float(normalized_club_loss.detach()):+.6f} "
+        "(forward values must match)")
+    club_diag = getattr(club_module, "last_diagnostics", {})
+    if club_diag:
+        lines.append(
+            "    club_actual_bound_batch: "
+            f"logq_pos={club_diag['positive_log_q']:+.5f} "
+            f"logq_neg={club_diag['negative_log_q']:+.5f} "
+            f"collision={club_diag['negative_label_collision']:.3f} "
+            f"pred_H={club_diag['prediction_entropy']:.4f} "
+            f"class_cov={club_diag['label_class_coverage']:.4f}")
+    lines.append(
+        f"    club_controlled_negatives: collision={controlled_negative_collision:.3f} "
+        "policy=roll(1)")
+
+    qdiag = club_module.last_inner_diagnostics
+    if qdiag:
+        lines.append(
+            "    q_phi same_effective_batch: "
+            f"pre_ce={qdiag['pre_ce']:.5f} pre_acc={qdiag['pre_acc']:.3f} "
+            f"pre_H={qdiag['pre_entropy']:.4f} post_ce={qdiag['post_ce']:.5f} "
+            f"post_acc={qdiag['post_acc']:.3f} post_H={qdiag['post_entropy']:.4f} "
+            f"B={int(qdiag['batch_size'])} uniq={int(qdiag['unique_classes'])} "
+            f"maj={qdiag['majority_fraction']:.3f}")
+        lines.append(
+            "    q_phi logits: "
+            f"pre_std={qdiag['pre_logit_std']:.5f} pre_absmax={qdiag['pre_logit_absmax']:.5f} "
+            f"post_std={qdiag['post_logit_std']:.5f} "
+            f"post_absmax={qdiag['post_logit_absmax']:.5f}")
+        lines.append(
+            "    q_phi optimizer: "
+            f"inner_steps={int(qdiag['inner_steps'])} lr={qdiag['lr']:.3e} "
+            f"last_grad={qdiag['last_grad_norm']:.5f} param={qdiag['parameter_norm']:.5f} "
+            f"update={qdiag['update_norm']:.5f} update/param="
+            f"{qdiag['update_norm'] / max(qdiag['parameter_norm'], 1e-12):.3e}")
+
+    with torch.no_grad():
+        valid = (torch.arange(out["z_L"].shape[1], device=out["z_L"].device).unsqueeze(0)
+                 < out["out_lengths"].unsqueeze(1))
+        enc_rows = model.sae.enc_weight.detach().float().norm(dim=1)
+        dec_cols = model.sae.dec_weight.detach().float().norm(dim=0)
+        zL = out["z_L"].detach().float()[valid]
+        zP = out["z_P"].detach().float()[valid]
+        poolL = _stats_pool(out["z_L"].detach().float(), out["out_lengths"])
+        lines.append(
+            "    geometry: "
+            f"enc_row_norm={enc_rows.mean():.4f}±{enc_rows.std():.4f} "
+            f"dec_col_norm={dec_cols.mean():.4f}±{dec_cols.std():.4f} "
+            f"zL_rms={zL.pow(2).mean().sqrt():.5f} zP_rms={zP.pow(2).mean().sqrt():.5f} "
+            f"zL_absmax={zL.abs().max():.4f} zP_absmax={zP.abs().max():.4f} "
+            f"poolL_norm={poolL.norm(dim=1).mean():.4f}±{poolL.norm(dim=1).std():.4f}")
+        mL, mP = out.get("m_L"), out.get("m_P")
+        if mL is not None and mP is not None:
+            lines.append(
+                "    routing_values: "
+                f"mL_mean={mL.detach().float().mean():.4f} "
+                f"mL_std={mL.detach().float().std():.4f} "
+                f"mL_min={mL.detach().float().min():.4f} "
+                f"mL_max={mL.detach().float().max():.4f} "
+                f"mP_mean={mP.detach().float().mean():.4f}")
+    return lines
+
+
 def _invariance_loss(zL: torch.Tensor, zLp: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
     """Scale-normalized per-frame invariance: the FRACTION of z_L's energy that
     changes under the speaker perturbation, averaged over valid frames.
@@ -1198,6 +1339,17 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         print(f"[stage 2] CLUB ON: weight={cfg.club_weight}  inner_steps={cfg.club_inner_steps}  "
               f"lr={cfg.club_lr}  hidden={cfg.club_hidden}  in_dim={2 * cfg.K}  "
               f"num_speakers={cfg.num_speakers}  pool=mean+std(z_L){_club_gn}")
+    club_full_diagnostics = bool(getattr(cfg, "club_full_diagnostics", False))
+    club_diagnostics_every = int(getattr(cfg, "club_diagnostics_every", 100))
+    if club_full_diagnostics:
+        if club_module is None:
+            raise ValueError("club_full_diagnostics requires club_enabled")
+        if club_diagnostics_every <= 0:
+            raise ValueError("club_diagnostics_every must be positive")
+        print("[stage 2] CLUB FULL DIAGNOSTICS ON: "
+              f"every={club_diagnostics_every} optimizer steps; expensive; "
+              "q_phi pre/post, raw/delivered frame gradients, objective encoder/routing "
+              "gradients, clipping, optimizer groups, geometry")
 
     # ---- probe_robust: phoneme CLUB on z_P (frame-level) ----
     club_phn_module = None
@@ -1350,6 +1502,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         step = (micro_step - 1) // accumulation + 1
         micro_in_group = (micro_step - 1) % accumulation
         accumulation_boundary = (micro_in_group == accumulation - 1)
+        club_diagnostics_due = (club_full_diagnostics and accumulation_boundary
+                                and (step == 1 or step % club_diagnostics_every == 0))
         try:
             batch = next(train_iter)
         except StopIteration:
@@ -1585,10 +1739,14 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             # O(1e-3); that's what makes bf16 OK for this head despite its
             # 10240-d sparse input.
             l_club = l_recon.new_zeros(())
+            raw_club_diag_loss = l_recon.new_zeros(())
+            normalized_club_diag_loss = l_recon.new_zeros(())
+            controlled_negative_collision = float("nan")
             club_ce = float('nan')
             club_acc = float('nan')
             if club_module is not None:
-                _zL = out["z_L"]
+                _zL_raw = out["z_L"]
+                _zL = _zL_raw
                 if bool(getattr(cfg, 'club_grad_norm', False)):
                     # This branch is used only by CLUB. Other objectives retain
                     # the original z_L and therefore keep their own gradients.
@@ -1601,22 +1759,42 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                         amp_scale=_amp_scale,
                     )
                 _olen = out["out_lengths"]
-                _Bcl, _Tcl, _ = _zL.shape
-                _fm = (torch.arange(_Tcl, device=device).unsqueeze(0)
-                       < _olen.unsqueeze(1)).float().unsqueeze(-1)  # (B, T, 1)
-                _n = _olen.float().clamp(min=1).unsqueeze(1)        # (B, 1)
-                _mean = (_zL * _fm).sum(1) / _n                     # (B, K)
-                _var  = (((_zL - _mean.unsqueeze(1)) ** 2) * _fm).sum(1) / _n
-                _std  = (_var + 1e-5).sqrt()                        # (B, K)
-                _z_pool = torch.cat([_mean, _std], dim=-1)          # (B, 2K)
+                _z_pool = _stats_pool(_zL, _olen)
                 club_pool_buffer.append(_z_pool.detach())
                 club_label_buffer.append(speaker_ids.detach())
                 if accumulation_boundary:
                     club_ce, club_acc = club_module.inner_step(
                         torch.cat(club_pool_buffer), torch.cat(club_label_buffer),
                         k=int(cfg.club_inner_steps),
+                        capture_diagnostics=club_diagnostics_due,
                     )
                 l_club = club_module.mi_bound(_z_pool, speaker_ids)
+                if club_diagnostics_due:
+                    # Fixed negatives make raw-vs-normalized gradients exactly
+                    # comparable and do not perturb the training RNG stream.
+                    _negative_labels = speaker_ids.roll(1)
+                    controlled_negative_collision = float(
+                        (_negative_labels == speaker_ids).float().mean().item())
+                    _raw_pool = _stats_pool(_zL_raw, _olen)
+                    _raw_bound = club_module.mi_bound(
+                        _raw_pool, speaker_ids, negative_labels=_negative_labels,
+                        update_diagnostics=False)
+                    _diag_normalized_z = normalize_club_gradient(
+                        _zL_raw,
+                        target=float(cfg.club_grad_norm_target),
+                        weight=float(cfg.club_weight),
+                        accumulation=accumulation,
+                        # This separate autograd probe is not GradScaler-scaled;
+                        # report the effective post-unscale gradient.
+                        amp_scale=1.0,
+                    )
+                    _normalized_pool = _stats_pool(_diag_normalized_z, _olen)
+                    _normalized_bound = club_module.mi_bound(
+                        _normalized_pool, speaker_ids, negative_labels=_negative_labels,
+                        update_diagnostics=False)
+                    raw_club_diag_loss = (float(cfg.club_weight) * _raw_bound / accumulation)
+                    normalized_club_diag_loss = (
+                        float(cfg.club_weight) * _normalized_bound / accumulation)
 
             # ---- probe_robust: phoneme CLUB MI-min on (z_P per-frame, phoneme) ----
             # Symmetric to the speaker CLUB but operates frame-wise: input is
@@ -1736,6 +1914,29 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + eff_vib_w        * l_vib
                           + m_aux            * l_aux)
 
+        full_diagnostic_lines = []
+        if club_diagnostics_due:
+            _objective_terms = {
+                "recon": m_recon * l_recon / accumulation,
+                "pr": m_pr * l_pr / accumulation,
+                "sid": m_sid * l_sid / accumulation,
+                "grl_p": m_grl_p * l_grl_p / accumulation,
+                "inv_L": inv_L_w * l_inv_L / accumulation,
+                "inv_P": inv_P_w * l_inv_P / accumulation,
+                "variance": inv_var_w * l_var / accumulation,
+                "covariance": float(cfg.vicreg_cov_weight) * l_cov / accumulation,
+                "club": float(cfg.club_weight) * l_club / accumulation,
+                "route_balance": cfg.rho * l_route / accumulation,
+                "route_specialize": spec_w * l_spec / accumulation,
+            }
+            full_diagnostic_lines = _club_full_diagnostics(
+                model=model, step=step, objective_terms=_objective_terms,
+                routing_params=routing_params, out=out, club_module=club_module,
+                raw_club_loss=raw_club_diag_loss,
+                normalized_club_loss=normalized_club_diag_loss,
+                controlled_negative_collision=controlled_negative_collision,
+            )
+
         # Isolate each adversarial contribution on the shared representation
         # before total.backward destroys the graph.  Dividing here exactly
         # matches gradient accumulation's effective-batch scaling.
@@ -1792,12 +1993,52 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         else:
             last_adversarial_cap_stats = {}
 
-        nn.utils.clip_grad_norm_(all_params, cfg.grad_clip)
+        if club_diagnostics_due:
+            _group_names = (["sae", "routing", "task_heads", "sid_head", "adversaries"]
+                            if not projection_params else
+                            ["sae", "routing", "projection", "task_heads", "sid_head", "adversaries"])
+            if vib_params:
+                _group_names.append("vib")
+            _preclip_groups = [
+                (name, _current_grad_norm(group["params"]), float(group["lr"]))
+                for name, group in zip(_group_names, optimizer.param_groups)
+            ]
+            _update_params = {
+                "sae_encoder": [model.sae.enc_weight],
+                "sae_decoder": [model.sae.dec_weight],
+                "sae_bias": [model.sae.b_pre],
+                "routing": list(routing_params),
+            }
+            _before_update = {
+                name: [p.detach().clone() for p in params]
+                for name, params in _update_params.items()
+            }
+        preclip_norm = nn.utils.clip_grad_norm_(all_params, cfg.grad_clip)
+        if club_diagnostics_due:
+            _preclip = float(preclip_norm)
+            _clip_scale = min(1.0, float(cfg.grad_clip) / max(_preclip, 1e-12))
+            full_diagnostic_lines.append(
+                f"    optimizer_global: preclip={_preclip:.5f} "
+                f"clip_limit={float(cfg.grad_clip):.5f} applied_scale={_clip_scale:.6f}")
+            for _name, _norm, _lr in _preclip_groups:
+                full_diagnostic_lines.append(
+                    f"    optimizer_group { _name:<12s}: preclip={_norm:.5f} lr={_lr:.3e}")
         if not use_fp16:
             optimizer.step()
         else:
             scaler.step(optimizer)
             scaler.update()
+        if club_diagnostics_due:
+            for _name, _params in _update_params.items():
+                _delta_sq = [(p.detach().float() - old.float()).pow(2).sum()
+                             for p, old in zip(_params, _before_update[_name])]
+                _param_sq = [p.detach().float().pow(2).sum() for p in _params]
+                _delta = float(torch.stack(_delta_sq).sum().sqrt()) if _delta_sq else 0.0
+                _param = float(torch.stack(_param_sq).sum().sqrt()) if _param_sq else 0.0
+                full_diagnostic_lines.append(
+                    f"    optimizer_update {_name:<12s}: delta={_delta:.6f} "
+                    f"param={_param:.5f} delta/param={_delta / max(_param, 1e-12):.3e}")
+            print("\n".join(full_diagnostic_lines))
 
         club_pool_buffer.clear(); club_label_buffer.clear()
         club_phn_pool_buffer.clear(); club_phn_label_buffer.clear()

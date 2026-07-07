@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib
+import math
 import sys
 import tempfile
 import types
@@ -92,6 +93,7 @@ class PresetTests(unittest.TestCase):
             "grl_p_shared_grad_cap_ratio",
             "club_weight", "club_lr", "club_inner_steps", "club_hidden",
             "club_grad_norm", "club_grad_norm_target",
+            "club_full_diagnostics", "club_diagnostics_every",
             "club_phoneme_enabled", "club_phoneme_weight", "club_phoneme_lr",
             "club_phoneme_inner_steps", "club_phoneme_hidden",
             "club_phoneme_warmup_steps", "gumbel_tau_start", "gumbel_tau_end",
@@ -162,6 +164,18 @@ class AdversarialTaskGradientCapTests(unittest.TestCase):
             {"club_enabled": False},
             {"club_grad_norm_target": 0.0},
             {"club_weight": 0.0},
+        ):
+            invalid = dict(valid); invalid.update(changes)
+            with self.assertRaises(ValueError):
+                validate_experiment_config(invalid)
+
+    def test_club_full_diagnostics_config_is_strict(self):
+        valid = resolve_preset("libri_club_hybrid")
+        valid.update(club_full_diagnostics=True, club_diagnostics_every=100)
+        validate_experiment_config(valid)
+        for changes in (
+            {"club_enabled": False},
+            {"club_diagnostics_every": 0},
         ):
             invalid = dict(valid); invalid.update(changes)
             with self.assertRaises(ValueError):
@@ -254,6 +268,40 @@ class CheckpointTests(unittest.TestCase):
         self.assertIsNotNone(z.grad)
         self.assertTrue(all(p.grad is None for p in club.classifier.parameters()))
         self.assertIn("negative_label_collision", club.last_diagnostics)
+
+    def test_club_full_diagnostics_capture_real_pre_and_post_updates(self):
+        torch.manual_seed(4)
+        club = CLUBSampled(4, 3, hidden=8, lr=1e-3)
+        z = torch.randn(12, 4)
+        y = torch.tensor([0, 1, 2] * 4)
+        club.inner_step(z, y, k=3, capture_diagnostics=True)
+        diag = club.last_inner_diagnostics
+        expected = {
+            "pre_ce", "pre_acc", "pre_entropy", "post_ce", "post_acc",
+            "post_entropy", "pre_logit_std", "pre_logit_absmax",
+            "post_logit_std", "post_logit_absmax", "batch_size",
+            "unique_classes", "majority_fraction", "last_grad_norm",
+            "parameter_norm", "update_norm", "lr", "inner_steps",
+        }
+        self.assertEqual(expected, set(diag))
+        self.assertTrue(all(math.isfinite(value) for value in diag.values()))
+        self.assertGreater(diag["last_grad_norm"], 0.0)
+        self.assertGreater(diag["update_norm"], 0.0)
+        self.assertEqual(12.0, diag["batch_size"])
+        self.assertEqual(3.0, diag["unique_classes"])
+
+    def test_club_controlled_negatives_are_repeatable_and_validated(self):
+        club = CLUBSampled(4, 3, hidden=8)
+        z = torch.randn(6, 4, requires_grad=True)
+        y = torch.tensor([0, 1, 2, 0, 1, 2])
+        negative = y.roll(1)
+        first = club.mi_bound(z, y, negative_labels=negative,
+                              update_diagnostics=False)
+        second = club.mi_bound(z, y, negative_labels=negative,
+                               update_diagnostics=False)
+        self.assertTrue(torch.equal(first, second))
+        with self.assertRaises(ValueError):
+            club.mi_bound(z, y, negative_labels=negative[:-1])
 
     def test_club_gradient_normalization_preserves_direction_and_target(self):
         raw = torch.randn(2, 2, 5, requires_grad=True)

@@ -124,7 +124,9 @@ The current trainer is single-GPU. Request one GPU: making several devices
 visible would not parallelize training. `common.sh` therefore accepts exactly
 one allocated ID from 0 through 7, checks that PyTorch sees only logical
 `cuda:0`, records the Git commit and fully escaped command, and stores combined
-logs under `/scratch/$USER/runs/RUN_NAME/launcher_logs/`.
+logs and metadata under the tracked repository path
+`Disentanglement/blackwell/logs/RUN_NAME/`. Checkpoints, TensorBoard events,
+and other large artifacts remain under `/scratch/$USER/runs/RUN_NAME/`.
 
 The tracked `libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42.sh`
 experiment follows the HPC pattern and invokes `Disentanglement/run.py`
@@ -132,10 +134,18 @@ directly. Its filename and `RUN_NAME` encode the main scientific choices. It
 does not use the Colab-oriented `experiment_runner` layer; `common.sh` only
 selects the assigned GPU, activates the environment, and captures launcher logs
 and metadata, including the script's human-readable `RUN_DESCRIPTION`.
+Set `SMOKE=1` to run three optimizer steps with capped train/validation/test
+sets in a separate `_smoke` output directory before launching the full run.
+
+The `*_fulldiag10k_s42.sh` script is a deliberately separate, one-shot
+diagnostic reproduction. Only that script passes `--club_full_diagnostics`.
+It records a baseline at step 1 and comprehensive evidence every 100 optimizer
+steps; ordinary experiment scripts retain the normal logging cost and output.
 
 ## 6. Back up irreplaceable outputs
 
-Scratch is explicitly unbacked. Periodically copy run directories to backed-up
-storage with `rsync` or `scp`. Git is appropriate for source and experiment
-definitions, not datasets or checkpoints. Release the GPU promptly in Slack
-when a run finishes or fails.
+Scratch is explicitly unbacked. Commit completed text logs from
+`Disentanglement/blackwell/logs/`, and periodically copy checkpoint/run
+directories to backed-up storage with `rsync` or `scp`. Git is appropriate for
+source, experiment definitions, and text logs—not datasets or checkpoints.
+Release the GPU promptly in Slack when a run finishes or fails.

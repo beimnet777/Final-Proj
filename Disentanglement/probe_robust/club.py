@@ -99,7 +99,9 @@ class CLUBSampled(nn.Module):
 
     Architecture
     ------------
-    q_phi : MLP classifier  Linear(in_dim, hidden) -> ReLU -> Linear(hidden, num_classes)
+    q_phi : MLP classifier
+        LayerNorm(in_dim) -> Linear(in_dim, hidden) -> GELU
+        -> LayerNorm(hidden) -> Linear(hidden, num_classes)
     optimizer : separate Adam for q_phi (does not touch main model params)
 
     Usage
@@ -143,8 +145,16 @@ class CLUBSampled(nn.Module):
         self.optimizer = torch.optim.Adam(self.classifier.parameters(), lr=lr)
         self.num_classes = num_classes
         self.last_diagnostics: dict[str, float] = {}
+        self.last_inner_diagnostics: dict[str, float] = {}
 
-    def inner_step(self, z: torch.Tensor, y: torch.Tensor, k: int = 1) -> tuple[float, float]:
+    def inner_step(
+        self,
+        z: torch.Tensor,
+        y: torch.Tensor,
+        k: int = 1,
+        *,
+        capture_diagnostics: bool = False,
+    ) -> tuple[float, float]:
         """Update q_phi for k cross-entropy steps on (z, y).
 
         z must be DETACHED — q_phi is the density estimator, it is trained
@@ -158,11 +168,30 @@ class CLUBSampled(nn.Module):
         """
         last_loss = 0.0
         last_acc  = 0.0
+        before = None
+        if capture_diagnostics:
+            with torch.no_grad():
+                logits = self.classifier(z)
+                probs = logits.softmax(-1)
+                pre_loss = float(F.cross_entropy(logits, y).item())
+                pre_acc = float((logits.argmax(-1) == y).float().mean().item())
+                pre_entropy = float(
+                    -(probs * logits.log_softmax(-1)).sum(-1).mean().item())
+                before = [p.detach().clone() for p in self.classifier.parameters()]
+                bincount = torch.bincount(y, minlength=self.num_classes).float()
+                majority = float((bincount.max() / max(1, y.numel())).item())
+                pre_logit_std = float(logits.float().std().item())
+                pre_logit_absmax = float(logits.float().abs().max().item())
+        last_grad_norm = 0.0
         for _ in range(k):
             self.optimizer.zero_grad(set_to_none=True)
             logits = self.classifier(z)
             loss = F.cross_entropy(logits, y)
             loss.backward()
+            if capture_diagnostics:
+                sq = [p.grad.detach().float().pow(2).sum()
+                      for p in self.classifier.parameters() if p.grad is not None]
+                last_grad_norm = float(torch.stack(sq).sum().sqrt().item()) if sq else 0.0
             self.optimizer.step()
             last_loss = float(loss.item())
             with torch.no_grad():
@@ -171,9 +200,48 @@ class CLUBSampled(nn.Module):
         # Prevent stale q_phi gradients from being mistaken for gradients from
         # the subsequent main-model MI-minimisation pass.
         self.optimizer.zero_grad(set_to_none=True)
+        if capture_diagnostics:
+            with torch.no_grad():
+                logits = self.classifier(z)
+                probs = logits.softmax(-1)
+                post_loss = float(F.cross_entropy(logits, y).item())
+                post_acc = float((logits.argmax(-1) == y).float().mean().item())
+                post_entropy = float(
+                    -(probs * logits.log_softmax(-1)).sum(-1).mean().item())
+                params = list(self.classifier.parameters())
+                param_sq = [p.detach().float().pow(2).sum() for p in params]
+                update_sq = [(p.detach() - old).float().pow(2).sum()
+                             for p, old in zip(params, before)]
+                self.last_inner_diagnostics = {
+                    "pre_ce": pre_loss,
+                    "pre_acc": pre_acc,
+                    "pre_entropy": pre_entropy,
+                    "post_ce": post_loss,
+                    "post_acc": post_acc,
+                    "post_entropy": post_entropy,
+                    "pre_logit_std": pre_logit_std,
+                    "pre_logit_absmax": pre_logit_absmax,
+                    "post_logit_std": float(logits.float().std().item()),
+                    "post_logit_absmax": float(logits.float().abs().max().item()),
+                    "batch_size": float(y.numel()),
+                    "unique_classes": float(y.unique().numel()),
+                    "majority_fraction": majority,
+                    "last_grad_norm": last_grad_norm,
+                    "parameter_norm": float(torch.stack(param_sq).sum().sqrt().item()),
+                    "update_norm": float(torch.stack(update_sq).sum().sqrt().item()),
+                    "lr": float(self.optimizer.param_groups[0]["lr"]),
+                    "inner_steps": float(k),
+                }
         return last_loss, last_acc
 
-    def mi_bound(self, z: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def mi_bound(
+        self,
+        z: torch.Tensor,
+        y: torch.Tensor,
+        *,
+        negative_labels: torch.Tensor | None = None,
+        update_diagnostics: bool = True,
+    ) -> torch.Tensor:
         """vCLUB-Sampled upper bound on I(z; y).
 
         Formula (Cheng 2020, Eq. 11 of arXiv:2006.12013):
@@ -193,20 +261,26 @@ class CLUBSampled(nn.Module):
             logits = self.classifier(z)                         # (B, num_classes)
             log_probs = F.log_softmax(logits, dim=-1)
             log_q_pos = log_probs.gather(1, y.unsqueeze(1)).squeeze(1)
-            perm = torch.randperm(y.shape[0], device=y.device)
-            y_neg = y[perm]
+            if negative_labels is None:
+                perm = torch.randperm(y.shape[0], device=y.device)
+                y_neg = y[perm]
+            else:
+                if negative_labels.shape != y.shape:
+                    raise ValueError("negative_labels must have the same shape as y")
+                y_neg = negative_labels
             log_q_neg = log_probs.gather(1, y_neg.unsqueeze(1)).squeeze(1)
             bound = (log_q_pos - log_q_neg).mean()
-            with torch.no_grad():
-                probs = logits.softmax(dim=-1)
-                entropy = -(probs * probs.clamp_min(1e-12).log()).sum(-1).mean()
-                self.last_diagnostics = {
-                    "positive_log_q": float(log_q_pos.mean()),
-                    "negative_log_q": float(log_q_neg.mean()),
-                    "negative_label_collision": float((y_neg == y).float().mean()),
-                    "prediction_entropy": float(entropy),
-                    "label_class_coverage": float(y.unique().numel() / max(1, self.num_classes)),
-                }
+            if update_diagnostics:
+                with torch.no_grad():
+                    probs = logits.softmax(dim=-1)
+                    entropy = -(probs * probs.clamp_min(1e-12).log()).sum(-1).mean()
+                    self.last_diagnostics = {
+                        "positive_log_q": float(log_q_pos.mean()),
+                        "negative_log_q": float(log_q_neg.mean()),
+                        "negative_label_collision": float((y_neg == y).float().mean()),
+                        "prediction_entropy": float(entropy),
+                        "label_class_coverage": float(y.unique().numel() / max(1, self.num_classes)),
+                    }
             return bound
         finally:
             for p, enabled in zip(params, old): p.requires_grad_(enabled)

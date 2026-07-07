@@ -1,0 +1,1595 @@
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=10000  α=0.8  β=0.6  grl=0.0  ρ=0.001
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=17,488,522  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.8  β=0.6  grl=0.0  ρ=0.001  grl_p=0.2  spear_ln=True
+[stage 2] steps=10000  schedule_steps=10000  batch=16  grad_clip=1.0
+[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + (1 - grl_p_per)  — in-training head proxies, NOT a probe; run diag_probe/ for the authoritative leakage signal.
+[stage 2] precision requested=auto resolved=bf16
+[dual_inv] WARN: ARCTIC empty at /scratch/bbg25/Final-Proj/Probing/data/CMU_ARCTIC (pair-alpha will rely on perturb only)
+[stage 2] dual-invariance ON: inv_L_w=1.0  inv_P_w=1.0  inv_var_w=0.1  gamma=1.0  interp_frames=200
+[stage 2] routing: n_routes=2  hard_gumbel=False  tau 1.0 -> 1.0
+[stage 2] VICReg-full ON: per-frame L2 inv (frame-aligned pairs only); cov_weight=0.2
+[stage 2] CLUB ON: weight=0.3  inner_steps=3  lr=0.001  hidden=512  in_dim=10240  num_speakers=251  pool=mean+std(z_L)  grad_norm_target=0.001
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step      1/10000  recon=0.3685  pr=17.6411  sid=5.5215  grl_p=17.6110(per=2.021)  inv_L=0.0255  inv_P=0.5353  var=1.3180  cov=0.0140  club=+0.5107  q_phi[ce=5.701,acc=0.000]  k[L/P]=2573/2547  Zσ10[L/P]=0.13/0.13  blw[L/P]=1.00/1.00  uN[L/P]=3.26±0.09/3.27±0.09  eR[L/P]=890/890  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2530/2590/0  actL/P/U=127/129/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4962  lr=2.00e-07
+  step    100/10000  recon=0.3335  pr=18.8981  sid=5.4805  grl_p=18.3349(per=1.000)  inv_L=0.0261  inv_P=0.5490  var=1.3161  cov=0.0152  club=+0.0167  q_phi[ce=5.391,acc=0.062]  k[L/P]=2591/2529  Zσ10[L/P]=0.13/0.13  blw[L/P]=1.00/1.00  uN[L/P]=3.49±0.32/3.42±0.30  eR[L/P]=887/885  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2529/2591/0  actL/P/U=128/128/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4967  lr=2.00e-05
+  [grad_norms @200]
+    recon             |g|=0.06722  ratio=1.000x recon
+    pr_raw            |g|=10.54788  ratio=156.915x recon
+    pr_weighted       |g|=8.43831  ratio=125.532x recon
+    sid_raw           |g|=0.53849  ratio=8.011x recon
+    sid_weighted      |g|=0.32310  ratio=4.807x recon
+    grl_p             |g|=0.17981  ratio=2.675x recon
+    club              |g|=1.66126  ratio=24.714x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00028   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.003
+      cos(recon_vs_sid          ) = -0.001
+      cos(recon_vs_grl_p        ) = -0.010
+      cos(recon_vs_club         ) = -0.005
+      cos(pr_vs_sid             ) = -0.020
+      cos(pr_vs_grl_p           ) = -0.267  conflict
+      cos(pr_vs_club            ) = -0.110  conflict
+      cos(sid_vs_grl_p          ) = +0.060  aligned
+      cos(sid_vs_club           ) = +0.001
+      cos(grl_p_vs_club         ) = +0.087  aligned
+    [mask_grad @200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.01104  mP=0.01104  tilt=+0.00
+      pr               mL=0.35011  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.01464  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00621  tilt=-1.00  -> P
+      club             mL=0.12570  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step    200/10000  recon=0.3395  pr=11.5651  sid=5.4961  grl_p=6.0913(per=1.000)  inv_L=0.0307  inv_P=0.5637  var=1.3101  cov=0.0241  club=+0.0739  q_phi[ce=5.572,acc=0.000]  k[L/P]=2562/2558  Zσ10[L/P]=0.09/0.09  blw[L/P]=1.00/1.00  uN[L/P]=4.18±0.25/4.03±0.23  eR[L/P]=870/866  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2556/2564/0  actL/P/U=138/118/0  H=0.693  Hu=0.640  spec<.5=0.05  marg=0.262  lstd=0.4983  lr=4.00e-05
+  step    300/10000  recon=0.3871  pr=4.0125  sid=5.3965  grl_p=3.6591(per=1.000)  inv_L=0.0484  inv_P=0.5666  var=1.2796  cov=0.0722  club=+0.4737  q_phi[ce=5.148,acc=0.000]  k[L/P]=2592/2528  Zσ10[L/P]=0.03/0.02  blw[L/P]=1.00/1.00  uN[L/P]=6.30±0.20/5.23±0.15  eR[L/P]=833/840  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2670/2450/0  actL/P/U=160/96/0  H=0.693  Hu=0.638  spec<.5=0.05  marg=0.267  lstd=0.5042  lr=6.00e-05
+  [grad_norms @400]
+    recon             |g|=0.03887  ratio=1.000x recon
+    pr_raw            |g|=0.93431  ratio=24.038x recon
+    pr_weighted       |g|=0.74744  ratio=19.230x recon
+    sid_raw           |g|=0.84879  ratio=21.838x recon
+    sid_weighted      |g|=0.50927  ratio=13.103x recon
+    grl_p             |g|=0.02815  ratio=0.724x recon
+    club              |g|=1.93026  ratio=49.662x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00003   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.013
+      cos(recon_vs_sid          ) = +0.040
+      cos(recon_vs_grl_p        ) = -0.004
+      cos(recon_vs_club         ) = -0.016
+      cos(pr_vs_sid             ) = -0.011
+      cos(pr_vs_grl_p           ) = -0.172  conflict
+      cos(pr_vs_club            ) = -0.055  conflict
+      cos(sid_vs_grl_p          ) = +0.051  aligned
+      cos(sid_vs_club           ) = -0.016
+      cos(grl_p_vs_club         ) = +0.047
+    [mask_grad @400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00631  mP=0.00631  tilt=+0.00
+      pr               mL=0.05010  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.04117  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00121  tilt=-1.00  -> P
+      club             mL=0.16116  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step    400/10000  recon=0.2213  pr=3.0179  sid=5.1367  grl_p=3.5435(per=1.000)  inv_L=0.0557  inv_P=0.5667  var=1.2990  cov=0.1267  club=+0.0257  q_phi[ce=5.463,acc=0.062]  k[L/P]=2551/2569  Zσ10[L/P]=0.01/0.01  blw[L/P]=1.00/1.00  uN[L/P]=7.85±0.59/6.07±0.46  eR[L/P]=802/820  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2669/2451/0  actL/P/U=172/84/0  H=0.693  Hu=0.635  spec<.5=0.06  marg=0.274  lstd=0.5117  lr=8.00e-05
+  step    500/10000  recon=0.1644  pr=1.8060  sid=5.1592  grl_p=2.7898(per=0.986)  inv_L=0.0597  inv_P=0.5945  var=1.2752  cov=0.1724  club=-0.0002  q_phi[ce=5.580,acc=0.000]  k[L/P]=2587/2533  Zσ10[L/P]=0.02/0.02  blw[L/P]=1.00/1.00  uN[L/P]=8.13±0.43/6.14±0.32  eR[L/P]=795/809  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2656/2464/0  actL/P/U=173/83/0  H=0.693  Hu=0.633  spec<.5=0.07  marg=0.280  lstd=0.5185  lr=1.00e-04
+  [grad_norms @600]
+    recon             |g|=0.03096  ratio=1.000x recon
+    pr_raw            |g|=0.40638  ratio=13.128x recon
+    pr_weighted       |g|=0.32511  ratio=10.502x recon
+    sid_raw           |g|=1.46812  ratio=47.427x recon
+    sid_weighted      |g|=0.88087  ratio=28.456x recon
+    grl_p             |g|=0.02966  ratio=0.958x recon
+    club              |g|=2.35659  ratio=76.129x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00009   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.020
+      cos(recon_vs_sid          ) = +0.080  aligned
+      cos(recon_vs_grl_p        ) = -0.026
+      cos(recon_vs_club         ) = -0.033
+      cos(pr_vs_sid             ) = -0.015
+      cos(pr_vs_grl_p           ) = -0.225  conflict
+      cos(pr_vs_club            ) = -0.061  conflict
+      cos(sid_vs_grl_p          ) = -0.054  conflict
+      cos(sid_vs_club           ) = +0.005
+      cos(grl_p_vs_club         ) = -0.054  conflict
+    [mask_grad @600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00166  mP=0.00166  tilt=+0.00
+      pr               mL=0.04366  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.07066  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00279  tilt=-1.00  -> P
+      club             mL=0.21078  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step    600/10000  recon=0.1367  pr=1.2273  sid=4.8359  grl_p=1.4752(per=0.692)  inv_L=0.0563  inv_P=0.5872  var=1.2634  cov=0.1733  club=-0.0022  q_phi[ce=5.537,acc=0.000]  k[L/P]=2549/2571  Zσ10[L/P]=0.03/0.03  blw[L/P]=1.00/1.00  uN[L/P]=8.34±0.38/6.24±0.30  eR[L/P]=793/805  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2626/2494/0  actL/P/U=174/82/0  H=0.693  Hu=0.630  spec<.5=0.07  marg=0.286  lstd=0.5256  lr=1.00e-04
+  step    700/10000  recon=0.1240  pr=1.0066  sid=3.9785  grl_p=1.0549(per=0.447)  inv_L=0.0601  inv_P=0.5748  var=1.2512  cov=0.1724  club=+0.0200  q_phi[ce=5.479,acc=0.000]  k[L/P]=2566/2554  Zσ10[L/P]=0.03/0.03  blw[L/P]=1.00/1.00  uN[L/P]=8.55±0.47/6.22±0.28  eR[L/P]=791/806  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2608/2512/0  actL/P/U=171/85/0  H=0.693  Hu=0.627  spec<.5=0.08  marg=0.293  lstd=0.5345  lr=9.99e-05
+  [grad_norms @800]
+    recon             |g|=0.03084  ratio=1.000x recon
+    pr_raw            |g|=0.43623  ratio=14.144x recon
+    pr_weighted       |g|=0.34898  ratio=11.315x recon
+    sid_raw           |g|=1.80507  ratio=58.526x recon
+    sid_weighted      |g|=1.08304  ratio=35.116x recon
+    grl_p             |g|=0.04306  ratio=1.396x recon
+    club              |g|=2.05126  ratio=66.509x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00011   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.017
+      cos(recon_vs_sid          ) = +0.072  aligned
+      cos(recon_vs_grl_p        ) = -0.021
+      cos(recon_vs_club         ) = -0.020
+      cos(pr_vs_sid             ) = -0.005
+      cos(pr_vs_grl_p           ) = -0.153  conflict
+      cos(pr_vs_club            ) = -0.024
+      cos(sid_vs_grl_p          ) = -0.017
+      cos(sid_vs_club           ) = -0.033
+      cos(grl_p_vs_club         ) = -0.005
+    [mask_grad @800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00072  mP=0.00072  tilt=+0.00
+      pr               mL=0.03709  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.10232  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00279  tilt=-1.00  -> P
+      club             mL=0.32845  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step    800/10000  recon=0.1188  pr=0.9285  sid=3.9043  grl_p=0.8544(per=0.301)  inv_L=0.0558  inv_P=0.5565  var=1.2759  cov=0.2405  club=+0.3528  q_phi[ce=5.436,acc=0.000]  k[L/P]=2564/2556  Zσ10[L/P]=0.03/0.03  blw[L/P]=0.99/0.99  uN[L/P]=9.42±0.78/7.49±0.56  eR[L/P]=771/780  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2578/2542/0  actL/P/U=166/90/0  H=0.693  Hu=0.623  spec<.5=0.10  marg=0.301  lstd=0.5467  lr=9.98e-05
+  step    900/10000  recon=0.1203  pr=0.9199  sid=3.6890  grl_p=0.8193(per=0.270)  inv_L=0.0584  inv_P=0.5358  var=1.2992  cov=0.3419  club=+0.5110  q_phi[ce=5.434,acc=0.000]  k[L/P]=2542/2578  Zσ10[L/P]=0.04/0.04  blw[L/P]=0.98/0.99  uN[L/P]=10.62±0.87/9.48±0.66  eR[L/P]=744/747  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2548/2572/0  actL/P/U=163/93/0  H=0.693  Hu=0.619  spec<.5=0.11  marg=0.310  lstd=0.5595  lr=9.96e-05
+  [grad_norms @1000]
+    recon             |g|=0.04267  ratio=1.000x recon
+    pr_raw            |g|=0.42609  ratio=9.986x recon
+    pr_weighted       |g|=0.34087  ratio=7.989x recon
+    sid_raw           |g|=2.65147  ratio=62.140x recon
+    sid_weighted      |g|=1.59088  ratio=37.284x recon
+    grl_p             |g|=0.05686  ratio=1.333x recon
+    club              |g|=2.17670  ratio=51.013x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00014   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @1000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.021
+      cos(recon_vs_sid          ) = +0.077  aligned
+      cos(recon_vs_grl_p        ) = -0.007
+      cos(recon_vs_club         ) = +0.005
+      cos(pr_vs_sid             ) = +0.002
+      cos(pr_vs_grl_p           ) = -0.252  conflict
+      cos(pr_vs_club            ) = +0.011
+      cos(sid_vs_grl_p          ) = +0.004
+      cos(sid_vs_club           ) = +0.005
+      cos(grl_p_vs_club         ) = -0.010
+    [mask_grad @1000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00094  mP=0.00094  tilt=+0.00
+      pr               mL=0.04136  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.21592  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00417  tilt=-1.00  -> P
+      club             mL=0.50836  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   1000/10000  recon=0.1237  pr=0.8286  sid=2.9624  grl_p=0.7215(per=0.175)  inv_L=0.0636  inv_P=0.5057  var=1.3023  cov=0.4523  club=+1.0233  q_phi[ce=5.223,acc=0.000]  k[L/P]=2555/2565  Zσ10[L/P]=0.04/0.04  blw[L/P]=0.97/0.99  uN[L/P]=12.27±0.87/11.60±0.69  eR[L/P]=721/724  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2551/2569/0  actL/P/U=154/102/0  H=0.693  Hu=0.615  spec<.5=0.12  marg=0.318  lstd=0.5717  lr=9.93e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=1000  recon=0.1236  pr=0.8431  | z_L PR=0.284  | z_P PR=0.211 SID=0.752
+  ✓ best checkpoint (disent=1.3233  PER=0.284 sid=0.752 grl_acc=0.002 grl_p_per=0.211) → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt
+  step   1100/10000  recon=0.1253  pr=0.7937  sid=2.1732  grl_p=0.6932(per=0.198)  inv_L=0.0757  inv_P=0.5035  var=1.2705  cov=0.6370  club=+1.4916  q_phi[ce=4.566,acc=0.062]  k[L/P]=2536/2584  Zσ10[L/P]=0.04/0.04  blw[L/P]=0.97/0.98  uN[L/P]=13.16±0.93/13.42±0.76  eR[L/P]=721/723  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2576/2544/0  actL/P/U=147/109/0  H=0.693  Hu=0.610  spec<.5=0.13  marg=0.328  lstd=0.5865  lr=9.90e-05
+  [grad_norms @1200]
+    recon             |g|=0.04983  ratio=1.000x recon
+    pr_raw            |g|=0.50679  ratio=10.170x recon
+    pr_weighted       |g|=0.40543  ratio=8.136x recon
+    sid_raw           |g|=3.35175  ratio=67.259x recon
+    sid_weighted      |g|=2.01105  ratio=40.355x recon
+    grl_p             |g|=0.07614  ratio=1.528x recon
+    club              |g|=1.39485  ratio=27.990x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00015   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @1200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.023
+      cos(recon_vs_sid          ) = +0.040
+      cos(recon_vs_grl_p        ) = -0.006
+      cos(recon_vs_club         ) = -0.000
+      cos(pr_vs_sid             ) = +0.012
+      cos(pr_vs_grl_p           ) = -0.173  conflict
+      cos(pr_vs_club            ) = +0.032
+      cos(sid_vs_grl_p          ) = +0.008
+      cos(sid_vs_club           ) = -0.047
+      cos(grl_p_vs_club         ) = -0.006
+    [mask_grad @1200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00129  mP=0.00129  tilt=+0.00
+      pr               mL=0.03240  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.29131  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00649  tilt=-1.00  -> P
+      club             mL=0.44505  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   1200/10000  recon=0.1265  pr=0.6751  sid=2.2676  grl_p=0.6017(per=0.193)  inv_L=0.0821  inv_P=0.4752  var=1.2413  cov=0.7336  club=+2.5626  q_phi[ce=4.250,acc=0.125]  k[L/P]=2503/2617  Zσ10[L/P]=0.03/0.03  blw[L/P]=0.96/0.97  uN[L/P]=15.17±1.52/15.39±1.27  eR[L/P]=720/721  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2534/2586/0  actL/P/U=149/107/0  H=0.693  Hu=0.603  spec<.5=0.15  marg=0.341  lstd=0.6051  lr=9.87e-05
+  step   1300/10000  recon=0.1247  pr=0.6210  sid=1.2703  grl_p=0.6066(per=0.177)  inv_L=0.1015  inv_P=0.4751  var=1.2050  cov=0.9424  club=+3.4302  q_phi[ce=4.047,acc=0.062]  k[L/P]=2522/2598  Zσ10[L/P]=0.02/0.01  blw[L/P]=0.94/0.96  uN[L/P]=18.50±1.31/13.43±0.92  eR[L/P]=716/741  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2482/2638/0  actL/P/U=148/108/0  H=0.693  Hu=0.597  spec<.5=0.17  marg=0.355  lstd=0.6230  lr=9.83e-05
+  [grad_norms @1400]
+    recon             |g|=0.05623  ratio=1.000x recon
+    pr_raw            |g|=0.56148  ratio=9.985x recon
+    pr_weighted       |g|=0.44918  ratio=7.988x recon
+    sid_raw           |g|=2.68249  ratio=47.703x recon
+    sid_weighted      |g|=1.60949  ratio=28.622x recon
+    grl_p             |g|=0.11270  ratio=2.004x recon
+    club              |g|=1.51961  ratio=27.023x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00014   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @1400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.009
+      cos(recon_vs_sid          ) = +0.038
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(recon_vs_club         ) = -0.006
+      cos(pr_vs_sid             ) = +0.006
+      cos(pr_vs_grl_p           ) = -0.103  conflict
+      cos(pr_vs_club            ) = +0.005
+      cos(sid_vs_grl_p          ) = +0.020
+      cos(sid_vs_club           ) = -0.000
+      cos(grl_p_vs_club         ) = +0.005
+    [mask_grad @1400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00108  mP=0.00108  tilt=+0.00
+      pr               mL=0.04119  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.24358  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.00861  tilt=-1.00  -> P
+      club             mL=0.46483  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   1400/10000  recon=0.1241  pr=0.6797  sid=1.0966  grl_p=0.6111(per=0.148)  inv_L=0.1015  inv_P=0.4463  var=1.1970  cov=1.0212  club=+4.5851  q_phi[ce=3.396,acc=0.188]  k[L/P]=2477/2643  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.92/0.95  uN[L/P]=19.30±1.88/19.36±1.46  eR[L/P]=709/723  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2397/2723/0  actL/P/U=147/109/0  H=0.692  Hu=0.590  spec<.5=0.19  marg=0.369  lstd=0.6418  lr=9.78e-05
+  step   1500/10000  recon=0.1219  pr=0.6643  sid=0.8855  grl_p=0.6113(per=0.149)  inv_L=0.1264  inv_P=0.4657  var=1.2152  cov=1.3019  club=+4.4576  q_phi[ce=3.165,acc=0.312]  k[L/P]=2435/2685  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.90/0.93  uN[L/P]=22.66±1.67/23.41±1.61  eR[L/P]=677/705  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2331/2789/0  actL/P/U=147/109/0  H=0.691  Hu=0.582  spec<.5=0.21  marg=0.383  lstd=0.6610  lr=9.73e-05
+  [grad_norms @1600]
+    recon             |g|=0.08059  ratio=1.000x recon
+    pr_raw            |g|=0.46556  ratio=5.777x recon
+    pr_weighted       |g|=0.37245  ratio=4.622x recon
+    sid_raw           |g|=2.93641  ratio=36.438x recon
+    sid_weighted      |g|=1.76184  ratio=21.863x recon
+    grl_p             |g|=0.11855  ratio=1.471x recon
+    club              |g|=2.36649  ratio=29.366x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00012   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @1600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.000
+      cos(recon_vs_sid          ) = +0.034
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(recon_vs_club         ) = -0.009
+      cos(pr_vs_sid             ) = -0.008
+      cos(pr_vs_grl_p           ) = -0.021
+      cos(pr_vs_club            ) = +0.049
+      cos(sid_vs_grl_p          ) = -0.016
+      cos(sid_vs_club           ) = -0.026
+      cos(grl_p_vs_club         ) = +0.023
+    [mask_grad @1600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00100  mP=0.00100  tilt=+0.00
+      pr               mL=0.04036  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.29577  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.01066  tilt=-1.00  -> P
+      club             mL=0.73277  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   1600/10000  recon=0.1299  pr=0.6502  sid=0.6473  grl_p=0.6442(per=0.181)  inv_L=0.1553  inv_P=0.3962  var=1.2119  cov=1.3229  club=+9.0298  q_phi[ce=3.162,acc=0.188]  k[L/P]=2327/2793  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.88/0.92  uN[L/P]=25.15±1.11/26.99±0.94  eR[L/P]=671/706  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2287/2833/0  actL/P/U=147/109/0  H=0.690  Hu=0.574  spec<.5=0.24  marg=0.398  lstd=0.6819  lr=9.68e-05
+  step   1700/10000  recon=0.1305  pr=0.5602  sid=0.4397  grl_p=0.5472(per=0.146)  inv_L=0.2041  inv_P=0.4204  var=1.2227  cov=1.5898  club=+7.3856  q_phi[ce=3.084,acc=0.188]  k[L/P]=2379/2741  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.87/0.91  uN[L/P]=31.14±0.87/28.58±0.82  eR[L/P]=652/697  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2239/2881/0  actL/P/U=148/108/0  H=0.689  Hu=0.566  spec<.5=0.26  marg=0.413  lstd=0.7040  lr=9.62e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [grad_norms @1800]
+    recon             |g|=0.11353  ratio=1.000x recon
+    pr_raw            |g|=0.72114  ratio=6.352x recon
+    pr_weighted       |g|=0.57691  ratio=5.082x recon
+    sid_raw           |g|=1.54657  ratio=13.623x recon
+    sid_weighted      |g|=0.92794  ratio=8.174x recon
+    grl_p             |g|=0.15305  ratio=1.348x recon
+    club              |g|=2.46497  ratio=21.712x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00012   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @1800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.015
+      cos(recon_vs_sid          ) = +0.035
+      cos(recon_vs_grl_p        ) = -0.011
+      cos(recon_vs_club         ) = +0.007
+      cos(pr_vs_sid             ) = -0.007
+      cos(pr_vs_grl_p           ) = -0.015
+      cos(pr_vs_club            ) = -0.088  conflict
+      cos(sid_vs_grl_p          ) = +0.003
+      cos(sid_vs_club           ) = -0.031
+      cos(grl_p_vs_club         ) = -0.013
+    [mask_grad @1800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00135  mP=0.00135  tilt=+0.00
+      pr               mL=0.06455  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.21966  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.01826  tilt=-1.00  -> P
+      club             mL=1.04360  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   1800/10000  recon=0.1356  pr=0.6532  sid=0.3358  grl_p=0.6754(per=0.152)  inv_L=0.2260  inv_P=0.3983  var=1.2470  cov=1.8086  club=+6.1236  q_phi[ce=4.836,acc=0.000]  k[L/P]=2273/2847  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.86/0.90  uN[L/P]=36.19±1.96/34.48±1.64  eR[L/P]=619/681  mix[arc/pert]=0.00/1.00  dead=0.4%  L/P/U=2214/2906/0  actL/P/U=152/104/0  H=0.688  Hu=0.559  spec<.5=0.28  marg=0.426  lstd=0.7249  lr=9.55e-05
+  step   1900/10000  recon=0.1425  pr=0.6037  sid=0.3186  grl_p=0.6486(per=0.179)  inv_L=0.2937  inv_P=0.4431  var=1.2481  cov=2.2630  club=+5.9796  q_phi[ce=3.136,acc=0.188]  k[L/P]=2293/2827  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.84/0.91  uN[L/P]=43.40±3.20/39.45±2.34  eR[L/P]=605/662  mix[arc/pert]=0.00/1.00  dead=0.7%  L/P/U=2186/2934/0  actL/P/U=155/101/0  H=0.687  Hu=0.552  spec<.5=0.30  marg=0.437  lstd=0.7439  lr=9.48e-05
+  [grad_norms @2000]
+    recon             |g|=0.21209  ratio=1.000x recon
+    pr_raw            |g|=0.40791  ratio=1.923x recon
+    pr_weighted       |g|=0.32632  ratio=1.539x recon
+    sid_raw           |g|=2.13032  ratio=10.045x recon
+    sid_weighted      |g|=1.27819  ratio=6.027x recon
+    grl_p             |g|=0.19134  ratio=0.902x recon
+    club              |g|=3.83650  ratio=18.089x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00012   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @2000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.016
+      cos(recon_vs_sid          ) = +0.009
+      cos(recon_vs_grl_p        ) = -0.019
+      cos(recon_vs_club         ) = -0.031
+      cos(pr_vs_sid             ) = +0.001
+      cos(pr_vs_grl_p           ) = +0.026
+      cos(pr_vs_club            ) = -0.067  conflict
+      cos(sid_vs_grl_p          ) = -0.014
+      cos(sid_vs_club           ) = -0.039
+      cos(grl_p_vs_club         ) = -0.030
+    [mask_grad @2000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00170  mP=0.00170  tilt=+0.00
+      pr               mL=0.05215  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.35342  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.02872  tilt=-1.00  -> P
+      club             mL=1.25702  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   2000/10000  recon=0.1455  pr=0.6827  sid=0.5460  grl_p=0.7393(per=0.189)  inv_L=0.3730  inv_P=0.4667  var=1.2618  cov=2.2483  club=+4.2426  q_phi[ce=3.700,acc=0.250]  k[L/P]=2207/2913  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.85/0.89  uN[L/P]=49.43±0.91/42.49±1.20  eR[L/P]=579/654  mix[arc/pert]=0.00/1.00  dead=0.9%  L/P/U=2158/2962/0  actL/P/U=156/100/0  H=0.686  Hu=0.546  spec<.5=0.32  marg=0.446  lstd=0.7610  lr=9.40e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=2000  recon=0.1457  pr=0.5520  | z_L PR=0.150  | z_P PR=0.131 SID=0.986
+  ✓ best checkpoint (disent=1.0370  PER=0.150 sid=0.986 grl_acc=0.004 grl_p_per=0.131) → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt
+  step   2100/10000  recon=0.1491  pr=0.6065  sid=0.2927  grl_p=0.6925(per=0.165)  inv_L=0.3799  inv_P=0.4434  var=1.2559  cov=2.6203  club=+8.3547  q_phi[ce=4.474,acc=0.000]  k[L/P]=2283/2837  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.84/0.89  uN[L/P]=55.00±1.91/47.60±1.46  eR[L/P]=576/638  mix[arc/pert]=0.00/1.00  dead=1.3%  L/P/U=2129/2991/0  actL/P/U=159/97/0  H=0.684  Hu=0.540  spec<.5=0.33  marg=0.455  lstd=0.7777  lr=9.32e-05
+  [grad_norms @2200]
+    recon             |g|=0.22423  ratio=1.000x recon
+    pr_raw            |g|=0.41097  ratio=1.833x recon
+    pr_weighted       |g|=0.32877  ratio=1.466x recon
+    sid_raw           |g|=2.88968  ratio=12.887x recon
+    sid_weighted      |g|=1.73381  ratio=7.732x recon
+    grl_p             |g|=0.14097  ratio=0.629x recon
+    club              |g|=3.19190  ratio=14.235x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00011   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @2200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.020
+      cos(recon_vs_sid          ) = +0.026
+      cos(recon_vs_grl_p        ) = +0.002
+      cos(recon_vs_club         ) = -0.000
+      cos(pr_vs_sid             ) = -0.004
+      cos(pr_vs_grl_p           ) = +0.007
+      cos(pr_vs_club            ) = +0.014
+      cos(sid_vs_grl_p          ) = -0.038
+      cos(sid_vs_club           ) = +0.019
+      cos(grl_p_vs_club         ) = +0.014
+    [mask_grad @2200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00261  mP=0.00261  tilt=+0.00
+      pr               mL=0.06607  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.46131  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.02088  tilt=-1.00  -> P
+      club             mL=0.94160  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   2200/10000  recon=0.1499  pr=0.5563  sid=0.5008  grl_p=0.6467(per=0.149)  inv_L=0.4448  inv_P=0.4214  var=1.2260  cov=3.3166  club=+6.8459  q_phi[ce=3.344,acc=0.125]  k[L/P]=2176/2944  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.82/0.89  uN[L/P]=58.53±2.00/51.98±1.44  eR[L/P]=569/647  mix[arc/pert]=0.00/1.00  dead=1.7%  L/P/U=2118/3002/0  actL/P/U=163/93/0  H=0.683  Hu=0.534  spec<.5=0.35  marg=0.463  lstd=0.7932  lr=9.24e-05
+  step   2300/10000  recon=0.1542  pr=0.7066  sid=0.2395  grl_p=0.9271(per=0.303)  inv_L=0.4924  inv_P=0.4645  var=1.2451  cov=3.7064  club=+3.6489  q_phi[ce=4.354,acc=0.000]  k[L/P]=2171/2949  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.82/0.89  uN[L/P]=61.77±2.04/58.17±1.88  eR[L/P]=562/616  mix[arc/pert]=0.00/1.00  dead=1.9%  L/P/U=2092/3028/0  actL/P/U=166/90/0  H=0.682  Hu=0.529  spec<.5=0.36  marg=0.471  lstd=0.8084  lr=9.15e-05
+  [grad_norms @2400]
+    recon             |g|=0.24159  ratio=1.000x recon
+    pr_raw            |g|=0.63399  ratio=2.624x recon
+    pr_weighted       |g|=0.50719  ratio=2.099x recon
+    sid_raw           |g|=3.77265  ratio=15.616x recon
+    sid_weighted      |g|=2.26359  ratio=9.370x recon
+    grl_p             |g|=0.22709  ratio=0.940x recon
+    club              |g|=1.91641  ratio=7.933x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00013   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @2400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.005
+      cos(recon_vs_sid          ) = +0.003
+      cos(recon_vs_grl_p        ) = -0.010
+      cos(recon_vs_club         ) = -0.004
+      cos(pr_vs_sid             ) = -0.000
+      cos(pr_vs_grl_p           ) = +0.095  aligned
+      cos(pr_vs_club            ) = -0.037
+      cos(sid_vs_grl_p          ) = -0.008
+      cos(sid_vs_club           ) = -0.018
+      cos(grl_p_vs_club         ) = -0.001
+    [mask_grad @2400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00247  mP=0.00247  tilt=+0.00
+      pr               mL=0.12805  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.57279  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.04539  tilt=-1.00  -> P
+      club             mL=1.54119  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   2400/10000  recon=0.1573  pr=0.7154  sid=0.4086  grl_p=0.8671(per=0.227)  inv_L=0.6160  inv_P=0.3901  var=1.2300  cov=3.8963  club=+6.3663  q_phi[ce=2.812,acc=0.250]  k[L/P]=2156/2964  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.81/0.87  uN[L/P]=68.92±2.35/61.63±1.95  eR[L/P]=553/621  mix[arc/pert]=0.00/1.00  dead=2.2%  L/P/U=2078/3042/0  actL/P/U=162/94/0  H=0.681  Hu=0.525  spec<.5=0.37  marg=0.477  lstd=0.8209  lr=9.05e-05
+  step   2500/10000  recon=0.1636  pr=0.6135  sid=0.5160  grl_p=0.7057(per=0.185)  inv_L=0.6393  inv_P=0.4097  var=1.2294  cov=5.1843  club=+5.0692  q_phi[ce=3.186,acc=0.250]  k[L/P]=2136/2984  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.81/0.85  uN[L/P]=72.93±1.76/68.53±2.01  eR[L/P]=552/607  mix[arc/pert]=0.00/1.00  dead=2.5%  L/P/U=2063/3057/0  actL/P/U=154/102/0  H=0.680  Hu=0.520  spec<.5=0.38  marg=0.484  lstd=0.8333  lr=8.96e-05
+  [grad_norms @2600]
+    recon             |g|=0.37421  ratio=1.000x recon
+    pr_raw            |g|=1.24571  ratio=3.329x recon
+    pr_weighted       |g|=0.99657  ratio=2.663x recon
+    sid_raw           |g|=2.22853  ratio=5.955x recon
+    sid_weighted      |g|=1.33712  ratio=3.573x recon
+    grl_p             |g|=0.40834  ratio=1.091x recon
+    club              |g|=5.41427  ratio=14.468x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00015   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @2600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.034
+      cos(recon_vs_sid          ) = +0.038
+      cos(recon_vs_grl_p        ) = +0.011
+      cos(recon_vs_club         ) = +0.012
+      cos(pr_vs_sid             ) = +0.007
+      cos(pr_vs_grl_p           ) = +0.160  aligned
+      cos(pr_vs_club            ) = -0.175  conflict
+      cos(sid_vs_grl_p          ) = +0.017
+      cos(sid_vs_club           ) = +0.047
+      cos(grl_p_vs_club         ) = -0.045
+    [mask_grad @2600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00364  mP=0.00364  tilt=+0.00
+      pr               mL=0.16020  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.53897  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.07947  tilt=-1.00  -> P
+      club             mL=1.50689  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   2600/10000  recon=0.1650  pr=0.7154  sid=0.4803  grl_p=0.8149(per=0.180)  inv_L=0.7518  inv_P=0.3822  var=1.2222  cov=6.4982  club=+4.8982  q_phi[ce=4.237,acc=0.062]  k[L/P]=2161/2959  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.80/0.84  uN[L/P]=82.35±2.94/69.34±2.43  eR[L/P]=544/617  mix[arc/pert]=0.00/1.00  dead=2.5%  L/P/U=2033/3087/0  actL/P/U=153/103/0  H=0.679  Hu=0.516  spec<.5=0.39  marg=0.489  lstd=0.8452  lr=8.85e-05
+  step   2700/10000  recon=0.1680  pr=0.5995  sid=0.2179  grl_p=0.7368(per=0.204)  inv_L=0.8993  inv_P=0.4230  var=1.2047  cov=7.4175  club=+7.1324  q_phi[ce=3.545,acc=0.125]  k[L/P]=2098/3022  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.78/0.84  uN[L/P]=85.38±2.22/71.82±2.15  eR[L/P]=548/622  mix[arc/pert]=0.00/1.00  dead=3.0%  L/P/U=2018/3102/0  actL/P/U=157/99/0  H=0.677  Hu=0.512  spec<.5=0.40  marg=0.494  lstd=0.8558  lr=8.75e-05
+  [grad_norms @2800]
+    recon             |g|=0.39458  ratio=1.000x recon
+    pr_raw            |g|=1.29254  ratio=3.276x recon
+    pr_weighted       |g|=1.03403  ratio=2.621x recon
+    sid_raw           |g|=3.26175  ratio=8.266x recon
+    sid_weighted      |g|=1.95705  ratio=4.960x recon
+    grl_p             |g|=0.33310  ratio=0.844x recon
+    club              |g|=5.00976  ratio=12.696x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00011   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @2800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.001
+      cos(recon_vs_sid          ) = -0.028
+      cos(recon_vs_grl_p        ) = -0.031
+      cos(recon_vs_club         ) = -0.017
+      cos(pr_vs_sid             ) = +0.002
+      cos(pr_vs_grl_p           ) = +0.187  aligned
+      cos(pr_vs_club            ) = +0.133  aligned
+      cos(sid_vs_grl_p          ) = -0.019
+      cos(sid_vs_club           ) = -0.022
+      cos(grl_p_vs_club         ) = +0.052  aligned
+    [mask_grad @2800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00443  mP=0.00443  tilt=+0.00
+      pr               mL=0.23696  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.78336  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.04756  tilt=-1.00  -> P
+      club             mL=1.77147  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   2800/10000  recon=0.1691  pr=0.6382  sid=0.2791  grl_p=0.7505(per=0.207)  inv_L=1.0394  inv_P=0.4012  var=1.2050  cov=8.8723  club=+7.3003  q_phi[ce=2.366,acc=0.625]  k[L/P]=2030/3090  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.77/0.84  uN[L/P]=87.98±1.63/77.79±1.38  eR[L/P]=539/616  mix[arc/pert]=0.00/1.00  dead=4.0%  L/P/U=1994/3126/0  actL/P/U=158/98/0  H=0.676  Hu=0.508  spec<.5=0.40  marg=0.500  lstd=0.8668  lr=8.64e-05
+  step   2900/10000  recon=0.1754  pr=0.7338  sid=0.3010  grl_p=0.8234(per=0.213)  inv_L=0.9787  inv_P=0.4390  var=1.1925  cov=10.6838  club=+5.6054  q_phi[ce=2.829,acc=0.188]  k[L/P]=2094/3026  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.79/0.82  uN[L/P]=90.90±2.64/83.50±2.20  eR[L/P]=536/611  mix[arc/pert]=0.00/1.00  dead=4.7%  L/P/U=1980/3140/0  actL/P/U=157/99/0  H=0.675  Hu=0.504  spec<.5=0.41  marg=0.506  lstd=0.8777  lr=8.52e-05
+  [grad_norms @3000]
+    recon             |g|=0.40032  ratio=1.000x recon
+    pr_raw            |g|=1.45741  ratio=3.641x recon
+    pr_weighted       |g|=1.16593  ratio=2.912x recon
+    sid_raw           |g|=5.61469  ratio=14.025x recon
+    sid_weighted      |g|=3.36882  ratio=8.415x recon
+    grl_p             |g|=0.47701  ratio=1.192x recon
+    club              |g|=4.05364  ratio=10.126x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00014   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @3000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.013
+      cos(recon_vs_sid          ) = -0.018
+      cos(recon_vs_grl_p        ) = -0.009
+      cos(recon_vs_club         ) = -0.027
+      cos(pr_vs_sid             ) = +0.016
+      cos(pr_vs_grl_p           ) = +0.197  aligned
+      cos(pr_vs_club            ) = +0.058  aligned
+      cos(sid_vs_grl_p          ) = +0.009
+      cos(sid_vs_club           ) = +0.015
+      cos(grl_p_vs_club         ) = +0.000
+    [mask_grad @3000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00424  mP=0.00424  tilt=+0.00
+      pr               mL=0.39174  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.22176  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.10826  tilt=-1.00  -> P
+      club             mL=1.41593  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   3000/10000  recon=0.1747  pr=0.6335  sid=0.5250  grl_p=0.8051(per=0.213)  inv_L=1.1822  inv_P=0.4128  var=1.2249  cov=11.4160  club=+5.3436  q_phi[ce=4.074,acc=0.188]  k[L/P]=2070/3050  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.79/0.82  uN[L/P]=96.55±1.69/88.10±2.07  eR[L/P]=522/605  mix[arc/pert]=0.00/1.00  dead=5.8%  L/P/U=1960/3160/0  actL/P/U=157/99/0  H=0.674  Hu=0.501  spec<.5=0.42  marg=0.511  lstd=0.8881  lr=8.40e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=3000  recon=0.1763  pr=0.5629  | z_L PR=0.151  | z_P PR=0.155 SID=0.984
+  ✓ best checkpoint (disent=1.0144  PER=0.151 sid=0.984 grl_acc=0.002 grl_p_per=0.155) → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt
+  step   3100/10000  recon=0.1749  pr=0.6618  sid=0.7952  grl_p=0.7891(per=0.196)  inv_L=1.4628  inv_P=0.3885  var=1.2292  cov=14.7206  club=+2.8378  q_phi[ce=4.161,acc=0.000]  k[L/P]=2006/3114  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.77/0.82  uN[L/P]=103.00±2.98/94.59±2.94  eR[L/P]=518/602  mix[arc/pert]=0.00/1.00  dead=7.0%  L/P/U=1931/3189/0  actL/P/U=153/103/0  H=0.672  Hu=0.497  spec<.5=0.43  marg=0.516  lstd=0.8985  lr=8.28e-05
+  [grad_norms @3200]
+    recon             |g|=0.62357  ratio=1.000x recon
+    pr_raw            |g|=2.97690  ratio=4.774x recon
+    pr_weighted       |g|=2.38152  ratio=3.819x recon
+    sid_raw           |g|=0.66033  ratio=1.059x recon
+    sid_weighted      |g|=0.39620  ratio=0.635x recon
+    grl_p             |g|=0.71768  ratio=1.151x recon
+    club              |g|=5.67428  ratio=9.100x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00013   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @3200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.062  aligned
+      cos(recon_vs_sid          ) = +0.014
+      cos(recon_vs_grl_p        ) = -0.015
+      cos(recon_vs_club         ) = +0.012
+      cos(pr_vs_sid             ) = -0.007
+      cos(pr_vs_grl_p           ) = +0.215  aligned
+      cos(pr_vs_club            ) = +0.106  aligned
+      cos(sid_vs_grl_p          ) = +0.008
+      cos(sid_vs_club           ) = -0.003
+      cos(grl_p_vs_club         ) = +0.055  aligned
+    [mask_grad @3200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00475  mP=0.00475  tilt=+0.00
+      pr               mL=0.72522  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.17041  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.10640  tilt=-1.00  -> P
+      club             mL=1.74341  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   3200/10000  recon=0.1787  pr=0.5755  sid=0.0819  grl_p=0.7279(per=0.180)  inv_L=1.4959  inv_P=0.3739  var=1.1967  cov=18.9520  club=+4.6269  q_phi[ce=3.208,acc=0.062]  k[L/P]=2036/3084  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.76/0.79  uN[L/P]=102.00±2.86/99.95±2.96  eR[L/P]=534/604  mix[arc/pert]=0.00/1.00  dead=8.1%  L/P/U=1903/3217/0  actL/P/U=150/106/0  H=0.671  Hu=0.493  spec<.5=0.44  marg=0.521  lstd=0.9087  lr=8.15e-05
+  step   3300/10000  recon=0.1758  pr=0.6707  sid=0.2473  grl_p=0.9235(per=0.256)  inv_L=1.6662  inv_P=0.4259  var=1.2106  cov=19.1211  club=+4.6915  q_phi[ce=4.344,acc=0.062]  k[L/P]=1993/3127  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.75/0.80  uN[L/P]=111.13±2.69/101.04±1.73  eR[L/P]=521/597  mix[arc/pert]=0.00/1.00  dead=9.4%  L/P/U=1897/3223/0  actL/P/U=150/106/0  H=0.669  Hu=0.490  spec<.5=0.44  marg=0.525  lstd=0.9184  lr=8.03e-05
+  [grad_norms @3400]
+    recon             |g|=0.52476  ratio=1.000x recon
+    pr_raw            |g|=0.94312  ratio=1.797x recon
+    pr_weighted       |g|=0.75449  ratio=1.438x recon
+    sid_raw           |g|=5.42371  ratio=10.336x recon
+    sid_weighted      |g|=3.25423  ratio=6.201x recon
+    grl_p             |g|=0.36323  ratio=0.692x recon
+    club              |g|=3.57768  ratio=6.818x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00013   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @3400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.014
+      cos(recon_vs_sid          ) = +0.021
+      cos(recon_vs_grl_p        ) = -0.005
+      cos(recon_vs_club         ) = -0.026
+      cos(pr_vs_sid             ) = -0.003
+      cos(pr_vs_grl_p           ) = +0.171  aligned
+      cos(pr_vs_club            ) = +0.032
+      cos(sid_vs_grl_p          ) = +0.010
+      cos(sid_vs_club           ) = +0.038
+      cos(grl_p_vs_club         ) = +0.011
+    [mask_grad @3400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00719  mP=0.00719  tilt=+0.00
+      pr               mL=0.30372  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.70980  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.09429  tilt=-1.00  -> P
+      club             mL=1.88954  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   3400/10000  recon=0.1819  pr=0.7986  sid=0.2408  grl_p=0.9549(per=0.228)  inv_L=1.9555  inv_P=0.3831  var=1.1940  cov=23.6346  club=+4.9913  q_phi[ce=3.944,acc=0.062]  k[L/P]=2004/3116  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.74/0.79  uN[L/P]=124.67±2.77/105.63±2.55  eR[L/P]=519/608  mix[arc/pert]=0.00/1.00  dead=11.3%  L/P/U=1874/3246/0  actL/P/U=147/109/0  H=0.667  Hu=0.487  spec<.5=0.45  marg=0.529  lstd=0.9274  lr=7.89e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   3500/10000  recon=0.1838  pr=0.7663  sid=0.0558  grl_p=1.2030(per=0.300)  inv_L=1.9430  inv_P=0.3638  var=1.1935  cov=27.6020  club=+7.3451  q_phi[ce=3.493,acc=0.125]  k[L/P]=1932/3188  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.74/0.78  uN[L/P]=121.50±2.60/112.72±3.15  eR[L/P]=520/612  mix[arc/pert]=0.00/1.00  dead=12.9%  L/P/U=1859/3261/0  actL/P/U=150/106/0  H=0.666  Hu=0.484  spec<.5=0.46  marg=0.532  lstd=0.9361  lr=7.76e-05
+  [grad_norms @3600]
+    recon             |g|=0.54010  ratio=1.000x recon
+    pr_raw            |g|=1.67949  ratio=3.110x recon
+    pr_weighted       |g|=1.34360  ratio=2.488x recon
+    sid_raw           |g|=6.66592  ratio=12.342x recon
+    sid_weighted      |g|=3.99955  ratio=7.405x recon
+    grl_p             |g|=0.44290  ratio=0.820x recon
+    club              |g|=9.22021  ratio=17.071x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00014   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @3600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.024
+      cos(recon_vs_sid          ) = +0.018
+      cos(recon_vs_grl_p        ) = -0.031
+      cos(recon_vs_club         ) = -0.022
+      cos(pr_vs_sid             ) = -0.004
+      cos(pr_vs_grl_p           ) = -0.065  conflict
+      cos(pr_vs_club            ) = +0.137  aligned
+      cos(sid_vs_grl_p          ) = +0.002
+      cos(sid_vs_club           ) = +0.043
+      cos(grl_p_vs_club         ) = +0.037
+    [mask_grad @3600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00584  mP=0.00584  tilt=+0.00
+      pr               mL=0.30901  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.23980  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.07896  tilt=-1.00  -> P
+      club             mL=2.44595  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   3600/10000  recon=0.1840  pr=0.9887  sid=0.2595  grl_p=1.2083(per=0.265)  inv_L=2.0550  inv_P=0.3875  var=1.1568  cov=31.7892  club=+4.8536  q_phi[ce=2.917,acc=0.312]  k[L/P]=1939/3181  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.73/0.76  uN[L/P]=132.78±3.49/107.95±2.66  eR[L/P]=521/626  mix[arc/pert]=0.00/1.00  dead=15.3%  L/P/U=1838/3282/0  actL/P/U=152/104/0  H=0.664  Hu=0.481  spec<.5=0.46  marg=0.535  lstd=0.9450  lr=7.62e-05
+  step   3700/10000  recon=0.1915  pr=0.8193  sid=0.2994  grl_p=1.0584(per=0.272)  inv_L=2.4540  inv_P=0.4077  var=1.1867  cov=28.6898  club=+5.5152  q_phi[ce=3.526,acc=0.125]  k[L/P]=1942/3178  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.73/0.78  uN[L/P]=139.98±2.28/110.51±2.29  eR[L/P]=505/616  mix[arc/pert]=0.00/1.00  dead=17.8%  L/P/U=1833/3287/0  actL/P/U=152/104/0  H=0.663  Hu=0.479  spec<.5=0.47  marg=0.539  lstd=0.9532  lr=7.48e-05
+  [grad_norms @3800]
+    recon             |g|=0.68392  ratio=1.000x recon
+    pr_raw            |g|=1.95826  ratio=2.863x recon
+    pr_weighted       |g|=1.56660  ratio=2.291x recon
+    sid_raw           |g|=8.72453  ratio=12.757x recon
+    sid_weighted      |g|=5.23472  ratio=7.654x recon
+    grl_p             |g|=1.05643  ratio=1.545x recon
+    club              |g|=8.05363  ratio=11.776x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00016   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @3800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.100  aligned
+      cos(recon_vs_sid          ) = -0.001
+      cos(recon_vs_grl_p        ) = +0.055  aligned
+      cos(recon_vs_club         ) = -0.034
+      cos(pr_vs_sid             ) = +0.002
+      cos(pr_vs_grl_p           ) = +0.205  aligned
+      cos(pr_vs_club            ) = -0.214  conflict
+      cos(sid_vs_grl_p          ) = +0.022
+      cos(sid_vs_club           ) = -0.030
+      cos(grl_p_vs_club         ) = -0.086  conflict
+    [mask_grad @3800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00533  mP=0.00533  tilt=+0.00
+      pr               mL=0.36982  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.98524  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.17205  tilt=-1.00  -> P
+      club             mL=2.39543  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   3800/10000  recon=0.1901  pr=0.9622  sid=0.8286  grl_p=1.5258(per=0.312)  inv_L=2.6349  inv_P=0.3665  var=1.1568  cov=31.6986  club=+4.8355  q_phi[ce=2.983,acc=0.312]  k[L/P]=1943/3177  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.72/0.75  uN[L/P]=143.42±2.36/117.28±2.31  eR[L/P]=517/626  mix[arc/pert]=0.00/1.00  dead=20.5%  L/P/U=1807/3313/0  actL/P/U=147/109/0  H=0.661  Hu=0.476  spec<.5=0.47  marg=0.541  lstd=0.9606  lr=7.33e-05
+  step   3900/10000  recon=0.1956  pr=0.9693  sid=0.3643  grl_p=1.1113(per=0.280)  inv_L=2.6954  inv_P=0.4019  var=1.2004  cov=35.6519  club=+7.5204  q_phi[ce=4.844,acc=0.125]  k[L/P]=1866/3254  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.74/0.77  uN[L/P]=144.86±3.52/130.93±3.24  eR[L/P]=488/596  mix[arc/pert]=0.00/1.00  dead=22.7%  L/P/U=1790/3330/0  actL/P/U=150/106/0  H=0.660  Hu=0.474  spec<.5=0.47  marg=0.545  lstd=0.9690  lr=7.19e-05
+  [grad_norms @4000]
+    recon             |g|=0.68393  ratio=1.000x recon
+    pr_raw            |g|=1.09863  ratio=1.606x recon
+    pr_weighted       |g|=0.87891  ratio=1.285x recon
+    sid_raw           |g|=8.43974  ratio=12.340x recon
+    sid_weighted      |g|=5.06384  ratio=7.404x recon
+    grl_p             |g|=0.47029  ratio=0.688x recon
+    club              |g|=2.42216  ratio=3.542x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00015   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @4000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.036
+      cos(recon_vs_sid          ) = +0.007
+      cos(recon_vs_grl_p        ) = -0.045
+      cos(recon_vs_club         ) = -0.013
+      cos(pr_vs_sid             ) = -0.002
+      cos(pr_vs_grl_p           ) = +0.156  aligned
+      cos(pr_vs_club            ) = -0.004
+      cos(sid_vs_grl_p          ) = -0.010
+      cos(sid_vs_club           ) = -0.019
+      cos(grl_p_vs_club         ) = -0.001
+    [mask_grad @4000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00526  mP=0.00526  tilt=+0.00
+      pr               mL=0.39777  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.75539  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.16607  tilt=-1.00  -> P
+      club             mL=2.26755  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   4000/10000  recon=0.1943  pr=1.0663  sid=0.4952  grl_p=1.1661(per=0.262)  inv_L=2.8706  inv_P=0.3852  var=1.1753  cov=43.9469  club=+5.5015  q_phi[ce=4.062,acc=0.062]  k[L/P]=1848/3272  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.72/0.75  uN[L/P]=153.37±2.77/126.39±2.34  eR[L/P]=486/614  mix[arc/pert]=0.00/1.00  dead=24.0%  L/P/U=1787/3333/0  actL/P/U=154/102/0  H=0.659  Hu=0.471  spec<.5=0.48  marg=0.547  lstd=0.9766  lr=7.04e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=4000  recon=0.1979  pr=0.6486  | z_L PR=0.162  | z_P PR=0.216 SID=0.988
+  ✓ best checkpoint (disent=0.9621  PER=0.162 sid=0.988 grl_acc=0.004 grl_p_per=0.216) → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt
+  step   4100/10000  recon=0.1997  pr=0.9346  sid=0.5248  grl_p=1.2283(per=0.278)  inv_L=2.9957  inv_P=0.4188  var=1.1845  cov=38.4399  club=+5.7492  q_phi[ce=3.053,acc=0.062]  k[L/P]=1879/3241  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.73/0.76  uN[L/P]=157.29±2.25/131.52±2.68  eR[L/P]=490/603  mix[arc/pert]=0.00/1.00  dead=25.3%  L/P/U=1780/3340/0  actL/P/U=154/102/0  H=0.657  Hu=0.469  spec<.5=0.48  marg=0.550  lstd=0.9836  lr=6.89e-05
+  [grad_norms @4200]
+    recon             |g|=0.83478  ratio=1.000x recon
+    pr_raw            |g|=1.13621  ratio=1.361x recon
+    pr_weighted       |g|=0.90897  ratio=1.089x recon
+    sid_raw           |g|=2.36987  ratio=2.839x recon
+    sid_weighted      |g|=1.42192  ratio=1.703x recon
+    grl_p             |g|=0.45747  ratio=0.548x recon
+    club              |g|=5.24916  ratio=6.288x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00015   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @4200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.042
+      cos(recon_vs_sid          ) = +0.032
+      cos(recon_vs_grl_p        ) = -0.016
+      cos(recon_vs_club         ) = +0.006
+      cos(pr_vs_sid             ) = -0.009
+      cos(pr_vs_grl_p           ) = +0.139  aligned
+      cos(pr_vs_club            ) = -0.059  conflict
+      cos(sid_vs_grl_p          ) = -0.037
+      cos(sid_vs_club           ) = +0.009
+      cos(grl_p_vs_club         ) = -0.012
+    [mask_grad @4200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.01138  mP=0.01138  tilt=+0.00
+      pr               mL=0.30683  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.33608  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.14128  tilt=-1.00  -> P
+      club             mL=2.85147  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   4200/10000  recon=0.1961  pr=1.0690  sid=0.0055  grl_p=1.7348(per=0.362)  inv_L=2.9982  inv_P=0.4431  var=1.1682  cov=46.1255  club=+4.6221  q_phi[ce=3.867,acc=0.125]  k[L/P]=1902/3218  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.72/0.75  uN[L/P]=166.98±2.84/125.26±2.36  eR[L/P]=496/615  mix[arc/pert]=0.00/1.00  dead=26.3%  L/P/U=1763/3357/0  actL/P/U=151/105/0  H=0.656  Hu=0.467  spec<.5=0.48  marg=0.552  lstd=0.9908  lr=6.73e-05
+  step   4300/10000  recon=0.1972  pr=1.0757  sid=0.0148  grl_p=1.4428(per=0.306)  inv_L=3.2598  inv_P=0.4099  var=1.1335  cov=57.0672  club=+6.8999  q_phi[ce=3.182,acc=0.125]  k[L/P]=1845/3275  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.72/0.71  uN[L/P]=163.95±3.18/132.36±3.63  eR[L/P]=493/632  mix[arc/pert]=0.00/1.00  dead=26.9%  L/P/U=1747/3373/0  actL/P/U=150/106/0  H=0.655  Hu=0.465  spec<.5=0.48  marg=0.555  lstd=0.9976  lr=6.58e-05
+  [grad_norms @4400]
+    recon             |g|=0.75570  ratio=1.000x recon
+    pr_raw            |g|=1.16719  ratio=1.545x recon
+    pr_weighted       |g|=0.93375  ratio=1.236x recon
+    sid_raw           |g|=6.13753  ratio=8.122x recon
+    sid_weighted      |g|=3.68252  ratio=4.873x recon
+    grl_p             |g|=1.17586  ratio=1.556x recon
+    club              |g|=5.01613  ratio=6.638x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00017   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @4400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.088  aligned
+      cos(recon_vs_sid          ) = +0.006
+      cos(recon_vs_grl_p        ) = -0.059  conflict
+      cos(recon_vs_club         ) = -0.025
+      cos(pr_vs_sid             ) = +0.001
+      cos(pr_vs_grl_p           ) = +0.111  aligned
+      cos(pr_vs_club            ) = -0.049
+      cos(sid_vs_grl_p          ) = -0.012
+      cos(sid_vs_club           ) = +0.010
+      cos(grl_p_vs_club         ) = +0.040
+    [mask_grad @4400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00878  mP=0.00878  tilt=+0.00
+      pr               mL=0.39327  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.96781  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.22745  tilt=-1.00  -> P
+      club             mL=2.34080  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   4400/10000  recon=0.1979  pr=1.0459  sid=0.3413  grl_p=1.4017(per=0.319)  inv_L=3.6035  inv_P=0.4116  var=1.1669  cov=53.1619  club=+5.3516  q_phi[ce=2.952,acc=0.312]  k[L/P]=1883/3237  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.73/0.74  uN[L/P]=164.81±2.28/139.06±2.25  eR[L/P]=489/612  mix[arc/pert]=0.00/1.00  dead=27.4%  L/P/U=1734/3386/0  actL/P/U=154/102/0  H=0.653  Hu=0.462  spec<.5=0.49  marg=0.558  lstd=1.0049  lr=6.42e-05
+  step   4500/10000  recon=0.1991  pr=0.8668  sid=0.4723  grl_p=1.2190(per=0.277)  inv_L=3.7651  inv_P=0.4365  var=1.1395  cov=59.2912  club=+6.6052  q_phi[ce=3.137,acc=0.250]  k[L/P]=1771/3349  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.71/0.72  uN[L/P]=169.52±3.38/141.59±3.04  eR[L/P]=497/627  mix[arc/pert]=0.00/1.00  dead=28.0%  L/P/U=1729/3391/0  actL/P/U=155/101/0  H=0.652  Hu=0.460  spec<.5=0.49  marg=0.560  lstd=1.0118  lr=6.27e-05
+  [grad_norms @4600]
+    recon             |g|=0.78616  ratio=1.000x recon
+    pr_raw            |g|=1.91218  ratio=2.432x recon
+    pr_weighted       |g|=1.52975  ratio=1.946x recon
+    sid_raw           |g|=3.94400  ratio=5.017x recon
+    sid_weighted      |g|=2.36640  ratio=3.010x recon
+    grl_p             |g|=1.13147  ratio=1.439x recon
+    club              |g|=6.78744  ratio=8.634x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00016   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @4600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.049
+      cos(recon_vs_sid          ) = +0.022
+      cos(recon_vs_grl_p        ) = -0.036
+      cos(recon_vs_club         ) = +0.006
+      cos(pr_vs_sid             ) = +0.003
+      cos(pr_vs_grl_p           ) = -0.199  conflict
+      cos(pr_vs_club            ) = -0.132  conflict
+      cos(sid_vs_grl_p          ) = -0.032
+      cos(sid_vs_club           ) = +0.029
+      cos(grl_p_vs_club         ) = +0.072  aligned
+    [mask_grad @4600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00525  mP=0.00525  tilt=+0.00
+      pr               mL=0.34500  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.05105  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.13977  tilt=-1.00  -> P
+      club             mL=2.99430  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   4600/10000  recon=0.2007  pr=1.1928  sid=0.7029  grl_p=2.2820(per=0.404)  inv_L=3.6680  inv_P=0.4269  var=1.1245  cov=60.1434  club=+7.0460  q_phi[ce=4.006,acc=0.062]  k[L/P]=1839/3281  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.70/0.71  uN[L/P]=163.93±3.50/145.22±3.59  eR[L/P]=506/624  mix[arc/pert]=0.00/1.00  dead=28.4%  L/P/U=1718/3402/0  actL/P/U=151/105/0  H=0.651  Hu=0.458  spec<.5=0.49  marg=0.562  lstd=1.0178  lr=6.11e-05
+  step   4700/10000  recon=0.2049  pr=1.1566  sid=0.3896  grl_p=2.0792(per=0.395)  inv_L=4.0158  inv_P=0.4097  var=1.1335  cov=68.0085  club=+4.7361  q_phi[ce=3.377,acc=0.000]  k[L/P]=1818/3302  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.70/0.72  uN[L/P]=175.07±2.83/151.15±2.56  eR[L/P]=505/616  mix[arc/pert]=0.00/1.00  dead=28.5%  L/P/U=1704/3416/0  actL/P/U=150/106/0  H=0.650  Hu=0.457  spec<.5=0.49  marg=0.563  lstd=1.0237  lr=5.95e-05
+  [grad_norms @4800]
+    recon             |g|=1.14598  ratio=1.000x recon
+    pr_raw            |g|=1.39831  ratio=1.220x recon
+    pr_weighted       |g|=1.11865  ratio=0.976x recon
+    sid_raw           |g|=6.41683  ratio=5.599x recon
+    sid_weighted      |g|=3.85010  ratio=3.360x recon
+    grl_p             |g|=0.58233  ratio=0.508x recon
+    club              |g|=5.29971  ratio=4.625x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00015   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @4800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.060  aligned
+      cos(recon_vs_sid          ) = +0.006
+      cos(recon_vs_grl_p        ) = -0.047
+      cos(recon_vs_club         ) = -0.022
+      cos(pr_vs_sid             ) = -0.008
+      cos(pr_vs_grl_p           ) = +0.124  aligned
+      cos(pr_vs_club            ) = -0.101  conflict
+      cos(sid_vs_grl_p          ) = -0.019
+      cos(sid_vs_club           ) = +0.018
+      cos(grl_p_vs_club         ) = -0.010
+    [mask_grad @4800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.01430  mP=0.01430  tilt=+0.00
+      pr               mL=0.47045  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.68271  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.18363  tilt=-1.00  -> P
+      club             mL=3.01007  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   4800/10000  recon=0.2050  pr=1.0382  sid=0.9756  grl_p=1.3035(per=0.292)  inv_L=4.6328  inv_P=0.3666  var=1.1146  cov=67.7148  club=+7.0476  q_phi[ce=2.552,acc=0.312]  k[L/P]=1771/3349  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.70/0.69  uN[L/P]=175.95±3.10/146.65±2.96  eR[L/P]=505/644  mix[arc/pert]=0.00/1.00  dead=28.6%  L/P/U=1700/3420/0  actL/P/U=152/104/0  H=0.649  Hu=0.455  spec<.5=0.50  marg=0.565  lstd=1.0296  lr=5.78e-05
+  step   4900/10000  recon=0.2049  pr=1.1758  sid=0.3157  grl_p=2.1329(per=0.398)  inv_L=4.3853  inv_P=0.4615  var=1.1021  cov=77.1075  club=+5.2391  q_phi[ce=3.615,acc=0.125]  k[L/P]=1788/3332  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.70/0.68  uN[L/P]=177.03±2.48/157.50±3.28  eR[L/P]=506/633  mix[arc/pert]=0.00/1.00  dead=28.9%  L/P/U=1694/3426/0  actL/P/U=154/102/0  H=0.648  Hu=0.454  spec<.5=0.50  marg=0.566  lstd=1.0355  lr=5.62e-05
+  [grad_norms @5000]
+    recon             |g|=0.71030  ratio=1.000x recon
+    pr_raw            |g|=2.59147  ratio=3.648x recon
+    pr_weighted       |g|=2.07318  ratio=2.919x recon
+    sid_raw           |g|=8.31749  ratio=11.710x recon
+    sid_weighted      |g|=4.99050  ratio=7.026x recon
+    grl_p             |g|=1.80434  ratio=2.540x recon
+    club              |g|=11.04602  ratio=15.551x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00016   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @5000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.045
+      cos(recon_vs_sid          ) = +0.022
+      cos(recon_vs_grl_p        ) = -0.052  conflict
+      cos(recon_vs_club         ) = +0.017
+      cos(pr_vs_sid             ) = +0.001
+      cos(pr_vs_grl_p           ) = +0.239  aligned
+      cos(pr_vs_club            ) = +0.139  aligned
+      cos(sid_vs_grl_p          ) = -0.013
+      cos(sid_vs_club           ) = -0.003
+      cos(grl_p_vs_club         ) = +0.094  aligned
+    [mask_grad @5000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00605  mP=0.00605  tilt=+0.00
+      pr               mL=0.65518  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=2.25406  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.20586  tilt=-1.00  -> P
+      club             mL=3.81644  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   5000/10000  recon=0.2041  pr=1.2093  sid=0.9495  grl_p=1.8966(per=0.373)  inv_L=4.9650  inv_P=0.3870  var=1.0728  cov=81.2949  club=+6.3795  q_phi[ce=2.558,acc=0.312]  k[L/P]=1759/3361  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.67/0.66  uN[L/P]=184.51±3.60/152.27±3.55  eR[L/P]=514/651  mix[arc/pert]=0.00/1.00  dead=29.2%  L/P/U=1685/3435/0  actL/P/U=153/103/0  H=0.647  Hu=0.452  spec<.5=0.51  marg=0.568  lstd=1.0410  lr=5.46e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=5000  recon=0.2031  pr=0.7753  | z_L PR=0.194  | z_P PR=0.256 SID=0.978
+  step   5100/10000  recon=0.2047  pr=1.0289  sid=0.6770  grl_p=1.5464(per=0.319)  inv_L=5.2818  inv_P=0.3879  var=1.0875  cov=86.3531  club=+9.5065  q_phi[ce=3.527,acc=0.188]  k[L/P]=1811/3309  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.70/0.66  uN[L/P]=181.56±3.43/156.77±3.99  eR[L/P]=514/654  mix[arc/pert]=0.00/1.00  dead=29.3%  L/P/U=1666/3454/0  actL/P/U=154/102/0  H=0.645  Hu=0.451  spec<.5=0.51  marg=0.569  lstd=1.0466  lr=5.30e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [grad_norms @5200]
+    recon             |g|=0.70361  ratio=1.000x recon
+    pr_raw            |g|=1.99262  ratio=2.832x recon
+    pr_weighted       |g|=1.59410  ratio=2.266x recon
+    sid_raw           |g|=0.32213  ratio=0.458x recon
+    sid_weighted      |g|=0.19328  ratio=0.275x recon
+    grl_p             |g|=1.95680  ratio=2.781x recon
+    club              |g|=7.26394  ratio=10.324x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00028   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @5200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.033
+      cos(recon_vs_sid          ) = +0.001
+      cos(recon_vs_grl_p        ) = -0.042
+      cos(recon_vs_club         ) = +0.008
+      cos(pr_vs_sid             ) = -0.007
+      cos(pr_vs_grl_p           ) = +0.166  aligned
+      cos(pr_vs_club            ) = +0.017
+      cos(sid_vs_grl_p          ) = +0.023
+      cos(sid_vs_club           ) = +0.018
+      cos(grl_p_vs_club         ) = -0.000
+    [mask_grad @5200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00497  mP=0.00497  tilt=+0.00
+      pr               mL=1.01128  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.06618  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.96508  tilt=-1.00  -> P
+      club             mL=3.65386  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   5200/10000  recon=0.2028  pr=1.3584  sid=0.0742  grl_p=1.9672(per=0.391)  inv_L=5.0289  inv_P=0.4142  var=1.0619  cov=92.6188  club=+6.1937  q_phi[ce=2.434,acc=0.312]  k[L/P]=1781/3339  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.67/0.65  uN[L/P]=189.44±2.62/153.65±2.23  eR[L/P]=513/657  mix[arc/pert]=0.00/1.00  dead=29.1%  L/P/U=1655/3465/0  actL/P/U=152/104/0  H=0.644  Hu=0.449  spec<.5=0.51  marg=0.571  lstd=1.0517  lr=5.13e-05
+  step   5300/10000  recon=0.2082  pr=1.1006  sid=0.0136  grl_p=2.3499(per=0.487)  inv_L=5.1594  inv_P=0.3742  var=1.0825  cov=88.4565  club=+5.7568  q_phi[ce=3.739,acc=0.000]  k[L/P]=1775/3345  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.67/0.67  uN[L/P]=193.99±3.25/152.01±3.18  eR[L/P]=513/650  mix[arc/pert]=0.00/1.00  dead=29.2%  L/P/U=1644/3476/0  actL/P/U=154/102/0  H=0.643  Hu=0.448  spec<.5=0.51  marg=0.572  lstd=1.0568  lr=4.97e-05
+  [grad_norms @5400]
+    recon             |g|=0.77839  ratio=1.000x recon
+    pr_raw            |g|=5.22622  ratio=6.714x recon
+    pr_weighted       |g|=4.18097  ratio=5.371x recon
+    sid_raw           |g|=0.58567  ratio=0.752x recon
+    sid_weighted      |g|=0.35140  ratio=0.451x recon
+    grl_p             |g|=2.81425  ratio=3.615x recon
+    club              |g|=2.25521  ratio=2.897x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00025   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @5400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.038
+      cos(recon_vs_sid          ) = +0.017
+      cos(recon_vs_grl_p        ) = -0.055  conflict
+      cos(recon_vs_club         ) = -0.012
+      cos(pr_vs_sid             ) = +0.029
+      cos(pr_vs_grl_p           ) = +0.223  aligned
+      cos(pr_vs_club            ) = -0.017
+      cos(sid_vs_grl_p          ) = +0.047
+      cos(sid_vs_club           ) = -0.012
+      cos(grl_p_vs_club         ) = -0.005
+    [mask_grad @5400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00488  mP=0.00488  tilt=+0.00
+      pr               mL=0.98171  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.13716  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.58327  tilt=-1.00  -> P
+      club             mL=2.70615  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   5400/10000  recon=0.2097  pr=1.5687  sid=0.1617  grl_p=2.2171(per=0.410)  inv_L=5.2069  inv_P=0.4096  var=1.0618  cov=96.9809  club=+5.3010  q_phi[ce=3.220,acc=0.062]  k[L/P]=1713/3407  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.68/0.66  uN[L/P]=190.81±2.93/144.71±2.25  eR[L/P]=504/660  mix[arc/pert]=0.00/1.00  dead=28.8%  L/P/U=1631/3489/0  actL/P/U=151/105/0  H=0.642  Hu=0.446  spec<.5=0.51  marg=0.573  lstd=1.0613  lr=4.80e-05
+  step   5500/10000  recon=0.2090  pr=1.4374  sid=0.1865  grl_p=2.0572(per=0.397)  inv_L=5.5554  inv_P=0.4158  var=1.0503  cov=110.1577  club=+5.9779  q_phi[ce=2.844,acc=0.312]  k[L/P]=1668/3452  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.67/0.66  uN[L/P]=193.34±3.06/158.82±3.15  eR[L/P]=504/656  mix[arc/pert]=0.00/1.00  dead=28.5%  L/P/U=1625/3495/0  actL/P/U=150/106/0  H=0.642  Hu=0.445  spec<.5=0.51  marg=0.575  lstd=1.0658  lr=4.64e-05
+  [grad_norms @5600]
+    recon             |g|=1.17174  ratio=1.000x recon
+    pr_raw            |g|=5.81096  ratio=4.959x recon
+    pr_weighted       |g|=4.64877  ratio=3.967x recon
+    sid_raw           |g|=7.82038  ratio=6.674x recon
+    sid_weighted      |g|=4.69223  ratio=4.005x recon
+    grl_p             |g|=1.36588  ratio=1.166x recon
+    club              |g|=9.67857  ratio=8.260x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00021   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @5600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.013
+      cos(recon_vs_sid          ) = -0.004
+      cos(recon_vs_grl_p        ) = -0.059  conflict
+      cos(recon_vs_club         ) = -0.002
+      cos(pr_vs_sid             ) = +0.013
+      cos(pr_vs_grl_p           ) = +0.234  aligned
+      cos(pr_vs_club            ) = +0.075  aligned
+      cos(sid_vs_grl_p          ) = +0.026
+      cos(sid_vs_club           ) = +0.039
+      cos(grl_p_vs_club         ) = +0.047
+    [mask_grad @5600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00844  mP=0.00844  tilt=+0.00
+      pr               mL=2.66160  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.19117  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.45331  tilt=-1.00  -> P
+      club             mL=4.43847  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   5600/10000  recon=0.2195  pr=1.3866  sid=0.0105  grl_p=2.6187(per=0.456)  inv_L=5.8226  inv_P=0.4205  var=1.0585  cov=132.6973  club=+5.6863  q_phi[ce=2.733,acc=0.312]  k[L/P]=1740/3380  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.68/0.66  uN[L/P]=189.51±2.25/162.71±2.49  eR[L/P]=516/651  mix[arc/pert]=0.00/1.00  dead=28.6%  L/P/U=1624/3496/0  actL/P/U=147/109/0  H=0.641  Hu=0.444  spec<.5=0.52  marg=0.576  lstd=1.0700  lr=4.48e-05
+  step   5700/10000  recon=0.2092  pr=1.2742  sid=0.0281  grl_p=1.7339(per=0.370)  inv_L=5.6942  inv_P=0.4591  var=1.0548  cov=110.5313  club=+6.8422  q_phi[ce=3.504,acc=0.062]  k[L/P]=1721/3399  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.68/0.66  uN[L/P]=198.09±2.65/163.52±2.86  eR[L/P]=507/657  mix[arc/pert]=0.00/1.00  dead=28.3%  L/P/U=1614/3506/0  actL/P/U=148/108/0  H=0.640  Hu=0.443  spec<.5=0.52  marg=0.577  lstd=1.0744  lr=4.32e-05
+  [grad_norms @5800]
+    recon             |g|=0.68463  ratio=1.000x recon
+    pr_raw            |g|=1.72478  ratio=2.519x recon
+    pr_weighted       |g|=1.37982  ratio=2.015x recon
+    sid_raw           |g|=8.83323  ratio=12.902x recon
+    sid_weighted      |g|=5.29994  ratio=7.741x recon
+    grl_p             |g|=0.96108  ratio=1.404x recon
+    club              |g|=8.66988  ratio=12.664x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00019   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @5800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.102  aligned
+      cos(recon_vs_sid          ) = -0.015
+      cos(recon_vs_grl_p        ) = +0.002
+      cos(recon_vs_club         ) = -0.021
+      cos(pr_vs_sid             ) = -0.008
+      cos(pr_vs_grl_p           ) = +0.167  aligned
+      cos(pr_vs_club            ) = -0.105  conflict
+      cos(sid_vs_grl_p          ) = -0.027
+      cos(sid_vs_club           ) = +0.049
+      cos(grl_p_vs_club         ) = -0.044
+    [mask_grad @5800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.01108  mP=0.01108  tilt=+0.00
+      pr               mL=0.70568  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.59483  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.37342  tilt=-1.00  -> P
+      club             mL=3.65174  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   5800/10000  recon=0.2115  pr=1.6520  sid=0.1173  grl_p=3.5969(per=0.707)  inv_L=6.0254  inv_P=0.4111  var=1.0106  cov=111.7456  club=+10.6494  q_phi[ce=2.122,acc=0.375]  k[L/P]=1749/3371  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.68/0.62  uN[L/P]=199.27±2.28/163.71±2.50  eR[L/P]=519/674  mix[arc/pert]=0.00/1.00  dead=28.0%  L/P/U=1613/3507/0  actL/P/U=146/110/0  H=0.639  Hu=0.442  spec<.5=0.52  marg=0.578  lstd=1.0784  lr=4.15e-05
+  step   5900/10000  recon=0.2140  pr=1.3194  sid=0.0716  grl_p=2.7323(per=0.502)  inv_L=6.1365  inv_P=0.3817  var=1.0269  cov=132.5333  club=+4.6196  q_phi[ce=4.294,acc=0.000]  k[L/P]=1769/3351  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.68/0.63  uN[L/P]=202.42±4.22/174.35±3.81  eR[L/P]=511/662  mix[arc/pert]=0.00/1.00  dead=27.8%  L/P/U=1605/3515/0  actL/P/U=147/109/0  H=0.639  Hu=0.441  spec<.5=0.52  marg=0.579  lstd=1.0825  lr=3.99e-05
+  [grad_norms @6000]
+    recon             |g|=0.85727  ratio=1.000x recon
+    pr_raw            |g|=1.16384  ratio=1.358x recon
+    pr_weighted       |g|=0.93107  ratio=1.086x recon
+    sid_raw           |g|=0.01856  ratio=0.022x recon
+    sid_weighted      |g|=0.01114  ratio=0.013x recon
+    grl_p             |g|=1.33464  ratio=1.557x recon
+    club              |g|=7.28528  ratio=8.498x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00024   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @6000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.016
+      cos(recon_vs_sid          ) = +0.017
+      cos(recon_vs_grl_p        ) = -0.061  conflict
+      cos(recon_vs_club         ) = -0.003
+      cos(pr_vs_sid             ) = +0.001
+      cos(pr_vs_grl_p           ) = +0.095  aligned
+      cos(pr_vs_club            ) = -0.002
+      cos(sid_vs_grl_p          ) = -0.033
+      cos(sid_vs_club           ) = +0.036
+      cos(grl_p_vs_club         ) = -0.048
+    [mask_grad @6000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00626  mP=0.00626  tilt=+0.00
+      pr               mL=0.57427  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.00415  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.51989  tilt=-1.00  -> P
+      club             mL=3.70143  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   6000/10000  recon=0.2116  pr=1.7695  sid=0.0060  grl_p=3.5379(per=0.576)  inv_L=6.7098  inv_P=0.4349  var=0.9704  cov=146.2479  club=+7.8226  q_phi[ce=1.724,acc=0.438]  k[L/P]=1738/3382  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.67/0.58  uN[L/P]=194.25±3.19/175.58±4.23  eR[L/P]=531/679  mix[arc/pert]=0.00/1.00  dead=27.4%  L/P/U=1601/3519/0  actL/P/U=147/109/0  H=0.638  Hu=0.440  spec<.5=0.52  marg=0.580  lstd=1.0867  lr=3.83e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=6000  recon=0.2130  pr=0.9978  | z_L PR=0.241  | z_P PR=0.336 SID=0.998
+  ✓ best checkpoint (disent=0.9130  PER=0.241 sid=0.998 grl_acc=0.006 grl_p_per=0.336) → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt
+  step   6100/10000  recon=0.2123  pr=1.4605  sid=0.0004  grl_p=2.5886(per=0.435)  inv_L=6.7032  inv_P=0.4176  var=0.9852  cov=142.2441  club=+10.5965  q_phi[ce=3.165,acc=0.125]  k[L/P]=1682/3438  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.64/0.61  uN[L/P]=194.43±3.72/186.89±4.31  eR[L/P]=530/668  mix[arc/pert]=0.00/1.00  dead=27.3%  L/P/U=1592/3528/0  actL/P/U=147/109/0  H=0.637  Hu=0.439  spec<.5=0.52  marg=0.581  lstd=1.0904  lr=3.68e-05
+  [grad_norms @6200]
+    recon             |g|=0.67013  ratio=1.000x recon
+    pr_raw            |g|=4.17154  ratio=6.225x recon
+    pr_weighted       |g|=3.33723  ratio=4.980x recon
+    sid_raw           |g|=0.13279  ratio=0.198x recon
+    sid_weighted      |g|=0.07968  ratio=0.119x recon
+    grl_p             |g|=1.30125  ratio=1.942x recon
+    club              |g|=5.01192  ratio=7.479x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00020   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @6200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.007
+      cos(recon_vs_sid          ) = +0.003
+      cos(recon_vs_grl_p        ) = -0.070  conflict
+      cos(recon_vs_club         ) = -0.007
+      cos(pr_vs_sid             ) = +0.012
+      cos(pr_vs_grl_p           ) = +0.173  aligned
+      cos(pr_vs_club            ) = +0.130  aligned
+      cos(sid_vs_grl_p          ) = +0.014
+      cos(sid_vs_club           ) = +0.031
+      cos(grl_p_vs_club         ) = +0.051  aligned
+    [mask_grad @6200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00455  mP=0.00455  tilt=+0.00
+      pr               mL=1.37924  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.03426  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.34151  tilt=-1.00  -> P
+      club             mL=2.73309  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   6200/10000  recon=0.2115  pr=1.2944  sid=0.0001  grl_p=2.5349(per=0.455)  inv_L=6.4724  inv_P=0.4069  var=1.0057  cov=140.6827  club=+7.5338  q_phi[ce=3.289,acc=0.062]  k[L/P]=1744/3376  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.66/0.62  uN[L/P]=199.80±4.90/174.17±4.15  eR[L/P]=526/671  mix[arc/pert]=0.00/1.00  dead=27.2%  L/P/U=1586/3534/0  actL/P/U=147/109/0  H=0.636  Hu=0.438  spec<.5=0.52  marg=0.582  lstd=1.0939  lr=3.52e-05
+  step   6300/10000  recon=0.2141  pr=1.9098  sid=0.0417  grl_p=3.5479(per=0.514)  inv_L=6.9047  inv_P=0.4534  var=0.9849  cov=152.1580  club=+7.9312  q_phi[ce=3.630,acc=0.062]  k[L/P]=1690/3430  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.66/0.61  uN[L/P]=199.11±4.28/181.65±4.12  eR[L/P]=524/668  mix[arc/pert]=0.00/1.00  dead=27.0%  L/P/U=1575/3545/0  actL/P/U=146/110/0  H=0.636  Hu=0.437  spec<.5=0.52  marg=0.583  lstd=1.0973  lr=3.37e-05
+  [grad_norms @6400]
+    recon             |g|=0.74732  ratio=1.000x recon
+    pr_raw            |g|=7.07334  ratio=9.465x recon
+    pr_weighted       |g|=5.65867  ratio=7.572x recon
+    sid_raw           |g|=4.45472  ratio=5.961x recon
+    sid_weighted      |g|=2.67283  ratio=3.577x recon
+    grl_p             |g|=3.44819  ratio=4.614x recon
+    club              |g|=3.32694  ratio=4.452x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00021   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @6400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.026
+      cos(recon_vs_sid          ) = +0.003
+      cos(recon_vs_grl_p        ) = -0.047
+      cos(recon_vs_club         ) = -0.014
+      cos(pr_vs_sid             ) = -0.004
+      cos(pr_vs_grl_p           ) = +0.295  aligned
+      cos(pr_vs_club            ) = +0.015
+      cos(sid_vs_grl_p          ) = -0.027
+      cos(sid_vs_club           ) = -0.023
+      cos(grl_p_vs_club         ) = +0.021
+    [mask_grad @6400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00496  mP=0.00496  tilt=+0.00
+      pr               mL=2.55266  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.22747  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.67228  tilt=-1.00  -> P
+      club             mL=3.13295  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   6400/10000  recon=0.2132  pr=1.4124  sid=0.1300  grl_p=3.0469(per=0.475)  inv_L=7.1725  inv_P=0.4145  var=0.9908  cov=137.2694  club=+6.7109  q_phi[ce=3.179,acc=0.125]  k[L/P]=1724/3396  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.66/0.63  uN[L/P]=214.08±4.68/172.44±3.51  eR[L/P]=521/670  mix[arc/pert]=0.00/1.00  dead=26.7%  L/P/U=1565/3555/0  actL/P/U=148/108/0  H=0.635  Hu=0.436  spec<.5=0.53  marg=0.584  lstd=1.1006  lr=3.21e-05
+  step   6500/10000  recon=0.2178  pr=1.2800  sid=1.4128  grl_p=3.1125(per=0.501)  inv_L=6.7598  inv_P=0.4555  var=1.0107  cov=152.8181  club=+10.6648  q_phi[ce=2.972,acc=0.125]  k[L/P]=1708/3412  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.66/0.63  uN[L/P]=209.67±3.34/186.66±3.98  eR[L/P]=524/662  mix[arc/pert]=0.00/1.00  dead=26.7%  L/P/U=1555/3565/0  actL/P/U=146/110/0  H=0.635  Hu=0.435  spec<.5=0.53  marg=0.585  lstd=1.1037  lr=3.06e-05
+  [grad_norms @6600]
+    recon             |g|=0.83908  ratio=1.000x recon
+    pr_raw            |g|=2.32758  ratio=2.774x recon
+    pr_weighted       |g|=1.86207  ratio=2.219x recon
+    sid_raw           |g|=8.30889  ratio=9.902x recon
+    sid_weighted      |g|=4.98533  ratio=5.941x recon
+    grl_p             |g|=1.92052  ratio=2.289x recon
+    club              |g|=7.57671  ratio=9.030x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00031   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @6600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.033
+      cos(recon_vs_sid          ) = -0.008
+      cos(recon_vs_grl_p        ) = -0.023
+      cos(recon_vs_club         ) = -0.006
+      cos(pr_vs_sid             ) = -0.003
+      cos(pr_vs_grl_p           ) = +0.191  aligned
+      cos(pr_vs_club            ) = -0.108  conflict
+      cos(sid_vs_grl_p          ) = +0.006
+      cos(sid_vs_club           ) = +0.038
+      cos(grl_p_vs_club         ) = -0.027
+    [mask_grad @6600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00570  mP=0.00570  tilt=+0.00
+      pr               mL=1.03698  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=2.32661  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=1.19081  tilt=-1.00  -> P
+      club             mL=3.47993  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   6600/10000  recon=0.2147  pr=1.4987  sid=0.0002  grl_p=2.6853(per=0.457)  inv_L=6.8798  inv_P=0.4204  var=0.9777  cov=176.3940  club=+7.6816  q_phi[ce=2.951,acc=0.188]  k[L/P]=1681/3439  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.65/0.59  uN[L/P]=219.79±4.27/175.28±4.76  eR[L/P]=518/689  mix[arc/pert]=0.00/1.00  dead=26.4%  L/P/U=1554/3566/0  actL/P/U=144/112/0  H=0.634  Hu=0.435  spec<.5=0.53  marg=0.585  lstd=1.1063  lr=2.91e-05
+  step   6700/10000  recon=0.2121  pr=1.5169  sid=0.2304  grl_p=3.2594(per=0.501)  inv_L=7.1600  inv_P=0.4015  var=0.9378  cov=160.6960  club=+11.9606  q_phi[ce=1.999,acc=0.500]  k[L/P]=1680/3440  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.64/0.57  uN[L/P]=211.22±2.58/174.95±1.73  eR[L/P]=531/697  mix[arc/pert]=0.00/1.00  dead=26.4%  L/P/U=1551/3569/0  actL/P/U=145/111/0  H=0.634  Hu=0.434  spec<.5=0.53  marg=0.586  lstd=1.1090  lr=2.77e-05
+  [grad_norms @6800]
+    recon             |g|=0.87618  ratio=1.000x recon
+    pr_raw            |g|=7.91315  ratio=9.031x recon
+    pr_weighted       |g|=6.33052  ratio=7.225x recon
+    sid_raw           |g|=0.00996  ratio=0.011x recon
+    sid_weighted      |g|=0.00598  ratio=0.007x recon
+    grl_p             |g|=5.54784  ratio=6.332x recon
+    club              |g|=9.36861  ratio=10.693x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00042   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @6800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.129  aligned
+      cos(recon_vs_sid          ) = -0.044
+      cos(recon_vs_grl_p        ) = +0.049
+      cos(recon_vs_club         ) = -0.044
+      cos(pr_vs_sid             ) = -0.018
+      cos(pr_vs_grl_p           ) = +0.267  aligned
+      cos(pr_vs_club            ) = -0.278  conflict
+      cos(sid_vs_grl_p          ) = -0.054  conflict
+      cos(sid_vs_club           ) = +0.028
+      cos(grl_p_vs_club         ) = -0.094  conflict
+    [mask_grad @6800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00978  mP=0.00978  tilt=+0.00
+      pr               mL=2.17431  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.00327  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=1.53915  tilt=-1.00  -> P
+      club             mL=3.48837  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   6800/10000  recon=0.2156  pr=1.6966  sid=0.0059  grl_p=4.0432(per=0.592)  inv_L=7.3373  inv_P=0.4574  var=0.9488  cov=176.3360  club=+10.5615  q_phi[ce=2.316,acc=0.312]  k[L/P]=1663/3457  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.63/0.59  uN[L/P]=215.50±2.45/186.14±3.40  eR[L/P]=531/685  mix[arc/pert]=0.00/1.00  dead=26.1%  L/P/U=1544/3576/0  actL/P/U=146/110/0  H=0.633  Hu=0.433  spec<.5=0.53  marg=0.587  lstd=1.1116  lr=2.62e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   6900/10000  recon=0.2175  pr=2.0461  sid=0.7916  grl_p=4.0618(per=0.673)  inv_L=7.1938  inv_P=0.3966  var=0.9524  cov=168.0407  club=+9.0921  q_phi[ce=2.997,acc=0.188]  k[L/P]=1705/3415  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.63/0.60  uN[L/P]=217.29±3.15/184.98±4.97  eR[L/P]=529/679  mix[arc/pert]=0.00/1.00  dead=25.8%  L/P/U=1549/3571/0  actL/P/U=147/109/0  H=0.633  Hu=0.433  spec<.5=0.53  marg=0.587  lstd=1.1140  lr=2.48e-05
+  [grad_norms @7000]
+    recon             |g|=0.67968  ratio=1.000x recon
+    pr_raw            |g|=3.78902  ratio=5.575x recon
+    pr_weighted       |g|=3.03122  ratio=4.460x recon
+    sid_raw           |g|=6.98845  ratio=10.282x recon
+    sid_weighted      |g|=4.19307  ratio=6.169x recon
+    grl_p             |g|=2.13243  ratio=3.137x recon
+    club              |g|=5.51096  ratio=8.108x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00025   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @7000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.137  aligned
+      cos(recon_vs_sid          ) = +0.014
+      cos(recon_vs_grl_p        ) = -0.117  conflict
+      cos(recon_vs_club         ) = -0.028
+      cos(pr_vs_sid             ) = -0.023
+      cos(pr_vs_grl_p           ) = -0.223  conflict
+      cos(pr_vs_club            ) = -0.178  conflict
+      cos(sid_vs_grl_p          ) = -0.008
+      cos(sid_vs_club           ) = -0.027
+      cos(grl_p_vs_club         ) = +0.077  aligned
+    [mask_grad @7000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00900  mP=0.00900  tilt=+0.00
+      pr               mL=1.09231  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.85378  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.36954  tilt=-1.00  -> P
+      club             mL=3.30302  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   7000/10000  recon=0.2163  pr=1.9667  sid=0.0758  grl_p=3.5567(per=0.528)  inv_L=8.1030  inv_P=0.3952  var=0.9640  cov=226.9053  club=+7.6114  q_phi[ce=2.997,acc=0.125]  k[L/P]=1650/3470  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.64/0.60  uN[L/P]=218.70±4.23/188.08±4.42  eR[L/P]=519/679  mix[arc/pert]=0.00/1.00  dead=25.7%  L/P/U=1544/3576/0  actL/P/U=147/109/0  H=0.632  Hu=0.432  spec<.5=0.53  marg=0.588  lstd=1.1162  lr=2.34e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=7000  recon=0.2165  pr=1.3032  | z_L PR=0.298  | z_P PR=0.388 SID=1.000
+  step   7100/10000  recon=0.2203  pr=1.4439  sid=0.0862  grl_p=3.0827(per=0.529)  inv_L=8.2241  inv_P=0.4354  var=0.9584  cov=197.9092  club=+9.8950  q_phi[ce=2.490,acc=0.188]  k[L/P]=1710/3410  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.63/0.60  uN[L/P]=232.01±5.57/179.44±4.68  eR[L/P]=530/686  mix[arc/pert]=0.00/1.00  dead=25.4%  L/P/U=1538/3582/0  actL/P/U=147/109/0  H=0.632  Hu=0.432  spec<.5=0.53  marg=0.588  lstd=1.1183  lr=2.21e-05
+  [grad_norms @7200]
+    recon             |g|=0.62061  ratio=1.000x recon
+    pr_raw            |g|=4.02791  ratio=6.490x recon
+    pr_weighted       |g|=3.22232  ratio=5.192x recon
+    sid_raw           |g|=4.85215  ratio=7.818x recon
+    sid_weighted      |g|=2.91129  ratio=4.691x recon
+    grl_p             |g|=1.69787  ratio=2.736x recon
+    club              |g|=9.30109  ratio=14.987x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00026   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @7200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.065  aligned
+      cos(recon_vs_sid          ) = +0.015
+      cos(recon_vs_grl_p        ) = -0.047
+      cos(recon_vs_club         ) = +0.005
+      cos(pr_vs_sid             ) = +0.002
+      cos(pr_vs_grl_p           ) = +0.158  aligned
+      cos(pr_vs_club            ) = +0.197  aligned
+      cos(sid_vs_grl_p          ) = +0.001
+      cos(sid_vs_club           ) = +0.026
+      cos(grl_p_vs_club         ) = +0.071  aligned
+    [mask_grad @7200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00436  mP=0.00436  tilt=+0.00
+      pr               mL=1.41564  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.41862  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.48931  tilt=-1.00  -> P
+      club             mL=3.37840  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   7200/10000  recon=0.2184  pr=1.7814  sid=0.0000  grl_p=3.3297(per=0.544)  inv_L=8.3353  inv_P=0.3562  var=0.9642  cov=210.5520  club=+9.5327  q_phi[ce=2.321,acc=0.562]  k[L/P]=1681/3439  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.64/0.59  uN[L/P]=220.31±5.11/188.59±5.52  eR[L/P]=526/682  mix[arc/pert]=0.00/1.00  dead=25.2%  L/P/U=1532/3588/0  actL/P/U=147/109/0  H=0.632  Hu=0.431  spec<.5=0.53  marg=0.589  lstd=1.1200  lr=2.07e-05
+  step   7300/10000  recon=0.2167  pr=1.5804  sid=0.0053  grl_p=3.7550(per=0.540)  inv_L=8.6757  inv_P=0.4051  var=0.9336  cov=187.1843  club=+10.3882  q_phi[ce=3.369,acc=0.125]  k[L/P]=1653/3467  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.61/0.59  uN[L/P]=218.63±3.07/180.32±3.26  eR[L/P]=535/694  mix[arc/pert]=0.00/1.00  dead=25.0%  L/P/U=1530/3590/0  actL/P/U=146/110/0  H=0.631  Hu=0.431  spec<.5=0.53  marg=0.589  lstd=1.1219  lr=1.95e-05
+  [grad_norms @7400]
+    recon             |g|=0.74931  ratio=1.000x recon
+    pr_raw            |g|=4.64537  ratio=6.200x recon
+    pr_weighted       |g|=3.71630  ratio=4.960x recon
+    sid_raw           |g|=0.01674  ratio=0.022x recon
+    sid_weighted      |g|=0.01004  ratio=0.013x recon
+    grl_p             |g|=2.43567  ratio=3.251x recon
+    club              |g|=2.82008  ratio=3.764x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00027   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @7400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.032
+      cos(recon_vs_sid          ) = -0.003
+      cos(recon_vs_grl_p        ) = -0.058  conflict
+      cos(recon_vs_club         ) = -0.002
+      cos(pr_vs_sid             ) = +0.005
+      cos(pr_vs_grl_p           ) = +0.226  aligned
+      cos(pr_vs_club            ) = -0.042
+      cos(sid_vs_grl_p          ) = -0.001
+      cos(sid_vs_club           ) = +0.013
+      cos(grl_p_vs_club         ) = +0.007
+    [mask_grad @7400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00404  mP=0.00404  tilt=+0.00
+      pr               mL=1.76567  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.00534  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.71384  tilt=-1.00  -> P
+      club             mL=3.55284  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   7400/10000  recon=0.2173  pr=1.9182  sid=0.0004  grl_p=5.6086(per=0.991)  inv_L=8.6372  inv_P=0.4623  var=0.9358  cov=215.7622  club=+7.3087  q_phi[ce=2.376,acc=0.375]  k[L/P]=1677/3443  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.63/0.60  uN[L/P]=233.05±4.62/178.96±3.29  eR[L/P]=524/688  mix[arc/pert]=0.00/1.00  dead=24.7%  L/P/U=1529/3591/0  actL/P/U=147/109/0  H=0.631  Hu=0.430  spec<.5=0.53  marg=0.589  lstd=1.1237  lr=1.82e-05
+  step   7500/10000  recon=0.2157  pr=1.9856  sid=0.0006  grl_p=3.8272(per=0.679)  inv_L=7.8816  inv_P=0.4231  var=0.9091  cov=213.9899  club=+13.3530  q_phi[ce=1.884,acc=0.438]  k[L/P]=1675/3445  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.64/0.56  uN[L/P]=230.42±2.47/180.55±1.68  eR[L/P]=529/694  mix[arc/pert]=0.00/1.00  dead=24.6%  L/P/U=1526/3594/0  actL/P/U=147/109/0  H=0.631  Hu=0.430  spec<.5=0.53  marg=0.590  lstd=1.1253  lr=1.70e-05
+  [grad_norms @7600]
+    recon             |g|=0.68814  ratio=1.000x recon
+    pr_raw            |g|=3.23136  ratio=4.696x recon
+    pr_weighted       |g|=2.58509  ratio=3.757x recon
+    sid_raw           |g|=0.09256  ratio=0.135x recon
+    sid_weighted      |g|=0.05554  ratio=0.081x recon
+    grl_p             |g|=3.47920  ratio=5.056x recon
+    club              |g|=4.47428  ratio=6.502x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00033   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @7600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.077  aligned
+      cos(recon_vs_sid          ) = -0.001
+      cos(recon_vs_grl_p        ) = -0.014
+      cos(recon_vs_club         ) = -0.003
+      cos(pr_vs_sid             ) = +0.012
+      cos(pr_vs_grl_p           ) = +0.274  aligned
+      cos(pr_vs_club            ) = -0.148  conflict
+      cos(sid_vs_grl_p          ) = +0.042
+      cos(sid_vs_club           ) = +0.016
+      cos(grl_p_vs_club         ) = -0.044
+    [mask_grad @7600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00498  mP=0.00498  tilt=+0.00
+      pr               mL=0.93076  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.02873  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=1.14538  tilt=-1.00  -> P
+      club             mL=3.36942  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   7600/10000  recon=0.2140  pr=1.7561  sid=0.0000  grl_p=4.5835(per=0.631)  inv_L=7.7029  inv_P=0.4403  var=0.9110  cov=223.7685  club=+8.9989  q_phi[ce=3.039,acc=0.125]  k[L/P]=1698/3422  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.62/0.57  uN[L/P]=228.16±1.94/181.22±2.32  eR[L/P]=532/698  mix[arc/pert]=0.00/1.00  dead=24.4%  L/P/U=1525/3595/0  actL/P/U=146/110/0  H=0.630  Hu=0.429  spec<.5=0.53  marg=0.590  lstd=1.1267  lr=1.58e-05
+  step   7700/10000  recon=0.2142  pr=2.0826  sid=0.0031  grl_p=4.0408(per=0.551)  inv_L=9.1730  inv_P=0.4542  var=0.9005  cov=202.3091  club=+14.0952  q_phi[ce=2.673,acc=0.188]  k[L/P]=1634/3486  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.64/0.55  uN[L/P]=221.55±3.77/180.48±3.69  eR[L/P]=541/716  mix[arc/pert]=0.00/1.00  dead=24.2%  L/P/U=1524/3596/0  actL/P/U=146/110/0  H=0.630  Hu=0.429  spec<.5=0.53  marg=0.590  lstd=1.1281  lr=1.46e-05
+  [grad_norms @7800]
+    recon             |g|=0.57397  ratio=1.000x recon
+    pr_raw            |g|=6.58282  ratio=11.469x recon
+    pr_weighted       |g|=5.26626  ratio=9.175x recon
+    sid_raw           |g|=0.72225  ratio=1.258x recon
+    sid_weighted      |g|=0.43335  ratio=0.755x recon
+    grl_p             |g|=2.15712  ratio=3.758x recon
+    club              |g|=4.61040  ratio=8.033x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00028   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @7800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.053  aligned
+      cos(recon_vs_sid          ) = +0.013
+      cos(recon_vs_grl_p        ) = -0.029
+      cos(recon_vs_club         ) = +0.002
+      cos(pr_vs_sid             ) = -0.007
+      cos(pr_vs_grl_p           ) = +0.240  aligned
+      cos(pr_vs_club            ) = -0.248  conflict
+      cos(sid_vs_grl_p          ) = -0.035
+      cos(sid_vs_club           ) = +0.014
+      cos(grl_p_vs_club         ) = -0.067  conflict
+    [mask_grad @7800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00406  mP=0.00406  tilt=+0.00
+      pr               mL=1.92137  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.21499  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.78013  tilt=-1.00  -> P
+      club             mL=2.66887  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   7800/10000  recon=0.2131  pr=1.4593  sid=0.0159  grl_p=2.9786(per=0.508)  inv_L=8.7103  inv_P=0.4092  var=0.9106  cov=219.9420  club=+9.8989  q_phi[ce=1.564,acc=0.562]  k[L/P]=1620/3500  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.61/0.59  uN[L/P]=231.88±3.76/177.85±4.30  eR[L/P]=535/707  mix[arc/pert]=0.00/1.00  dead=23.9%  L/P/U=1521/3599/0  actL/P/U=146/110/0  H=0.630  Hu=0.429  spec<.5=0.53  marg=0.591  lstd=1.1293  lr=1.35e-05
+  step   7900/10000  recon=0.2150  pr=2.5071  sid=0.0015  grl_p=6.1851(per=0.654)  inv_L=8.8007  inv_P=0.4514  var=0.8730  cov=235.8730  club=+12.8374  q_phi[ce=2.519,acc=0.188]  k[L/P]=1656/3464  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.62/0.54  uN[L/P]=223.48±2.30/192.32±3.19  eR[L/P]=536/702  mix[arc/pert]=0.00/1.00  dead=23.6%  L/P/U=1520/3600/0  actL/P/U=147/109/0  H=0.630  Hu=0.429  spec<.5=0.53  marg=0.591  lstd=1.1307  lr=1.25e-05
+  [grad_norms @8000]
+    recon             |g|=0.54920  ratio=1.000x recon
+    pr_raw            |g|=2.77103  ratio=5.046x recon
+    pr_weighted       |g|=2.21683  ratio=4.036x recon
+    sid_raw           |g|=1.91633  ratio=3.489x recon
+    sid_weighted      |g|=1.14980  ratio=2.094x recon
+    grl_p             |g|=3.11528  ratio=5.672x recon
+    club              |g|=10.57721  ratio=19.259x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00027   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @8000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.035
+      cos(recon_vs_sid          ) = +0.002
+      cos(recon_vs_grl_p        ) = -0.023
+      cos(recon_vs_club         ) = +0.006
+      cos(pr_vs_sid             ) = -0.019
+      cos(pr_vs_grl_p           ) = +0.240  aligned
+      cos(pr_vs_club            ) = +0.125  aligned
+      cos(sid_vs_grl_p          ) = -0.046
+      cos(sid_vs_club           ) = +0.007
+      cos(grl_p_vs_club         ) = +0.103  aligned
+    [mask_grad @8000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00494  mP=0.00494  tilt=+0.00
+      pr               mL=1.55953  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.62781  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.79534  tilt=-1.00  -> P
+      club             mL=3.88547  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   8000/10000  recon=0.2139  pr=2.8952  sid=0.0001  grl_p=5.4506(per=0.628)  inv_L=8.3239  inv_P=0.4059  var=0.8819  cov=261.4626  club=+15.8801  q_phi[ce=2.052,acc=0.312]  k[L/P]=1660/3460  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.61/0.55  uN[L/P]=229.75±6.18/184.14±4.04  eR[L/P]=540/700  mix[arc/pert]=0.00/1.00  dead=23.5%  L/P/U=1517/3603/0  actL/P/U=146/110/0  H=0.630  Hu=0.428  spec<.5=0.53  marg=0.591  lstd=1.1319  lr=1.14e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=8000  recon=0.2149  pr=1.3237  | z_L PR=0.292  | z_P PR=0.448 SID=1.000
+  ✓ best checkpoint (disent=0.8487  PER=0.292 sid=1.000 grl_acc=0.004 grl_p_per=0.448) → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt
+  step   8100/10000  recon=0.2186  pr=2.5270  sid=0.0907  grl_p=6.3208(per=0.896)  inv_L=9.6780  inv_P=0.4399  var=0.8973  cov=286.1580  club=+12.6708  q_phi[ce=2.735,acc=0.438]  k[L/P]=1628/3492  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.62/0.56  uN[L/P]=231.34±4.60/188.68±4.38  eR[L/P]=541/699  mix[arc/pert]=0.00/1.00  dead=23.4%  L/P/U=1518/3602/0  actL/P/U=146/110/0  H=0.629  Hu=0.428  spec<.5=0.53  marg=0.591  lstd=1.1329  lr=1.05e-05
+  [grad_norms @8200]
+    recon             |g|=0.53502  ratio=1.000x recon
+    pr_raw            |g|=6.23072  ratio=11.646x recon
+    pr_weighted       |g|=4.98458  ratio=9.317x recon
+    sid_raw           |g|=3.21079  ratio=6.001x recon
+    sid_weighted      |g|=1.92647  ratio=3.601x recon
+    grl_p             |g|=2.59679  ratio=4.854x recon
+    club              |g|=4.76901  ratio=8.914x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00031   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @8200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.111  aligned
+      cos(recon_vs_sid          ) = -0.006
+      cos(recon_vs_grl_p        ) = +0.010
+      cos(recon_vs_club         ) = -0.011
+      cos(pr_vs_sid             ) = -0.002
+      cos(pr_vs_grl_p           ) = +0.126  aligned
+      cos(pr_vs_club            ) = -0.135  conflict
+      cos(sid_vs_grl_p          ) = -0.002
+      cos(sid_vs_club           ) = +0.030
+      cos(grl_p_vs_club         ) = -0.022
+    [mask_grad @8200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00529  mP=0.00529  tilt=+0.00
+      pr               mL=1.73660  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.04566  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.88502  tilt=-1.00  -> P
+      club             mL=2.83530  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   8200/10000  recon=0.2142  pr=2.4020  sid=0.0013  grl_p=5.1868(per=0.621)  inv_L=9.3739  inv_P=0.4189  var=0.8841  cov=270.5602  club=+10.1168  q_phi[ce=2.173,acc=0.438]  k[L/P]=1674/3446  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.61/0.55  uN[L/P]=234.22±4.85/186.02±3.96  eR[L/P]=537/709  mix[arc/pert]=0.00/1.00  dead=23.2%  L/P/U=1518/3602/0  actL/P/U=147/109/0  H=0.629  Hu=0.428  spec<.5=0.53  marg=0.592  lstd=1.1339  lr=9.51e-06
+  step   8300/10000  recon=0.2130  pr=1.7255  sid=0.0001  grl_p=3.8586(per=0.610)  inv_L=9.1462  inv_P=0.4211  var=0.8636  cov=254.5033  club=+11.9016  q_phi[ce=2.974,acc=0.062]  k[L/P]=1649/3471  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.59/0.54  uN[L/P]=223.18±3.40/185.44±3.06  eR[L/P]=555/708  mix[arc/pert]=0.00/1.00  dead=23.0%  L/P/U=1517/3603/0  actL/P/U=146/110/0  H=0.629  Hu=0.428  spec<.5=0.53  marg=0.592  lstd=1.1348  lr=8.62e-06
+  [grad_norms @8400]
+    recon             |g|=0.60548  ratio=1.000x recon
+    pr_raw            |g|=1.97269  ratio=3.258x recon
+    pr_weighted       |g|=1.57815  ratio=2.606x recon
+    sid_raw           |g|=0.26025  ratio=0.430x recon
+    sid_weighted      |g|=0.15615  ratio=0.258x recon
+    grl_p             |g|=2.40009  ratio=3.964x recon
+    club              |g|=3.00823  ratio=4.968x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00022   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @8400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.064  aligned
+      cos(recon_vs_sid          ) = +0.010
+      cos(recon_vs_grl_p        ) = -0.109  conflict
+      cos(recon_vs_club         ) = -0.001
+      cos(pr_vs_sid             ) = +0.009
+      cos(pr_vs_grl_p           ) = +0.146  aligned
+      cos(pr_vs_club            ) = -0.018
+      cos(sid_vs_grl_p          ) = -0.004
+      cos(sid_vs_club           ) = -0.018
+      cos(grl_p_vs_club         ) = +0.015
+    [mask_grad @8400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00892  mP=0.00892  tilt=+0.00
+      pr               mL=1.17542  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.04659  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.44599  tilt=-1.00  -> P
+      club             mL=3.18846  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   8400/10000  recon=0.2122  pr=1.8562  sid=0.0050  grl_p=3.5452(per=0.570)  inv_L=9.8045  inv_P=0.4252  var=0.8530  cov=265.0020  club=+17.3945  q_phi[ce=1.343,acc=0.438]  k[L/P]=1670/3450  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.60/0.52  uN[L/P]=232.79±3.69/184.83±3.09  eR[L/P]=555/720  mix[arc/pert]=0.00/1.00  dead=22.9%  L/P/U=1515/3605/0  actL/P/U=146/110/0  H=0.629  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1355  lr=7.77e-06
+  step   8500/10000  recon=0.2141  pr=1.9497  sid=0.0020  grl_p=3.6598(per=0.567)  inv_L=8.4585  inv_P=0.4233  var=0.8567  cov=267.2674  club=+19.5099  q_phi[ce=1.678,acc=0.500]  k[L/P]=1633/3487  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.60/0.53  uN[L/P]=223.21±3.85/188.00±4.03  eR[L/P]=557/716  mix[arc/pert]=0.00/1.00  dead=22.8%  L/P/U=1517/3603/0  actL/P/U=146/110/0  H=0.629  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1363  lr=6.97e-06
+  [grad_norms @8600]
+    recon             |g|=0.47456  ratio=1.000x recon
+    pr_raw            |g|=5.79366  ratio=12.208x recon
+    pr_weighted       |g|=4.63493  ratio=9.767x recon
+    sid_raw           |g|=0.00033  ratio=0.001x recon
+    sid_weighted      |g|=0.00020  ratio=0.000x recon
+    grl_p             |g|=2.36565  ratio=4.985x recon
+    club              |g|=7.69411  ratio=16.213x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00034   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @8600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.007
+      cos(recon_vs_sid          ) = +0.017
+      cos(recon_vs_grl_p        ) = -0.055  conflict
+      cos(recon_vs_club         ) = -0.002
+      cos(pr_vs_sid             ) = -0.018
+      cos(pr_vs_grl_p           ) = +0.247  aligned
+      cos(pr_vs_club            ) = +0.134  aligned
+      cos(sid_vs_grl_p          ) = -0.049
+      cos(sid_vs_club           ) = -0.021
+      cos(grl_p_vs_club         ) = +0.052  aligned
+    [mask_grad @8600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00408  mP=0.00408  tilt=+0.00
+      pr               mL=2.94960  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.00010  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.95507  tilt=-1.00  -> P
+      club             mL=3.48566  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   8600/10000  recon=0.2107  pr=1.8278  sid=0.0006  grl_p=3.7316(per=0.627)  inv_L=9.6238  inv_P=0.4075  var=0.8602  cov=281.6578  club=+16.1989  q_phi[ce=2.334,acc=0.375]  k[L/P]=1616/3504  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.60/0.53  uN[L/P]=241.11±2.83/168.60±3.42  eR[L/P]=549/727  mix[arc/pert]=0.00/1.00  dead=22.7%  L/P/U=1518/3602/0  actL/P/U=148/108/0  H=0.629  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1369  lr=6.21e-06
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   8700/10000  recon=0.2105  pr=1.7875  sid=0.0003  grl_p=4.2918(per=0.718)  inv_L=9.2591  inv_P=0.4219  var=0.8538  cov=266.6857  club=+22.2205  q_phi[ce=1.175,acc=0.625]  k[L/P]=1641/3479  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.61/0.52  uN[L/P]=238.00±4.10/178.94±3.42  eR[L/P]=547/726  mix[arc/pert]=0.00/1.00  dead=22.6%  L/P/U=1515/3605/0  actL/P/U=148/108/0  H=0.628  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1375  lr=5.50e-06
+  [grad_norms @8800]
+    recon             |g|=0.52830  ratio=1.000x recon
+    pr_raw            |g|=2.66750  ratio=5.049x recon
+    pr_weighted       |g|=2.13400  ratio=4.039x recon
+    sid_raw           |g|=0.32847  ratio=0.622x recon
+    sid_weighted      |g|=0.19708  ratio=0.373x recon
+    grl_p             |g|=1.82181  ratio=3.448x recon
+    club              |g|=6.01949  ratio=11.394x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00034   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @8800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.050  aligned
+      cos(recon_vs_sid          ) = +0.006
+      cos(recon_vs_grl_p        ) = -0.034
+      cos(recon_vs_club         ) = +0.011
+      cos(pr_vs_sid             ) = +0.005
+      cos(pr_vs_grl_p           ) = +0.150  aligned
+      cos(pr_vs_club            ) = -0.108  conflict
+      cos(sid_vs_grl_p          ) = -0.017
+      cos(sid_vs_club           ) = -0.001
+      cos(grl_p_vs_club         ) = +0.000
+    [mask_grad @8800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00528  mP=0.00528  tilt=+0.00
+      pr               mL=0.81347  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.10351  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.86091  tilt=-1.00  -> P
+      club             mL=3.35462  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   8800/10000  recon=0.2162  pr=1.7206  sid=0.0008  grl_p=4.1481(per=0.593)  inv_L=9.1407  inv_P=0.4642  var=0.8782  cov=310.6869  club=+9.5700  q_phi[ce=1.607,acc=0.500]  k[L/P]=1617/3503  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.60/0.54  uN[L/P]=234.77±4.45/178.88±3.17  eR[L/P]=541/715  mix[arc/pert]=0.00/1.00  dead=22.5%  L/P/U=1515/3605/0  actL/P/U=149/107/0  H=0.628  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1380  lr=4.85e-06
+  step   8900/10000  recon=0.2126  pr=1.5024  sid=0.0000  grl_p=3.6018(per=0.538)  inv_L=8.8520  inv_P=0.4541  var=0.8308  cov=285.8864  club=+14.3796  q_phi[ce=2.182,acc=0.250]  k[L/P]=1662/3458  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.60/0.49  uN[L/P]=239.62±2.97/184.37±1.66  eR[L/P]=548/726  mix[arc/pert]=0.00/1.00  dead=22.5%  L/P/U=1514/3606/0  actL/P/U=149/107/0  H=0.628  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1385  lr=4.24e-06
+  [grad_norms @9000]
+    recon             |g|=0.42774  ratio=1.000x recon
+    pr_raw            |g|=4.03319  ratio=9.429x recon
+    pr_weighted       |g|=3.22656  ratio=7.543x recon
+    sid_raw           |g|=1.20941  ratio=2.827x recon
+    sid_weighted      |g|=0.72565  ratio=1.696x recon
+    grl_p             |g|=3.63964  ratio=8.509x recon
+    club              |g|=5.32279  ratio=12.444x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00020   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @9000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.020
+      cos(recon_vs_sid          ) = +0.016
+      cos(recon_vs_grl_p        ) = -0.097  conflict
+      cos(recon_vs_club         ) = -0.018
+      cos(pr_vs_sid             ) = -0.034
+      cos(pr_vs_grl_p           ) = +0.296  aligned
+      cos(pr_vs_club            ) = +0.037
+      cos(sid_vs_grl_p          ) = -0.130  conflict
+      cos(sid_vs_club           ) = -0.023
+      cos(grl_p_vs_club         ) = +0.054  aligned
+    [mask_grad @9000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00478  mP=0.00478  tilt=+0.00
+      pr               mL=1.53993  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.20818  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.79655  tilt=-1.00  -> P
+      club             mL=4.46011  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   9000/10000  recon=0.2099  pr=1.4254  sid=0.0001  grl_p=3.3572(per=0.528)  inv_L=9.3298  inv_P=0.4309  var=0.8351  cov=249.2784  club=+17.0840  q_phi[ce=1.835,acc=0.375]  k[L/P]=1635/3485  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.58/0.51  uN[L/P]=236.98±3.75/175.52±2.33  eR[L/P]=557/729  mix[arc/pert]=0.00/1.00  dead=22.5%  L/P/U=1513/3607/0  actL/P/U=150/106/0  H=0.628  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1389  lr=3.68e-06
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=9000  recon=0.2134  pr=1.2421  | z_L PR=0.264  | z_P PR=0.461 SID=1.000
+  ✓ best checkpoint (disent=0.8113  PER=0.264 sid=1.000 grl_acc=0.008 grl_p_per=0.461) → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt
+  step   9100/10000  recon=0.2115  pr=1.8977  sid=0.0000  grl_p=3.4407(per=0.610)  inv_L=9.1343  inv_P=0.4504  var=0.8393  cov=295.6684  club=+16.1768  q_phi[ce=2.170,acc=0.312]  k[L/P]=1606/3514  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.59/0.51  uN[L/P]=231.19±3.59/185.54±4.72  eR[L/P]=551/728  mix[arc/pert]=0.00/1.00  dead=22.4%  L/P/U=1511/3609/0  actL/P/U=149/107/0  H=0.628  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1392  lr=3.18e-06
+  [grad_norms @9200]
+    recon             |g|=0.53812  ratio=1.000x recon
+    pr_raw            |g|=1.99411  ratio=3.706x recon
+    pr_weighted       |g|=1.59529  ratio=2.965x recon
+    sid_raw           |g|=0.11481  ratio=0.213x recon
+    sid_weighted      |g|=0.06889  ratio=0.128x recon
+    grl_p             |g|=3.64459  ratio=6.773x recon
+    club              |g|=10.84163  ratio=20.147x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00026   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @9200]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.091  aligned
+      cos(recon_vs_sid          ) = +0.001
+      cos(recon_vs_grl_p        ) = -0.004
+      cos(recon_vs_club         ) = +0.020
+      cos(pr_vs_sid             ) = -0.008
+      cos(pr_vs_grl_p           ) = +0.153  aligned
+      cos(pr_vs_club            ) = +0.130  aligned
+      cos(sid_vs_grl_p          ) = -0.073  conflict
+      cos(sid_vs_club           ) = -0.032
+      cos(grl_p_vs_club         ) = +0.131  aligned
+    [mask_grad @9200]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00626  mP=0.00626  tilt=+0.00
+      pr               mL=0.78514  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.01696  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.69343  tilt=-1.00  -> P
+      club             mL=3.72319  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   9200/10000  recon=0.2147  pr=1.8944  sid=0.0001  grl_p=4.1344(per=0.575)  inv_L=8.8691  inv_P=0.3975  var=0.8493  cov=299.3198  club=+15.3433  q_phi[ce=1.586,acc=0.375]  k[L/P]=1666/3454  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.59/0.51  uN[L/P]=232.58±5.36/187.41±4.32  eR[L/P]=564/719  mix[arc/pert]=0.00/1.00  dead=22.3%  L/P/U=1511/3609/0  actL/P/U=150/106/0  H=0.628  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1395  lr=2.72e-06
+  step   9300/10000  recon=0.2127  pr=1.8068  sid=0.0001  grl_p=3.7699(per=0.601)  inv_L=9.3571  inv_P=0.4006  var=0.8449  cov=292.8905  club=+11.9293  q_phi[ce=2.091,acc=0.312]  k[L/P]=1603/3517  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.58/0.52  uN[L/P]=238.69±2.73/180.96±2.62  eR[L/P]=548/728  mix[arc/pert]=0.00/1.00  dead=22.1%  L/P/U=1511/3609/0  actL/P/U=150/106/0  H=0.628  Hu=0.427  spec<.5=0.54  marg=0.592  lstd=1.1398  lr=2.32e-06
+  [grad_norms @9400]
+    recon             |g|=0.51670  ratio=1.000x recon
+    pr_raw            |g|=5.80636  ratio=11.237x recon
+    pr_weighted       |g|=4.64509  ratio=8.990x recon
+    sid_raw           |g|=0.03575  ratio=0.069x recon
+    sid_weighted      |g|=0.02145  ratio=0.042x recon
+    grl_p             |g|=6.66445  ratio=12.898x recon
+    club              |g|=6.61183  ratio=12.796x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00046   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @9400]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.044
+      cos(recon_vs_sid          ) = -0.008
+      cos(recon_vs_grl_p        ) = -0.042
+      cos(recon_vs_club         ) = -0.007
+      cos(pr_vs_sid             ) = +0.013
+      cos(pr_vs_grl_p           ) = +0.283  aligned
+      cos(pr_vs_club            ) = -0.164  conflict
+      cos(sid_vs_grl_p          ) = +0.034
+      cos(sid_vs_club           ) = -0.007
+      cos(grl_p_vs_club         ) = -0.068  conflict
+    [mask_grad @9400]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00662  mP=0.00662  tilt=+0.00
+      pr               mL=1.78547  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.01140  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=2.27104  tilt=-1.00  -> P
+      club             mL=3.23061  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   9400/10000  recon=0.2136  pr=2.3863  sid=0.0008  grl_p=4.6239(per=0.608)  inv_L=8.9449  inv_P=0.4684  var=0.8107  cov=335.8077  club=+16.4393  q_phi[ce=2.046,acc=0.375]  k[L/P]=1627/3493  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.59/0.47  uN[L/P]=235.61±5.07/185.87±5.03  eR[L/P]=548/733  mix[arc/pert]=0.00/1.00  dead=22.1%  L/P/U=1511/3609/0  actL/P/U=148/108/0  H=0.628  Hu=0.426  spec<.5=0.54  marg=0.593  lstd=1.1400  lr=1.97e-06
+  step   9500/10000  recon=0.2122  pr=2.1423  sid=0.0004  grl_p=5.4044(per=0.664)  inv_L=8.8684  inv_P=0.4333  var=0.8420  cov=319.6208  club=+16.2415  q_phi[ce=1.569,acc=0.438]  k[L/P]=1700/3420  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.61/0.50  uN[L/P]=229.83±5.63/195.75±5.46  eR[L/P]=551/721  mix[arc/pert]=0.00/1.00  dead=22.2%  L/P/U=1510/3610/0  actL/P/U=150/106/0  H=0.628  Hu=0.426  spec<.5=0.54  marg=0.593  lstd=1.1402  lr=1.68e-06
+  [grad_norms @9600]
+    recon             |g|=0.44735  ratio=1.000x recon
+    pr_raw            |g|=3.77596  ratio=8.441x recon
+    pr_weighted       |g|=3.02077  ratio=6.753x recon
+    sid_raw           |g|=7.26399  ratio=16.238x recon
+    sid_weighted      |g|=4.35840  ratio=9.743x recon
+    grl_p             |g|=7.06899  ratio=15.802x recon
+    club              |g|=7.76753  ratio=17.363x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00040   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @9600]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.119  aligned
+      cos(recon_vs_sid          ) = +0.029
+      cos(recon_vs_grl_p        ) = +0.027
+      cos(recon_vs_club         ) = -0.017
+      cos(pr_vs_sid             ) = -0.001
+      cos(pr_vs_grl_p           ) = +0.276  aligned
+      cos(pr_vs_club            ) = -0.214  conflict
+      cos(sid_vs_grl_p          ) = +0.076  aligned
+      cos(sid_vs_club           ) = -0.048
+      cos(grl_p_vs_club         ) = -0.095  conflict
+    [mask_grad @9600]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00523  mP=0.00523  tilt=+0.00
+      pr               mL=1.11528  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=1.27540  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=1.55278  tilt=-1.00  -> P
+      club             mL=3.75092  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   9600/10000  recon=0.2099  pr=1.9690  sid=0.0001  grl_p=4.4117(per=0.715)  inv_L=9.2769  inv_P=0.4239  var=0.8690  cov=278.3014  club=+20.6487  q_phi[ce=1.203,acc=0.500]  k[L/P]=1662/3458  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.61/0.55  uN[L/P]=236.67±3.52/180.76±2.99  eR[L/P]=544/719  mix[arc/pert]=0.00/1.00  dead=22.1%  L/P/U=1510/3610/0  actL/P/U=151/105/0  H=0.628  Hu=0.426  spec<.5=0.54  marg=0.593  lstd=1.1404  lr=1.43e-06
+  step   9700/10000  recon=0.2114  pr=1.9082  sid=0.0181  grl_p=3.5646(per=0.584)  inv_L=9.2383  inv_P=0.4060  var=0.8407  cov=316.5037  club=+15.7441  q_phi[ce=1.579,acc=0.312]  k[L/P]=1617/3503  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.60/0.51  uN[L/P]=233.80±4.08/187.90±3.84  eR[L/P]=553/729  mix[arc/pert]=0.00/1.00  dead=22.1%  L/P/U=1511/3609/0  actL/P/U=149/107/0  H=0.628  Hu=0.426  spec<.5=0.54  marg=0.593  lstd=1.1405  lr=1.24e-06
+  [grad_norms @9800]
+    recon             |g|=0.42937  ratio=1.000x recon
+    pr_raw            |g|=2.28035  ratio=5.311x recon
+    pr_weighted       |g|=1.82428  ratio=4.249x recon
+    sid_raw           |g|=0.12940  ratio=0.301x recon
+    sid_weighted      |g|=0.07764  ratio=0.181x recon
+    grl_p             |g|=1.19140  ratio=2.775x recon
+    club              |g|=5.86294  ratio=13.655x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00024   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @9800]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.032
+      cos(recon_vs_sid          ) = +0.015
+      cos(recon_vs_grl_p        ) = -0.069  conflict
+      cos(recon_vs_club         ) = -0.019
+      cos(pr_vs_sid             ) = -0.002
+      cos(pr_vs_grl_p           ) = +0.223  aligned
+      cos(pr_vs_club            ) = +0.015
+      cos(sid_vs_grl_p          ) = -0.045
+      cos(sid_vs_club           ) = -0.041
+      cos(grl_p_vs_club         ) = +0.034
+    [mask_grad @9800]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00461  mP=0.00461  tilt=+0.00
+      pr               mL=1.42130  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.02088  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.65096  tilt=-1.00  -> P
+      club             mL=3.46867  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   9800/10000  recon=0.2117  pr=1.7150  sid=0.0008  grl_p=4.2418(per=0.683)  inv_L=8.7870  inv_P=0.3753  var=0.8224  cov=302.9265  club=+21.5134  q_phi[ce=1.039,acc=0.688]  k[L/P]=1681/3439  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.59/0.50  uN[L/P]=241.90±3.33/177.79±3.71  eR[L/P]=549/730  mix[arc/pert]=0.00/1.00  dead=22.1%  L/P/U=1509/3611/0  actL/P/U=150/106/0  H=0.628  Hu=0.426  spec<.5=0.54  marg=0.593  lstd=1.1406  lr=1.11e-06
+  step   9900/10000  recon=0.2144  pr=1.9065  sid=0.0191  grl_p=4.1524(per=0.599)  inv_L=8.8445  inv_P=0.4263  var=0.8289  cov=289.4952  club=+15.7363  q_phi[ce=2.165,acc=0.250]  k[L/P]=1645/3475  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.59/0.51  uN[L/P]=240.37±4.44/176.91±2.25  eR[L/P]=560/733  mix[arc/pert]=0.00/1.00  dead=22.0%  L/P/U=1510/3610/0  actL/P/U=151/105/0  H=0.628  Hu=0.426  spec<.5=0.54  marg=0.593  lstd=1.1407  lr=1.03e-06
+  [grad_norms @10000]
+    recon             |g|=0.43637  ratio=1.000x recon
+    pr_raw            |g|=2.41888  ratio=5.543x recon
+    pr_weighted       |g|=1.93511  ratio=4.435x recon
+    sid_raw           |g|=0.00075  ratio=0.002x recon
+    sid_weighted      |g|=0.00045  ratio=0.001x recon
+    grl_p             |g|=3.84397  ratio=8.809x recon
+    club              |g|=5.67604  ratio=13.007x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00000   grl_p(z_P)=0.00024   (grl_p/grl = nanx  <- pooled-vs-dense dilution)
+    [grad_cos @10000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.025
+      cos(recon_vs_sid          ) = -0.005
+      cos(recon_vs_grl_p        ) = -0.054  conflict
+      cos(recon_vs_club         ) = +0.003
+      cos(pr_vs_sid             ) = +0.004
+      cos(pr_vs_grl_p           ) = +0.181  aligned
+      cos(pr_vs_club            ) = +0.036
+      cos(sid_vs_grl_p          ) = -0.001
+      cos(sid_vs_club           ) = -0.021
+      cos(grl_p_vs_club         ) = +0.072  aligned
+    [mask_grad @10000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00373  mP=0.00373  tilt=+0.00
+      pr               mL=1.50592  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.00017  tilt=-1.00  -> P
+      grl_p            mL=0.00000  mP=0.70407  tilt=-1.00  -> P
+      club             mL=3.02144  mP=0.00000  tilt=+1.00  -> L
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step  10000/10000  recon=0.2124  pr=1.8300  sid=0.0000  grl_p=4.2140(per=0.597)  inv_L=9.9692  inv_P=0.4156  var=0.8516  cov=292.1497  club=+18.1401  q_phi[ce=0.679,acc=0.875]  k[L/P]=1693/3427  Zσ10[L/P]=0.00/0.00  blw[L/P]=0.60/0.52  uN[L/P]=234.66±3.31/180.00±3.07  eR[L/P]=552/721  mix[arc/pert]=0.00/1.00  dead=21.9%  L/P/U=1510/3610/0  actL/P/U=150/106/0  H=0.628  Hu=0.426  spec<.5=0.54  marg=0.593  lstd=1.1408  lr=1.00e-06
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=10000  recon=0.2125  pr=1.2582  | z_L PR=0.267  | z_P PR=0.475 SID=1.000
+  ✓ best checkpoint (disent=0.8000  PER=0.267 sid=1.000 grl_acc=0.008 grl_p_per=0.475) → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt
+
+[stage 2] done.  Best disent_score=0.8000  → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt
+
+[done]  best checkpoint → /scratch/bbg25/runs/libri_clubhybrid_vicreg_softtau1_clubgn001_grlp02_s42/checkpoints/stage2_best.pt

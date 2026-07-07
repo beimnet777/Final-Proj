@@ -316,6 +316,12 @@ def _parse_args():
     p.add_argument("--club_grad_norm_target", type=float,
                    default=cfg.club_grad_norm_target,
                    help="Per-frame z_L norm target for the normalized CLUB gradient.")
+    p.add_argument("--club_full_diagnostics", action=argparse.BooleanOptionalAction,
+                   default=cfg.club_full_diagnostics,
+                   help="Enable expensive one-shot CLUB/VICReg gradient and optimizer diagnostics.")
+    p.add_argument("--club_diagnostics_every", type=int,
+                   default=cfg.club_diagnostics_every,
+                   help="Optimizer-step interval for --club_full_diagnostics.")
     p.add_argument("--club_phoneme_enabled", action="store_true",
                    help="Add frame-level CLUB MI-min on (z_P, pr_head.argmax). "
                         "Symmetric to --club_enabled but for phoneme leakage out of z_P.")
@@ -500,6 +506,8 @@ def _parse_args():
     cfg.club_hidden           = args.club_hidden
     cfg.club_grad_norm        = bool(args.club_grad_norm)
     cfg.club_grad_norm_target = args.club_grad_norm_target
+    cfg.club_full_diagnostics = bool(args.club_full_diagnostics)
+    cfg.club_diagnostics_every = args.club_diagnostics_every
     cfg.club_phoneme_enabled       = bool(args.club_phoneme_enabled)
     cfg.club_phoneme_weight        = args.club_phoneme_weight
     cfg.club_phoneme_lr            = args.club_phoneme_lr
@@ -526,6 +534,10 @@ def _parse_args():
         p.error("--club_grad_norm requires --club_enabled")
     if cfg.club_grad_norm_target <= 0:
         p.error("--club_grad_norm_target must be positive")
+    if cfg.club_full_diagnostics and not cfg.club_enabled:
+        p.error("--club_full_diagnostics requires --club_enabled")
+    if cfg.club_diagnostics_every <= 0:
+        p.error("--club_diagnostics_every must be positive")
     if not cfg.spear_revision and cfg.resume not in {"none", ""}:
         _rp = cfg.checkpoint_dir / "latest-resume.pt" if cfg.resume == "auto" else Path(cfg.resume)
         if _rp.exists():

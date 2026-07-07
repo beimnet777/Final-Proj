@@ -113,6 +113,11 @@ def validate_experiment_config(config: dict) -> None:
             raise ValueError("club_grad_norm_target must be positive")
         if float(config.get("club_weight", 0.0)) <= 0:
             raise ValueError("club_grad_norm=true requires club_weight > 0")
+    if bool(config.get("club_full_diagnostics", False)):
+        if not bool(config.get("club_enabled", False)):
+            raise ValueError("club_full_diagnostics=true requires club_enabled=true")
+        if int(config.get("club_diagnostics_every", 0)) <= 0:
+            raise ValueError("club_diagnostics_every must be positive")
     if bool(config.get("adversarial_task_grad_cap", False)):
         for key in ("grl_shared_grad_cap_ratio", "grl_p_shared_grad_cap_ratio"):
             if float(config.get(key, 0.0)) <= 0:

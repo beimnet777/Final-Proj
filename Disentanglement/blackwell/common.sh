@@ -12,9 +12,10 @@ BLACKWELL_SCRATCH_ROOT="${BLACKWELL_SCRATCH_ROOT:-/scratch/${USER:?USER is not s
 BLACKWELL_VENV="${BLACKWELL_VENV:-${BLACKWELL_SCRATCH_ROOT}/venvs/final-proj}"
 BLACKWELL_DATA_ROOT="${BLACKWELL_DATA_ROOT:-${BLACKWELL_SCRATCH_ROOT}/data}"
 BLACKWELL_OUTPUT_ROOT="${BLACKWELL_OUTPUT_ROOT:-${BLACKWELL_SCRATCH_ROOT}/runs}"
+BLACKWELL_LOG_ROOT="${BLACKWELL_LOG_ROOT:-${REPO_ROOT}/Disentanglement/blackwell/logs}"
 
 export REPO_ROOT BLACKWELL_SCRATCH_ROOT BLACKWELL_VENV
-export BLACKWELL_DATA_ROOT BLACKWELL_OUTPUT_ROOT
+export BLACKWELL_DATA_ROOT BLACKWELL_OUTPUT_ROOT BLACKWELL_LOG_ROOT
 export HF_HOME="${HF_HOME:-${BLACKWELL_SCRATCH_ROOT}/hf}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-${HF_HOME}/hub}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${HF_HOME}/datasets}"
@@ -55,7 +56,7 @@ blackwell_run() {
     source "${BLACKWELL_VENV}/bin/activate"
 
     local run_dir="${BLACKWELL_OUTPUT_ROOT}/${run_name}"
-    local log_dir="${run_dir}/launcher_logs"
+    local log_dir="${BLACKWELL_LOG_ROOT}/${run_name}"
     local stamp log_file metadata_file commit dirty
     stamp="$(date +%Y%m%d_%H%M%S)"
     log_file="${log_dir}/${stamp}.log"

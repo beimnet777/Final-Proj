@@ -356,6 +356,11 @@ class DISConfig:
     # normalized GRL, but there is no reversal because CLUB is directly minimised.
     club_grad_norm:        bool  = False
     club_grad_norm_target: float = 0.005
+    # Expensive, opt-in diagnostics for one-shot CLUB/VICReg calibration runs.
+    # Logs raw/delivered CLUB gradients, every objective's shared/routing
+    # gradient, q_phi before/after updates, clipping, and representation scale.
+    club_full_diagnostics: bool = False
+    club_diagnostics_every: int = 100
     # Phoneme CLUB on z_P (frame-level, pr_head argmax as pseudo-labels).
     # Warmup gates the loss until pr_head's argmax stabilises — before that
     # the pseudo-labels are random and CLUB would chase noise.

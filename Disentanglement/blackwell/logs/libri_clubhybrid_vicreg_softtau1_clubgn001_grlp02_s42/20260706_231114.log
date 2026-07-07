@@ -1,0 +1,42 @@
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=10000  α=0.8  β=0.6  grl=0.0  ρ=0.001
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+A new version of the following files was downloaded from https://huggingface.co/marcoyang/spear-xlarge-speech-audio:
+- configuration_spear.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+A new version of the following files was downloaded from https://huggingface.co/marcoyang/spear-xlarge-speech-audio:
+- spear_modules.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+A new version of the following files was downloaded from https://huggingface.co/marcoyang/spear-xlarge-speech-audio:
+- zipformer.py
+- spear_modules.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+A new version of the following files was downloaded from https://huggingface.co/marcoyang/spear-xlarge-speech-audio:
+- spear_model.py
+- zipformer.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+A new version of the following files was downloaded from https://huggingface.co/marcoyang/spear-xlarge-speech-audio:
+- modeling_spear.py
+- spear_model.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=17,488,522  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.8  β=0.6  grl=0.0  ρ=0.001  grl_p=0.2  spear_ln=True
+[stage 2] steps=10000  schedule_steps=10000  batch=16  grad_clip=1.0
+[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + (1 - grl_p_per)  — in-training head proxies, NOT a probe; run diag_probe/ for the authoritative leakage signal.
+[stage 2] precision requested=auto resolved=bf16
+[dual_inv] WARN: ARCTIC empty at /scratch/bbg25/Final-Proj/Probing/data/CMU_ARCTIC (pair-alpha will rely on perturb only)
+[stage 2] dual-invariance ON: inv_L_w=1.0  inv_P_w=1.0  inv_var_w=0.1  gamma=1.0  interp_frames=200
+[stage 2] routing: n_routes=2  hard_gumbel=False  tau 1.0 -> 1.0
+[stage 2] VICReg-full ON: per-frame L2 inv (frame-aligned pairs only); cov_weight=0.2
+[stage 2] CLUB ON: weight=0.3  inner_steps=3  lr=0.001  hidden=512  in_dim=10240  num_speakers=251  pool=mean+std(z_L)  grad_norm_target=0.001
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step      1/10000  recon=0.3685  pr=17.6411  sid=5.5215  grl_p=17.6110(per=2.021)  inv_L=0.0255  inv_P=0.5353  var=1.3180  cov=0.0140  club=+0.5107  q_phi[ce=5.701,acc=0.000]  k[L/P]=2573/2547  Zσ10[L/P]=0.13/0.13  blw[L/P]=1.00/1.00  uN[L/P]=3.26±0.09/3.27±0.09  eR[L/P]=890/890  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2530/2590/0  actL/P/U=127/129/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4962  lr=2.00e-07
+  step    100/10000  recon=0.3335  pr=18.8981  sid=5.4805  grl_p=18.3350(per=1.000)  inv_L=0.0261  inv_P=0.5491  var=1.3161  cov=0.0152  club=+0.0179  q_phi[ce=5.393,acc=0.062]  k[L/P]=2591/2529  Zσ10[L/P]=0.13/0.13  blw[L/P]=1.00/1.00  uN[L/P]=3.49±0.32/3.42±0.30  eR[L/P]=887/885  mix[arc/pert]=0.00/1.00  dead=0.0%  L/P/U=2529/2591/0  actL/P/U=128/128/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4967  lr=2.00e-05
