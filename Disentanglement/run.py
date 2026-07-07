@@ -316,6 +316,22 @@ def _parse_args():
     p.add_argument("--club_grad_norm_target", type=float,
                    default=cfg.club_grad_norm_target,
                    help="Per-frame z_L norm target for the normalized CLUB gradient.")
+    p.add_argument("--club_projection_dim", type=int,
+                   default=cfg.club_projection_dim,
+                   help="If >0, prepend a Linear(2*K, dim) projection to q_phi so it "
+                        "does not have to absorb a 10240-d sparse pool directly.")
+    p.add_argument("--club_warmup_steps", type=int,
+                   default=cfg.club_warmup_steps,
+                   help="Hold the CLUB loss weight at 0 for this many optimiser steps "
+                        "while q_phi trains with --club_pretrain_inner_steps.")
+    p.add_argument("--club_pretrain_inner_steps", type=int,
+                   default=cfg.club_pretrain_inner_steps,
+                   help="Inner q_phi CE steps per accumulation boundary during warmup.")
+    p.add_argument("--club_no_collision_negatives",
+                   action=argparse.BooleanOptionalAction,
+                   default=cfg.club_no_collision_negatives,
+                   help="Rejection-sample the shuffled negative labels so no negative "
+                        "collides with the positive label.")
     p.add_argument("--club_full_diagnostics", action=argparse.BooleanOptionalAction,
                    default=cfg.club_full_diagnostics,
                    help="Enable expensive one-shot CLUB/VICReg gradient and optimizer diagnostics.")

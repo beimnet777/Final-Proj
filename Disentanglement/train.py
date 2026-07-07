@@ -29,7 +29,11 @@ from losses import (
     variance_floor_loss, effective_rank, bucket_diag,
 )
 from probe_robust.losses import vicreg_invariance_loss, vicreg_covariance_loss
-from probe_robust.club import CLUBSampled, normalize_club_gradient
+from probe_robust.club import (
+    CLUBSampled,
+    no_collision_permutation,
+    normalize_club_gradient,
+)
 from tb_logger import DISLogger
 from training_runtime import (
     SegmentLimit, append_metrics, atomic_torch_save, checkpoint_payload,
@@ -583,12 +587,13 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         _club_phn_on = (club_phn_module is not None
                         and step >= int(getattr(cfg, 'club_phoneme_warmup_steps', 0)))
         if _club_on:
+            _eff_w_meas, _ = _effective_club_scaling(cfg, step)
             _zL    = out["z_L"]
             if bool(getattr(cfg, "club_grad_norm", False)):
                 _zL = normalize_club_gradient(
                     _zL,
                     target=float(cfg.club_grad_norm_target),
-                    weight=float(cfg.club_weight),
+                    weight=_eff_w_meas,
                 )
             _olen2 = out["out_lengths"]
             _Tcl   = _zL.shape[1]
@@ -599,8 +604,15 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
             _var2  = (((_zL - _mean.unsqueeze(1)) ** 2) * _fm).sum(1) / _n
             _std   = (_var2 + 1e-5).sqrt()
             _z_pool = torch.cat([_mean, _std], dim=-1)
-            l_club_gn = club_module.mi_bound(_z_pool, speaker_ids)
-            loss_terms.append(("club", float(cfg.club_weight) * l_club_gn, True))
+            if bool(getattr(cfg, "club_no_collision_negatives", False)):
+                _neg = no_collision_permutation(speaker_ids)
+                l_club_gn = club_module.mi_bound(
+                    _z_pool, speaker_ids,
+                    negative_labels=speaker_ids[_neg],
+                )
+            else:
+                l_club_gn = club_module.mi_bound(_z_pool, speaker_ids)
+            loss_terms.append(("club", _eff_w_meas * l_club_gn, True))
         if _club_phn_on:
             _zP    = out["z_P"]
             _olen3 = out["out_lengths"]
@@ -756,6 +768,25 @@ def _stats_pool(z: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
 def _current_grad_norm(params) -> float:
     parts = [p.grad.detach().float().pow(2).sum() for p in params if p.grad is not None]
     return float(torch.stack(parts).sum().sqrt().item()) if parts else 0.0
+
+
+def _effective_club_scaling(cfg, step: int) -> tuple[float, int]:
+    """Return (effective_club_weight, effective_inner_steps) for this step.
+
+    During the CLUB warmup phase the encoder-facing weight is held at 0 so an
+    under-fit q_phi cannot push z_L into arbitrary directions, and q_phi trains
+    with `club_pretrain_inner_steps` inner CE steps per accumulation boundary
+    so it approximates p(speaker|z_L) before we descend its bound. After
+    warmup, both values fall back to the configured `club_weight` and
+    `club_inner_steps`. Matches Cheng 2020 Algorithm 1's guidance to converge
+    q_phi before optimising against its output.
+    """
+    warmup = int(getattr(cfg, "club_warmup_steps", 0))
+    if warmup > 0 and int(step) < warmup:
+        boosted = int(getattr(cfg, "club_pretrain_inner_steps",
+                              getattr(cfg, "club_inner_steps", 3)))
+        return 0.0, boosted
+    return float(cfg.club_weight), int(cfg.club_inner_steps)
 
 
 def _club_full_diagnostics(
@@ -1333,12 +1364,26 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             num_classes=int(cfg.num_speakers),
             hidden=int(cfg.club_hidden),
             lr=float(cfg.club_lr),
+            projection_dim=int(getattr(cfg, "club_projection_dim", 0)),
         ).to(device)
         _club_gn = (f"  grad_norm_target={cfg.club_grad_norm_target}"
                     if bool(getattr(cfg, 'club_grad_norm', False)) else "  grad_norm=off")
+        _club_proj = int(getattr(cfg, "club_projection_dim", 0))
+        _club_proj_msg = (f"  projection_dim={_club_proj}" if _club_proj > 0
+                          else "  projection=off")
+        _club_warm = int(getattr(cfg, "club_warmup_steps", 0))
+        _club_pre_k = int(getattr(cfg, "club_pretrain_inner_steps",
+                                  cfg.club_inner_steps))
+        _club_warm_msg = (
+            f"  warmup_steps={_club_warm}  pretrain_inner_steps={_club_pre_k}"
+            if _club_warm > 0 else "  warmup=off"
+        )
+        _club_noc = bool(getattr(cfg, "club_no_collision_negatives", False))
+        _club_noc_msg = "  negatives=no_collision" if _club_noc else "  negatives=randperm"
         print(f"[stage 2] CLUB ON: weight={cfg.club_weight}  inner_steps={cfg.club_inner_steps}  "
               f"lr={cfg.club_lr}  hidden={cfg.club_hidden}  in_dim={2 * cfg.K}  "
-              f"num_speakers={cfg.num_speakers}  pool=mean+std(z_L){_club_gn}")
+              f"num_speakers={cfg.num_speakers}  pool=mean+std(z_L)"
+              f"{_club_gn}{_club_proj_msg}{_club_warm_msg}{_club_noc_msg}")
     club_full_diagnostics = bool(getattr(cfg, "club_full_diagnostics", False))
     club_diagnostics_every = int(getattr(cfg, "club_diagnostics_every", 100))
     if club_full_diagnostics:
@@ -1744,6 +1789,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             controlled_negative_collision = float("nan")
             club_ce = float('nan')
             club_acc = float('nan')
+            eff_club_w, eff_club_inner = _effective_club_scaling(cfg, step)
             if club_module is not None:
                 _zL_raw = out["z_L"]
                 _zL = _zL_raw
@@ -1754,7 +1800,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     _zL = normalize_club_gradient(
                         _zL,
                         target=float(cfg.club_grad_norm_target),
-                        weight=float(cfg.club_weight),
+                        weight=eff_club_w,
                         accumulation=accumulation,
                         amp_scale=_amp_scale,
                     )
@@ -1765,10 +1811,17 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 if accumulation_boundary:
                     club_ce, club_acc = club_module.inner_step(
                         torch.cat(club_pool_buffer), torch.cat(club_label_buffer),
-                        k=int(cfg.club_inner_steps),
+                        k=eff_club_inner,
                         capture_diagnostics=club_diagnostics_due,
                     )
-                l_club = club_module.mi_bound(_z_pool, speaker_ids)
+                if bool(getattr(cfg, "club_no_collision_negatives", False)):
+                    _neg_perm = no_collision_permutation(speaker_ids)
+                    l_club = club_module.mi_bound(
+                        _z_pool, speaker_ids,
+                        negative_labels=speaker_ids[_neg_perm],
+                    )
+                else:
+                    l_club = club_module.mi_bound(_z_pool, speaker_ids)
                 if club_diagnostics_due:
                     # Fixed negatives make raw-vs-normalized gradients exactly
                     # comparable and do not perturb the training RNG stream.
@@ -1782,7 +1835,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     _diag_normalized_z = normalize_club_gradient(
                         _zL_raw,
                         target=float(cfg.club_grad_norm_target),
-                        weight=float(cfg.club_weight),
+                        weight=eff_club_w,
                         accumulation=accumulation,
                         # This separate autograd probe is not GradScaler-scaled;
                         # report the effective post-unscale gradient.
@@ -1792,9 +1845,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     _normalized_bound = club_module.mi_bound(
                         _normalized_pool, speaker_ids, negative_labels=_negative_labels,
                         update_diagnostics=False)
-                    raw_club_diag_loss = (float(cfg.club_weight) * _raw_bound / accumulation)
+                    raw_club_diag_loss = (eff_club_w * _raw_bound / accumulation)
                     normalized_club_diag_loss = (
-                        float(cfg.club_weight) * _normalized_bound / accumulation)
+                        eff_club_w * _normalized_bound / accumulation)
 
             # ---- probe_robust: phoneme CLUB MI-min on (z_P per-frame, phoneme) ----
             # Symmetric to the speaker CLUB but operates frame-wise: input is
@@ -1904,7 +1957,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + inv_P_w          * l_inv_P
                           + inv_var_w        * l_var
                           + float(cfg.vicreg_cov_weight) * l_cov
-                          + float(cfg.club_weight)       * l_club
+                          + eff_club_w                   * l_club
                           + float(cfg.club_phoneme_weight) * l_club_phn
                           + l_emo_aux
                           + cfg.rho          * l_route
@@ -1925,7 +1978,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 "inv_P": inv_P_w * l_inv_P / accumulation,
                 "variance": inv_var_w * l_var / accumulation,
                 "covariance": float(cfg.vicreg_cov_weight) * l_cov / accumulation,
-                "club": float(cfg.club_weight) * l_club / accumulation,
+                "club": eff_club_w * l_club / accumulation,
                 "route_balance": cfg.rho * l_route / accumulation,
                 "route_specialize": spec_w * l_spec / accumulation,
             }
@@ -2252,7 +2305,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     losses["probe_robust/club_grad_norm_target"] = float(
                         cfg.club_grad_norm_target)
                     losses["probe_robust/club_grad_norm_delivered"] = float(
-                        cfg.club_weight * cfg.club_grad_norm_target)
+                        eff_club_w * cfg.club_grad_norm_target)
                 losses["probe_robust/q_phi_ce"] = float(club_ce) if club_ce == club_ce else 0.0
                 losses["probe_robust/q_phi_acc"] = float(club_acc) if club_acc == club_acc else 0.0
                 if club_module is not None:

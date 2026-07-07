@@ -128,6 +128,7 @@ class CLUBSampled(nn.Module):
         num_classes: int,
         hidden: int = 512,
         lr: float = 1e-3,
+        projection_dim: int = 0,
     ) -> None:
         super().__init__()
         # Input LayerNorm: z_pool is sparse (~5% active) high-dim (10240); without
@@ -135,13 +136,29 @@ class CLUBSampled(nn.Module):
         # of order 1e-3 -> logits ~0 -> softmax uniform -> CLUB bound stuck at 0.
         # Mid-layer LayerNorm: keeps hidden pre-softmax scale stable as q_phi
         # learns. GELU (not ReLU) so units do not die at near-zero init pre-acts.
-        self.classifier = nn.Sequential(
-            nn.LayerNorm(in_dim),
-            nn.Linear(in_dim, hidden),
-            nn.GELU(),
-            nn.LayerNorm(hidden),
-            nn.Linear(hidden, num_classes),
-        )
+        # Optional projection: reduce the effective input dim (2*K=10240) to a
+        # small learned code before the classifier hidden stack, matching the
+        # projection-head practice in VQMIVC / Mun 2022. Backprop still reaches
+        # z_L through the projection when mi_bound is called.
+        if projection_dim and projection_dim > 0:
+            self.classifier = nn.Sequential(
+                nn.LayerNorm(in_dim),
+                nn.Linear(in_dim, projection_dim),
+                nn.LayerNorm(projection_dim),
+                nn.Linear(projection_dim, hidden),
+                nn.GELU(),
+                nn.LayerNorm(hidden),
+                nn.Linear(hidden, num_classes),
+            )
+        else:
+            self.classifier = nn.Sequential(
+                nn.LayerNorm(in_dim),
+                nn.Linear(in_dim, hidden),
+                nn.GELU(),
+                nn.LayerNorm(hidden),
+                nn.Linear(hidden, num_classes),
+            )
+        self.projection_dim = int(projection_dim)
         self.optimizer = torch.optim.Adam(self.classifier.parameters(), lr=lr)
         self.num_classes = num_classes
         self.last_diagnostics: dict[str, float] = {}
@@ -284,3 +301,37 @@ class CLUBSampled(nn.Module):
             return bound
         finally:
             for p, enabled in zip(params, old): p.requires_grad_(enabled)
+
+
+def no_collision_permutation(y: torch.Tensor, max_attempts: int = 16) -> torch.Tensor:
+    """Return a permutation index tensor with `y[perm[i]] != y[i]` for all i,
+    or a best-effort approximation when the batch has too few distinct labels.
+
+    vCLUB-Sampled's negative labels are `y[torch.randperm]`. On small batches
+    with many classes the collision rate is small but non-zero; on small
+    batches with few classes it can be sizeable. Any collision puts a floor
+    under how far the encoder can drive `logq_pos - logq_neg`. This helper
+    removes that floor when the batch's label distribution admits it.
+    """
+    n = int(y.shape[0])
+    if n <= 1:
+        return torch.arange(n, device=y.device)
+    if int(y.unique().numel()) < 2:
+        return torch.randperm(n, device=y.device)
+    for _ in range(max_attempts):
+        perm = torch.randperm(n, device=y.device)
+        if not bool((y[perm] == y).any().item()):
+            return perm
+    # Fallback: single-pass swap-fix. For each remaining collision at i,
+    # swap perm[i] with some perm[j] such that the swap resolves both.
+    perm_list = perm.detach().cpu().tolist()
+    y_list = y.detach().cpu().tolist()
+    for i in range(n):
+        if y_list[perm_list[i]] == y_list[i]:
+            for j in range(n):
+                if (j != i
+                        and y_list[perm_list[j]] != y_list[i]
+                        and y_list[perm_list[i]] != y_list[j]):
+                    perm_list[i], perm_list[j] = perm_list[j], perm_list[i]
+                    break
+    return torch.tensor(perm_list, device=y.device, dtype=torch.long)

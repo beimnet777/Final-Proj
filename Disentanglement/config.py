@@ -356,6 +356,21 @@ class DISConfig:
     # normalized GRL, but there is no reversal because CLUB is directly minimised.
     club_grad_norm:        bool  = False
     club_grad_norm_target: float = 0.005
+    # Learned projection prepended to q_phi so the classifier does not have to
+    # absorb a 2*K=10240-d sparse input directly. 0 disables (backward-compat).
+    # Matches VQMIVC / Mun 2022 practice of feeding CLUB a small projection
+    # rather than the raw high-dim latent.
+    club_projection_dim: int = 0
+    # CLUB warmup: hold the loss weight at 0 for this many optimiser steps
+    # while still training q_phi (with `club_pretrain_inner_steps` inner steps
+    # per boundary) so q_phi approximates p(y|z) before the encoder is asked
+    # to descend its bound. Matches Cheng 2020 Algorithm 1.
+    club_warmup_steps: int = 0
+    club_pretrain_inner_steps: int = 20
+    # Rejection-sample the shuffled negative labels so no negative collides
+    # with the true label. Removes the ~6% floor observed when using
+    # y.roll(1) or torch.randperm(y) at batch 16 / 251 classes.
+    club_no_collision_negatives: bool = False
     # Expensive, opt-in diagnostics for one-shot CLUB/VICReg calibration runs.
     # Logs raw/delivered CLUB gradients, every objective's shared/routing
     # gradient, q_phi before/after updates, clipping, and representation scale.
