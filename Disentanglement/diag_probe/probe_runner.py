@@ -159,6 +159,24 @@ class _PRProbe(nn.Module):
         return F.log_softmax(x, dim=-1)
 
 
+class _PRProbeDirect(nn.Module):
+    """Training-head-matched PR CTC probe: direct frame Linear(in_dim -> vocab).
+
+    This matches Disentanglement.model.heads.PRHead in parameterization.  The
+    only extra operation is log_softmax because the diagnostic probe uses
+    nn.CTCLoss directly, while the training helper applies log_softmax inside
+    ctc_pr_loss.
+    """
+
+    def __init__(self, in_dim: int, vocab_size: int) -> None:
+        super().__init__()
+        self.linear = nn.Linear(in_dim, vocab_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.linear(x)
+        return F.log_softmax(x, dim=-1)
+
+
 class _PRProbeMLP(nn.Module):
     """PR CTC probe with one ReLU non-linearity between projection and classifier."""
 
@@ -1084,7 +1102,8 @@ def run_mdl_probe(src_key: str, task: str, in_dim: int, num_classes: int,
         probe_cls = sid_map.get(sid_probe_arch, _SIDProbe)
         probe = probe_cls(in_dim, num_classes).to(device)
     elif task == "pr":
-        pr_cls = _PRProbeMLP if pr_probe_arch == "mlp" else _PRProbe
+        pr_map = {"linear": _PRProbe, "direct": _PRProbeDirect, "mlp": _PRProbeMLP}
+        pr_cls = pr_map.get(pr_probe_arch, _PRProbe)
         probe = pr_cls(in_dim, num_classes).to(device)
     else:
         raise ValueError(f"MDL probe supports sid|pr, got {task}")

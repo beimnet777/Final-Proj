@@ -134,8 +134,9 @@ def _parse_args():
                    help="SID probe: 'linear'=projector->mean-pool->linear (SUPERB-style; blind to "
                         "instance-normed features); 'stats'=projector->ReLU->mean+std pool->linear; "
                         "'mlp'=projector->ReLU->mean-pool->linear (SUPERB + one ReLU).")
-    p.add_argument("--pr_probe_arch", choices=("linear", "mlp"), default="linear",
-                   help="PR probe: 'linear'=projector->linear (SUPERB-style); "
+    p.add_argument("--pr_probe_arch", choices=("linear", "direct", "mlp"), default="linear",
+                   help="PR probe: 'linear'=projector->linear (SUPERB-style, 256 bottleneck); "
+                        "'direct'=single Linear(input_dim->vocab), matching the trained PRHead; "
                         "'mlp'=projector->ReLU->linear (SUPERB + one ReLU).")
     p.add_argument("--sid_dataset", choices=("libri", "arctic"), default="libri",
                    help="SID probe data source. 'libri'=LibriSpeech 251 speakers (default, leakage); "
@@ -501,8 +502,12 @@ def main() -> None:
                 else:
                     if pr_train_dl is None or pr_val_dl is None or pr_test_dl is None or pr_tokenizer is None:
                         raise RuntimeError("PR task requested but PR dataloaders were not built.")
-                    pr_cls = (base_probe._PRProbeMLP if args.pr_probe_arch == "mlp"
-                              else base_probe._PRProbe)
+                    pr_map = {
+                        "linear": base_probe._PRProbe,
+                        "direct": base_probe._PRProbeDirect,
+                        "mlp": base_probe._PRProbeMLP,
+                    }
+                    pr_cls = pr_map[args.pr_probe_arch]
                     probe = pr_cls(dims[src], pr_vocab_size).to(device)
                     val_cache  = base_probe._cache_features(src, pr_val_dl,  model, device, use_bf16, has_routing, "pr")
                     test_cache = base_probe._cache_features(src, pr_test_dl, model, device, use_bf16, has_routing, "pr")
