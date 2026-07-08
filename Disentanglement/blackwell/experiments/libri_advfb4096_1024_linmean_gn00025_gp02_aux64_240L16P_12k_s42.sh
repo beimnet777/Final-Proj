@@ -37,11 +37,15 @@ STAGE2_STEPS=12000
 PROBE_STEPS="${PROBE_STEPS:-10000}"
 PROBE_VAL_EVERY="${PROBE_VAL_EVERY:-250}"
 PROBE_PATIENCE="${PROBE_PATIENCE:-0}"
+PROBE_WARMUP_STEPS="${PROBE_WARMUP_STEPS:-0}"
 SID_PROBE_LR="${SID_PROBE_LR:-1e-3}"
 PR_PROBE_LR="${PR_PROBE_LR:-1e-4}"
 PROBE_SEED="${PROBE_SEED:-42}"
 SKIP_TRAINING="${SKIP_TRAINING:-0}"
 PR_SANITY_ONLY="${PR_SANITY_ONLY:-0}"
+PR_ARCHES="${PR_ARCHES:-linear direct}"
+PR_SOURCES="${PR_SOURCES:-z_t z_L z_P}"
+RUN_SID_PROBES="${RUN_SID_PROBES:-1}"
 
 TRAIN_CKPT_DIR="$BLACKWELL_OUTPUT_ROOT/$TRAIN_RUN_NAME/checkpoints"
 PROBE_JSON_DIR="$BLACKWELL_OUTPUT_ROOT/$TRAIN_RUN_NAME/probe_json"
@@ -144,7 +148,7 @@ COMMON_PROBE_ARGS=(
     --probe_steps "$PROBE_STEPS"
     --probe_val_every "$PROBE_VAL_EVERY"
     --probe_patience "$PROBE_PATIENCE"
-    --probe_warmup_steps 0
+    --probe_warmup_steps "$PROBE_WARMUP_STEPS"
     --seed "$PROBE_SEED"
 )
 
@@ -167,8 +171,18 @@ elif [[ "$PR_SANITY_ONLY" != "0" ]]; then
     exit 2
 fi
 
-for PR_ARCH in linear direct; do
-    for PR_SOURCE in z_t z_L z_P; do
+read -r -a PR_ARCH_LIST <<< "$PR_ARCHES"
+read -r -a PR_SOURCE_LIST <<< "$PR_SOURCES"
+for PR_ARCH in "${PR_ARCH_LIST[@]}"; do
+    [[ "$PR_ARCH" == "linear" || "$PR_ARCH" == "direct" ]] || {
+        echo "ERROR: unsupported PR_ARCHES entry: $PR_ARCH" >&2
+        exit 2
+    }
+    for PR_SOURCE in "${PR_SOURCE_LIST[@]}"; do
+        [[ "$PR_SOURCE" == "z_t" || "$PR_SOURCE" == "z_L" || "$PR_SOURCE" == "z_P" ]] || {
+            echo "ERROR: unsupported PR_SOURCES entry: $PR_SOURCE" >&2
+            exit 2
+        }
         PR_PROBE_RUN="diag_${TRAIN_RUN_NAME}_${PR_SOURCE}_pr_${PR_ARCH}_seed${PROBE_SEED}"
         RUN_DESCRIPTION="Final-checkpoint PR-${PR_ARCH} probe for $TRAIN_RUN_NAME: source ${PR_SOURCE}"
         PR_PROBE_COMMAND=(
@@ -185,6 +199,13 @@ for PR_ARCH in linear direct; do
         blackwell_run "$PR_PROBE_RUN" "${PR_PROBE_COMMAND[@]}"
     done
 done
+
+if [[ "$RUN_SID_PROBES" == "0" ]]; then
+    exit 0
+elif [[ "$RUN_SID_PROBES" != "1" ]]; then
+    echo "ERROR: RUN_SID_PROBES must be 0 or 1 (got: $RUN_SID_PROBES)" >&2
+    exit 2
+fi
 
 for SID_ARCH in linear stats; do
     SID_PROBE_RUN="diag_${TRAIN_RUN_NAME}_ztzLzP_sid_${SID_ARCH}_seed${PROBE_SEED}"
