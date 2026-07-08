@@ -73,6 +73,37 @@ def _dann_lambda(step: int, total: int) -> float:
     return 2.0 / (1.0 + math.exp(-10.0 * p)) - 1.0
 
 
+def _scheduled_grl_grad_norm_target(cfg, step: int) -> float:
+    """Effective z_L speaker-GRL grad-norm target for this training step.
+
+    The GRLHead owns one fixed grad_norm_target and is reused by z_U speaker
+    adversaries too.  For the z_L-only decay experiment we therefore keep the
+    head target fixed and scale only the z_L speaker reversal lambda by
+    scheduled_target / base_target.
+    """
+    base = float(getattr(cfg, "grl_grad_norm_target", 1.0))
+    final = float(getattr(cfg, "grl_grad_norm_final_target", -1.0))
+    if final < 0.0:
+        return base
+    start = int(getattr(cfg, "grl_grad_norm_decay_start", 0))
+    end = int(getattr(cfg, "grl_grad_norm_decay_end", 0))
+    if end <= start:
+        return base
+    if step <= start:
+        return base
+    if step >= end:
+        return final
+    frac = (step - start) / max(1, end - start)
+    return base + frac * (final - base)
+
+
+def _scheduled_grl_lambda_scale(cfg, step: int) -> float:
+    base = float(getattr(cfg, "grl_grad_norm_target", 1.0))
+    if base <= 0.0:
+        return 1.0
+    return _scheduled_grl_grad_norm_target(cfg, step) / base
+
+
 def _gumbel_tau(step: int, total: int, tau_start: float, tau_end: float) -> float:
     return tau_start * (tau_end / tau_start) ** (step / max(1, total))
 
@@ -1244,6 +1275,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         extra_str += "  grl_linear_mean=True"
     if getattr(cfg, 'grl_grad_norm', False):
         extra_str += f"  grl_grad_norm={cfg.grl_grad_norm_target}"
+        if float(getattr(cfg, "grl_grad_norm_final_target", -1.0)) >= 0.0:
+            extra_str += (
+                f"→{cfg.grl_grad_norm_final_target}"
+                f"@{cfg.grl_grad_norm_decay_start}-{cfg.grl_grad_norm_decay_end}"
+            )
     if getattr(cfg, 'instance_norm_zL', False):
         extra_str += "  instance_norm_zL=True"
     if getattr(cfg, 'dann_full_discriminator', False):
@@ -1587,15 +1623,17 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         eff_vib_w = (vib_w * min(1.0, step / vib_ramp_end)) if (vib_w > 0 and vib_ramp_end > 0) else vib_w
         grl_active        = (cfg.grl_delay_steps == 0 or step >= cfg.grl_delay_steps)
         ramp              = _dann_lambda(step, schedule_steps) if grl_active else 0.0
+        grl_target_scale  = (_scheduled_grl_lambda_scale(cfg, step)
+                             if getattr(cfg, "grl_grad_norm", False) else 1.0)
         if dann_fix:
             # Canonical DANN: heads train at full strength; the per-adversary
             # weights act only on the reversed (encoder-side) gradient via lambda.
-            grl_lam          = cfg.grl_weight * ramp
+            grl_lam          = cfg.grl_weight * ramp * grl_target_scale
             grl_p_lam        = grl_p_weight * ramp
             eff_grl_weight   = 1.0
             eff_grl_p_weight = 1.0 if grl_p_weight > 0 else 0.0
         else:
-            grl_lam          = ramp
+            grl_lam          = ramp * grl_target_scale
             grl_p_lam        = None
             eff_grl_weight   = cfg.grl_weight if grl_active else 0.0
             eff_grl_p_weight = grl_p_weight
@@ -2182,6 +2220,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                        "sid": l_sid.item(), "grl": l_grl.item(),
                        "grl_p": l_grl_p.item(), "ub": l_ub.item(),
                        "route": l_route.item(), "total": total.item()}
+            if getattr(cfg, "grl_grad_norm", False):
+                losses["grl_grad_norm_target_eff"] = float(
+                    _scheduled_grl_grad_norm_target(cfg, step)
+                )
             if emotion_on:
                 losses.update({
                     "emotion": l_emo.item(),

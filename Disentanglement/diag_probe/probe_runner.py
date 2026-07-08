@@ -1181,7 +1181,7 @@ def _parse_args():
     p.add_argument("--max_val_examples",      type=int, default=500)
     p.add_argument("--pr_max_examples",       type=int, default=0,
                    help="Cap PR train/val/test examples. 0 = full SUPERB PR splits.")
-    p.add_argument("--pr_probe_lr",           type=float, default=1e-4)
+    p.add_argument("--pr_probe_lr",           type=float, default=5e-4)
     p.add_argument("--sid_probe_lr",          type=float, default=1e-4)
     p.add_argument("--probe_warmup_steps",    type=int, default=500)
     p.add_argument("--probe_grad_clip",       type=float, default=1.0)

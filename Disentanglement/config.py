@@ -100,6 +100,13 @@ class DISConfig:
     # discriminator's confidence (counters per-frame dilution).
     grl_grad_norm:        bool  = False
     grl_grad_norm_target: float = 1.0  # per-frame target L2 norm of the (unit) reversed gradient; magnitude = grl_weight * this
+    # Optional schedule for the speaker GRL grad-norm target on z_L.  A negative
+    # final target disables the schedule.  When enabled, the effective target is
+    # constant at grl_grad_norm_target until decay_start, linearly decays to
+    # grl_grad_norm_final_target by decay_end, then stays there.
+    grl_grad_norm_decay_start: int = 0
+    grl_grad_norm_decay_end: int = 0
+    grl_grad_norm_final_target: float = -1.0
     # Optional task-level cap on the gradient that each GRL objective delivers
     # to the shared representation parameters.  Unlike the final global clip,
     # this bounds adversarial dominance before task gradients are combined.

@@ -155,10 +155,19 @@ def _parse_args():
     p.add_argument("--max_test_examples", type=int, default=500)
     p.add_argument("--pr_max_examples", type=int, default=0)
     p.add_argument("--num_workers", type=int, default=0)
-    p.add_argument("--pr_probe_lr", type=float, default=1e-4)
+    p.add_argument("--pr_probe_lr", type=float, default=5e-4)
+    p.add_argument("--pr_probe_warmup_steps", type=int, default=500,
+                   help="PR-only linear warmup before decay; applies to direct, "
+                        "linear, and MLP PR probes without changing SID warmup")
     p.add_argument("--pr_sanity_only", action="store_true",
                    help="evaluate the checkpoint's trained PR head through the "
                         "reconstructed model and exit before training fresh probes")
+    p.add_argument("--pr_checkpoint_sanity", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="Before fresh PR probes, evaluate the checkpoint's own "
+                        "trained PR head through this reconstructed model path. "
+                        "Use --no-pr_checkpoint_sanity after a separate sanity-only "
+                        "run to avoid repeating the check for every source.")
     p.add_argument("--sid_probe_lr", type=float, default=1e-3)
     p.add_argument("--prosody_probe_lr", type=float, default=5e-4)
     p.add_argument("--emotion", action=argparse.BooleanOptionalAction, default=False,
@@ -317,7 +326,8 @@ def main() -> None:
     print(
         f"[diag_probe] probe_steps={args.probe_steps}  "
         f"pr_lr={args.pr_probe_lr}  sid_lr={args.sid_probe_lr}  "
-        f"warmup={args.probe_warmup_steps}  "
+        f"pr_warmup={args.pr_probe_warmup_steps}  "
+        f"other_warmup={args.probe_warmup_steps}  "
         f"val_every={args.probe_val_every}  patience={args.probe_patience}"
     )
 
@@ -438,7 +448,7 @@ def main() -> None:
     for p in model.parameters():
         p.requires_grad_(False)
 
-    if "pr" in tasks and pr_tokenizer is not None:
+    if "pr" in tasks and pr_tokenizer is not None and args.pr_checkpoint_sanity:
         sanity_loss, sanity_per = _checkpoint_pr_sanity(
             model, sid_val_dl, pr_tokenizer, device, use_bf16
         )
@@ -452,6 +462,8 @@ def main() -> None:
         if args.pr_sanity_only:
             print("[diag_probe] PR sanity-only requested; exiting before fresh probes.")
             return
+    elif "pr" in tasks and args.pr_sanity_only:
+        raise ValueError("--pr_sanity_only requires --pr_checkpoint_sanity")
     elif args.pr_sanity_only:
         raise ValueError("--pr_sanity_only requires 'pr' in --tasks")
 
@@ -566,7 +578,7 @@ def main() -> None:
                     best_val = base_probe._train_pr_probe(
                         probe, src, pr_train_dl, model, device, use_bf16, has_routing,
                         steps=args.probe_steps, lr=args.pr_probe_lr,
-                        warmup_steps=args.probe_warmup_steps,
+                        warmup_steps=args.pr_probe_warmup_steps,
                         grad_clip=args.probe_grad_clip,
                         val_cache=val_cache, tokenizer=pr_tokenizer,
                         val_every=args.probe_val_every, patience=args.probe_patience,

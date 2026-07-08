@@ -119,6 +119,18 @@ def _parse_args():
                         "(decouples removal strength from discriminator confidence; counters dilution).")
     p.add_argument("--grl_grad_norm_target", type=float, default=cfg.grl_grad_norm_target,
                    help="Per-frame target L2 norm for grad-normalized GRL (effective push = grl_weight * this).")
+    p.add_argument("--grl_grad_norm_decay_start", type=int,
+                   default=cfg.grl_grad_norm_decay_start,
+                   help="Optional z_L speaker-GRL target schedule: keep the base "
+                        "target until this step, then linearly decay.")
+    p.add_argument("--grl_grad_norm_decay_end", type=int,
+                   default=cfg.grl_grad_norm_decay_end,
+                   help="Optional z_L speaker-GRL target schedule: reach "
+                        "--grl_grad_norm_final_target at this step.")
+    p.add_argument("--grl_grad_norm_final_target", type=float,
+                   default=cfg.grl_grad_norm_final_target,
+                   help="Final z_L speaker-GRL grad-norm target after decay. "
+                        "Negative disables the schedule.")
     p.add_argument("--adversarial_task_grad_cap", action=argparse.BooleanOptionalAction,
                    default=cfg.adversarial_task_grad_cap,
                    help="Cap speaker/phoneme GRL gradients on shared representation parameters "
@@ -415,6 +427,9 @@ def _parse_args():
     cfg.grl_robust_activation = args.grl_robust_activation
     cfg.grl_grad_norm         = args.grl_grad_norm
     cfg.grl_grad_norm_target  = args.grl_grad_norm_target
+    cfg.grl_grad_norm_decay_start = args.grl_grad_norm_decay_start
+    cfg.grl_grad_norm_decay_end = args.grl_grad_norm_decay_end
+    cfg.grl_grad_norm_final_target = args.grl_grad_norm_final_target
     cfg.adversarial_task_grad_cap = args.adversarial_task_grad_cap
     cfg.grl_shared_grad_cap_ratio = args.grl_shared_grad_cap_ratio
     cfg.grl_p_shared_grad_cap_ratio = args.grl_p_shared_grad_cap_ratio
@@ -562,6 +577,13 @@ def _parse_args():
         p.error("--club_grad_norm requires --club_enabled")
     if cfg.club_grad_norm_target <= 0:
         p.error("--club_grad_norm_target must be positive")
+    if cfg.grl_grad_norm_final_target >= 0:
+        if not cfg.grl_grad_norm:
+            p.error("--grl_grad_norm_final_target requires --grl_grad_norm")
+        if cfg.grl_grad_norm_target <= 0 or cfg.grl_grad_norm_final_target <= 0:
+            p.error("GRL grad-norm schedule targets must be positive")
+        if cfg.grl_grad_norm_decay_end <= cfg.grl_grad_norm_decay_start:
+            p.error("--grl_grad_norm_decay_end must be greater than --grl_grad_norm_decay_start")
     if cfg.club_full_diagnostics and not cfg.club_enabled:
         p.error("--club_full_diagnostics requires --club_enabled")
     if cfg.club_diagnostics_every <= 0:

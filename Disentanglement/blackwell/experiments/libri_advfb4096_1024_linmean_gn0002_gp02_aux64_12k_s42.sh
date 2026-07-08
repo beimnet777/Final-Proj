@@ -19,7 +19,7 @@
 #
 # For PR, "linear" means the existing diagnostic projector probe
 # (5120->256->74).  "direct" is the additional training-head-matched
-# fresh probe (5120->74), with lr=1e-4.
+# fresh probe (5120->74), with lr=5e-4 and 500-step PR warmup.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
@@ -32,7 +32,8 @@ PROBE_STEPS="${PROBE_STEPS:-10000}"
 PROBE_VAL_EVERY="${PROBE_VAL_EVERY:-250}"
 PROBE_PATIENCE="${PROBE_PATIENCE:-0}"
 SID_PROBE_LR="${SID_PROBE_LR:-1e-3}"
-PR_PROBE_LR="${PR_PROBE_LR:-1e-4}"
+PR_PROBE_LR="${PR_PROBE_LR:-5e-4}"
+PR_PROBE_WARMUP_STEPS="${PR_PROBE_WARMUP_STEPS:-500}"
 PROBE_SEED="${PROBE_SEED:-42}"
 
 TRAIN_CKPT_DIR="$BLACKWELL_OUTPUT_ROOT/$TRAIN_RUN_NAME/checkpoints"
@@ -136,6 +137,7 @@ LINEAR_PROBE_COMMAND=(
     --pr_probe_lr "$PR_PROBE_LR"
     --sid_probe_lr "$SID_PROBE_LR"
     --probe_warmup_steps 0
+    --pr_probe_warmup_steps "$PR_PROBE_WARMUP_STEPS"
     --seed "$PROBE_SEED"
 )
 blackwell_run "$LINEAR_PROBE_RUN" "${LINEAR_PROBE_COMMAND[@]}"
@@ -170,6 +172,7 @@ for PR_SOURCE in z_t z_L z_P; do
         --pr_max_examples 0
         --pr_probe_lr "$PR_PROBE_LR"
         --probe_warmup_steps 0
+        --pr_probe_warmup_steps "$PR_PROBE_WARMUP_STEPS"
         --seed "$PROBE_SEED"
     )
     blackwell_run "$DIRECT_PR_PROBE_RUN" "${DIRECT_PR_PROBE_COMMAND[@]}"
