@@ -131,6 +131,19 @@ class PhoneTokenizer:
             dtype=torch.long,
         )
 
+    def decode(self, ids) -> str:
+        """Decode phone IDs using the same vocabulary used during stage 2.
+
+        CTC blank/padding and non-phone control tokens are omitted.  Stage-2
+        targets do not append EOS, so decoding must not stop on token 1.
+        """
+        phones = []
+        for raw_id in ids:
+            token = self.id_to_phone.get(int(raw_id), "<unk>")
+            if token not in ("<pad>", "<eos>", "<unk>"):
+                phones.append(token)
+        return " ".join(phones)
+
 
 # ---------------------------------------------------------------- audio helper
 
@@ -365,4 +378,50 @@ def make_stage2_dataloaders(cfg):
                    collate_fn=collate_stage2, **kw),
         DataLoader(val_ds,   batch_size=cfg.eval_batch_size, shuffle=False, collate_fn=collate_stage2, **kw),
         DataLoader(test_ds,  batch_size=cfg.eval_batch_size, shuffle=False, collate_fn=collate_stage2, **kw),
+    )
+
+
+def make_pr_probe_dataloaders(cfg, max_examples: int = 0):
+    """PR probe loaders using the exact stage-2 phone target pipeline.
+
+    Training uses train-clean-100 while validation/test use dev-clean and
+    test-clean.  Unlike the historical ``Probing/pr`` loader, this deliberately
+    reuses :class:`PhoneTokenizer`, :func:`text_to_phones`, and
+    :class:`Stage2Dataset`, preventing EOS/reference drift between the online
+    PR head and a fresh diagnostic probe.
+    """
+    tokenizer = PhoneTokenizer()
+    cfg.vocab_size = tokenizer.vocab_size
+    lexicon = _get_lexicon(cfg.lexicon_path)
+    cap = max_examples if max_examples > 0 else None
+
+    print("[dis_data] loading PR train-clean-100 …")
+    train_ex = _stream_examples("train.100", cfg, cap)
+    print("[dis_data] loading PR dev-clean …")
+    val_ex = _stream_examples("validation", cfg, cap)
+    print("[dis_data] loading PR test-clean …")
+    test_ex = _stream_examples("test", cfg, cap)
+
+    all_speakers = sorted({ex["speaker_id"] for ex in train_ex + val_ex + test_ex})
+    speaker_to_idx = {speaker: i for i, speaker in enumerate(all_speakers)}
+    kwargs = dict(tokenizer=tokenizer, speaker_to_idx=speaker_to_idx,
+                  lexicon=lexicon, sample_rate=cfg.sample_rate)
+    train_ds = Stage2Dataset(train_ex, **kwargs)
+    val_ds = Stage2Dataset(val_ex, **kwargs)
+    test_ds = Stage2Dataset(test_ex, **kwargs)
+
+    print(f"[dis_data]  PR train={len(train_ds)} val={len(val_ds)} "
+          f"test={len(test_ds)} vocab={tokenizer.vocab_size}")
+    pin = torch.cuda.is_available()
+    loader_kwargs = dict(num_workers=cfg.num_workers, pin_memory=pin,
+                         collate_fn=collate_stage2)
+    return (
+        tokenizer,
+        DataLoader(train_ds, batch_size=cfg.batch_size,
+                   sampler=StatefulRandomSampler(train_ds, cfg.seed),
+                   drop_last=True, **loader_kwargs),
+        DataLoader(val_ds, batch_size=cfg.eval_batch_size, shuffle=False,
+                   **loader_kwargs),
+        DataLoader(test_ds, batch_size=cfg.eval_batch_size, shuffle=False,
+                   **loader_kwargs),
     )

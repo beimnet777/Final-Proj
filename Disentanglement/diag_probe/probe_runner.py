@@ -762,13 +762,14 @@ def _eval_pr_probe(
 
     all_hyps: List[str] = []
     all_refs: List[str] = []
-    for audios, audio_lens, _targets, _target_lens, texts in val_dl:
+    for audios, audio_lens, targets, target_lens, _last in val_dl:
         feats = _extract_representations(
             model, audios, audio_lens, device, use_bf16, has_routing
         )
         log_probs = probe(feats[src_key])
         hyps = _greedy_pr_decode(log_probs.cpu(), feats["out_lengths"].cpu(), tokenizer)
-        refs = [_phones_from_text(t, tokenizer) for t in texts]
+        refs = [tokenizer.decode(row[:int(n)].tolist())
+                for row, n in zip(targets, target_lens)]
         all_hyps.extend(hyps)
         all_refs.extend(refs)
 
@@ -843,7 +844,6 @@ def _cache_features(src_key, dl, model, device, use_bf16, has_routing, task):
                 audios.cpu(), audio_lens.cpu(), feats["out_lengths"].detach().cpu())
             entry["f0"], entry["voiced"], entry["energy"] = f0, voiced, energy
         else:
-            entry["texts"] = last
             entry["targets"] = targets.detach().to("cpu")
             entry["target_lens"] = target_lens.detach().to("cpu")
         cache.append(entry)
@@ -878,7 +878,8 @@ def _eval_pr_probe_cached(probe, cache, tokenizer, device, return_loss: bool = F
         z = e["z"].to(device)
         log_probs = probe(z)
         hyps = _greedy_pr_decode(log_probs.cpu(), e["out_lengths"], tokenizer)
-        refs = [_phones_from_text(t, tokenizer) for t in e["texts"]]
+        refs = [tokenizer.decode(row[:int(n)].tolist())
+                for row, n in zip(e["targets"], e["target_lens"])]
         all_hyps.extend(hyps)
         all_refs.extend(refs)
         if return_loss and "targets" in e and "target_lens" in e:

@@ -58,7 +58,6 @@ _prioritize_import_paths()
 
 from diag_probe import probe_runner as base_probe
 from config import DISConfig
-from pr_config import PRConfig
 
 
 VALID_SOURCES = ("h_t", "z_t", "z_L", "z_P", "z_U")
@@ -82,6 +81,45 @@ def _parse_sources(raw: str) -> List[str]:
     if not sources:
         raise ValueError("At least one source must be requested.")
     return sources
+
+
+@torch.no_grad()
+def _checkpoint_pr_sanity(model, dl, tokenizer, device, use_bf16: bool,
+                          max_batches: int = 8) -> tuple[float, float]:
+    """Evaluate the checkpoint's trained PR head through the probe model path.
+
+    This is not a fresh probe result.  It answers a narrower question: did
+    checkpoint reconstruction preserve the encoder -> SAE -> z_L -> PR-head
+    computation that produced the online training metric?
+    """
+    model.eval()
+    losses: List[float] = []
+    refs: List[str] = []
+    hyps: List[str] = []
+    ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
+    for batch_idx, (audios, audio_lengths, targets, target_lengths, _last) in enumerate(dl):
+        if batch_idx >= max_batches:
+            break
+        audios = audios.to(device)
+        audio_lengths = audio_lengths.to(device)
+        context = (torch.autocast("cuda", dtype=torch.bfloat16)
+                   if use_bf16 else torch.autocast("cuda", enabled=False))
+        with context:
+            out = model(audios, audio_lengths, stage=2, grl_lambda=0.0)
+        log_probs = out["pr_logits"].float().log_softmax(dim=-1)
+        out_lengths = out["out_lengths"]
+        losses.append(float(ctc(
+            log_probs.permute(1, 0, 2), targets.to(device), out_lengths,
+            target_lengths.to(device)
+        ).item()))
+        hyps.extend(base_probe._greedy_pr_decode(
+            log_probs.cpu(), out_lengths.cpu(), tokenizer
+        ))
+        refs.extend(tokenizer.decode(row[:int(length)].tolist())
+                    for row, length in zip(targets, target_lengths))
+    mean_loss = float(np.mean(losses)) if losses else float("nan")
+    per = base_probe._phone_error_rate(refs, hyps) if refs else float("nan")
+    return mean_loss, per
 
 
 def _parse_args():
@@ -118,6 +156,9 @@ def _parse_args():
     p.add_argument("--pr_max_examples", type=int, default=0)
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--pr_probe_lr", type=float, default=1e-4)
+    p.add_argument("--pr_sanity_only", action="store_true",
+                   help="evaluate the checkpoint's trained PR head through the "
+                        "reconstructed model and exit before training fresh probes")
     p.add_argument("--sid_probe_lr", type=float, default=1e-3)
     p.add_argument("--prosody_probe_lr", type=float, default=5e-4)
     p.add_argument("--emotion", action=argparse.BooleanOptionalAction, default=False,
@@ -282,25 +323,18 @@ def main() -> None:
 
     use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 
-    # PR: SUPERB 74-phone — train-clean-100 → train, dev-clean → val, test-clean → test.
+    # PR: use the exact stage-2 tokenizer/target construction.  A previous
+    # implementation used Probing/pr here, whose appended EOS made the fresh
+    # probe incomparable with the online stage-2 PR head.
     # Build lazily so SID-only recovery probes do not touch PR data.
     pr_tokenizer = pr_train_dl = pr_val_dl = pr_test_dl = None
     pr_vocab_size = cfg.vocab_size
     if "pr" in tasks:
-        global_pr_data = __import__("pr_data")
-        _prioritize_import_paths()  # pr_data prepends Probing/; restore Disentanglement first.
-        base_probe._pr_data = global_pr_data
-        pr_cfg = PRConfig()
-        pr_cfg.data_cache_dir = cfg.librispeech_cache_dir
-        pr_cfg.librispeech_lexicon = cfg.lexicon_path
-        pr_cfg.local_data = cfg.local_data
-        pr_cfg.librispeech_root = cfg.librispeech_root
-        pr_cfg.batch_size = cfg.batch_size
-        pr_cfg.eval_batch_size = cfg.eval_batch_size
-        pr_cfg.num_workers = cfg.num_workers
-        pr_cfg.max_examples = args.pr_max_examples
-        pr_tokenizer, pr_train_dl, pr_val_dl, pr_test_dl = global_pr_data.make_pr_dataloaders(pr_cfg)
-        pr_vocab_size = pr_cfg.vocab_size
+        from data.dataset import make_pr_probe_dataloaders
+        pr_tokenizer, pr_train_dl, pr_val_dl, pr_test_dl = (
+            make_pr_probe_dataloaders(cfg, max_examples=args.pr_max_examples)
+        )
+        pr_vocab_size = pr_tokenizer.vocab_size
     else:
         print("[diag_probe] PR task not requested — skipping PR dataloaders.")
     # SID: closed-set — same speakers, split by utterance into train / val / test.
@@ -404,6 +438,23 @@ def main() -> None:
     for p in model.parameters():
         p.requires_grad_(False)
 
+    if "pr" in tasks and pr_tokenizer is not None:
+        sanity_loss, sanity_per = _checkpoint_pr_sanity(
+            model, sid_val_dl, pr_tokenizer, device, use_bf16
+        )
+        print(f"[diag_probe] checkpoint PR-head sanity on stage-2 holdout: "
+              f"loss={sanity_loss:.4f} PER={sanity_per:.4f}")
+        if sanity_per > 0.50:
+            print("[diag_probe] ERROR: the checkpoint's own trained PR head fails "
+                  "through the reconstructed probe model. Fresh PR probe results "
+                  "from this process are not trustworthy; check encoder revision "
+                  "and checkpoint/config loading.")
+        if args.pr_sanity_only:
+            print("[diag_probe] PR sanity-only requested; exiting before fresh probes.")
+            return
+    elif args.pr_sanity_only:
+        raise ValueError("--pr_sanity_only requires 'pr' in --tasks")
+
     view_dim = cfg.projection_dim if cfg.projection_disentanglement else cfg.K
     dims: Dict[str, int] = {"h_t": cfg.D, "z_t": cfg.K, "z_L": view_dim,
                             "z_P": view_dim, "z_U": view_dim}
@@ -411,7 +462,8 @@ def main() -> None:
 
     print(f"\n[diag_probe] speakers={cfg.num_speakers}  pr_vocab={pr_vocab_size}  D={cfg.D}  K={cfg.K}")
     if "pr" in tasks:
-        print("[diag_probe] PR: SUPERB 74-phone — train-clean-100 → val=dev-clean, test=test-clean")
+        print("[diag_probe] PR: stage-2-matched 74-phone targets — "
+              "train-clean-100 → val=dev-clean, test=test-clean")
     else:
         print("[diag_probe] PR: skipped")
     print(f"[diag_probe] SID: closed-set utterance split (val/test held out); probe arch={args.sid_probe_arch}")

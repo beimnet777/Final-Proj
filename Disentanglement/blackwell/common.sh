@@ -56,11 +56,21 @@ blackwell_run() {
     source "${BLACKWELL_VENV}/bin/activate"
 
     local run_dir="${BLACKWELL_OUTPUT_ROOT}/${run_name}"
-    local log_dir="${BLACKWELL_LOG_ROOT}/${run_name}"
+    local log_group="${BLACKWELL_LOG_GROUP:-$run_name}"
+    if [[ ! "$log_group" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        echo "ERROR: BLACKWELL_LOG_GROUP may contain only letters, digits, dot, underscore and dash." >&2
+        return 2
+    fi
+    local log_dir="${BLACKWELL_LOG_ROOT}/${log_group}"
     local stamp log_file metadata_file commit dirty
     stamp="$(date +%Y%m%d_%H%M%S)"
-    log_file="${log_dir}/${stamp}.log"
-    metadata_file="${log_dir}/${stamp}.metadata"
+    if [[ "$log_group" == "$run_name" ]]; then
+        log_file="${log_dir}/${stamp}.log"
+        metadata_file="${log_dir}/${stamp}.metadata"
+    else
+        log_file="${log_dir}/${stamp}_${run_name}.log"
+        metadata_file="${log_dir}/${stamp}_${run_name}.metadata"
+    fi
     mkdir -p "$log_dir"
     export BLACKWELL_RUN_DIR="$run_dir"
 
