@@ -400,6 +400,8 @@ def _train_pr_probe(
     best_state = None
     bad = 0
     stop = False
+    train_loss_sum = 0.0
+    train_loss_count = 0
 
     while step < steps and not stop:
         for audios, audio_lens, targets, target_lens, _texts in train_dl:
@@ -419,9 +421,16 @@ def _train_pr_probe(
             opt.step()
             scheduler.step()
             step += 1
+            train_loss_sum += float(loss.detach().item())
+            train_loss_count += 1
 
             if do_val and step % val_every == 0:
-                per = _eval_pr_probe_cached(probe, val_cache, tokenizer, device)
+                per, dev_loss = _eval_pr_probe_cached(
+                    probe, val_cache, tokenizer, device, return_loss=True
+                )
+                train_loss = train_loss_sum / max(train_loss_count, 1)
+                train_loss_sum = 0.0
+                train_loss_count = 0
                 probe.train()
                 if per < best_val - 1e-4:
                     best_val, bad = per, 0
@@ -429,7 +438,8 @@ def _train_pr_probe(
                                   for k, v in probe.state_dict().items()}
                 else:
                     bad += 1
-                print(f"      [pr {src_key}] step {step}/{steps}  dev PER={per:.3f}  "
+                print(f"      [pr {src_key}] step {step}/{steps}  "
+                      f"train loss={train_loss:.3f}  dev loss={dev_loss:.3f}  dev PER={per:.3f}  "
                       f"(best {best_val:.3f}, bad {bad}/{patience})", flush=True)
                 if patience > 0 and bad >= patience:
                     stop = True
@@ -816,6 +826,8 @@ def _cache_features(src_key, dl, model, device, use_bf16, has_routing, task):
             entry["f0"], entry["voiced"], entry["energy"] = f0, voiced, energy
         else:
             entry["texts"] = last
+            entry["targets"] = targets.detach().to("cpu")
+            entry["target_lens"] = target_lens.detach().to("cpu")
         cache.append(entry)
     return cache
 
@@ -837,17 +849,33 @@ def _cache_emotion_features(src_key, dl, model, device, use_bf16, has_routing):
 
 
 @torch.no_grad()
-def _eval_pr_probe_cached(probe, cache, tokenizer, device) -> float:
+def _eval_pr_probe_cached(probe, cache, tokenizer, device, return_loss: bool = False):
     probe.eval()
     all_hyps: List[str] = []
     all_refs: List[str] = []
+    loss_sum = 0.0
+    loss_count = 0
+    ctc_loss = nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True) if return_loss else None
     for e in cache:
-        log_probs = probe(e["z"].to(device))
+        z = e["z"].to(device)
+        log_probs = probe(z)
         hyps = _greedy_pr_decode(log_probs.cpu(), e["out_lengths"], tokenizer)
         refs = [_phones_from_text(t, tokenizer) for t in e["texts"]]
         all_hyps.extend(hyps)
         all_refs.extend(refs)
-    return _phone_error_rate(all_refs, all_hyps)
+        if return_loss and "targets" in e and "target_lens" in e:
+            loss = ctc_loss(
+                log_probs.permute(1, 0, 2),
+                e["targets"].to(device),
+                e["out_lengths"].to(device),
+                e["target_lens"].to(device),
+            )
+            loss_sum += float(loss.item())
+            loss_count += 1
+    per = _phone_error_rate(all_refs, all_hyps)
+    if return_loss:
+        return per, loss_sum / max(loss_count, 1)
+    return per
 
 
 @torch.no_grad()
@@ -1133,7 +1161,7 @@ def _parse_args():
     p.add_argument("--max_val_examples",      type=int, default=500)
     p.add_argument("--pr_max_examples",       type=int, default=0,
                    help="Cap PR train/val/test examples. 0 = full SUPERB PR splits.")
-    p.add_argument("--pr_probe_lr",           type=float, default=5e-4)
+    p.add_argument("--pr_probe_lr",           type=float, default=1e-4)
     p.add_argument("--sid_probe_lr",          type=float, default=1e-4)
     p.add_argument("--probe_warmup_steps",    type=int, default=500)
     p.add_argument("--probe_grad_clip",       type=float, default=1.0)

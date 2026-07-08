@@ -117,7 +117,7 @@ def _parse_args():
     p.add_argument("--max_test_examples", type=int, default=500)
     p.add_argument("--pr_max_examples", type=int, default=0)
     p.add_argument("--num_workers", type=int, default=0)
-    p.add_argument("--pr_probe_lr", type=float, default=5e-4)
+    p.add_argument("--pr_probe_lr", type=float, default=1e-4)
     p.add_argument("--sid_probe_lr", type=float, default=1e-3)
     p.add_argument("--prosody_probe_lr", type=float, default=5e-4)
     p.add_argument("--emotion", action=argparse.BooleanOptionalAction, default=False,
