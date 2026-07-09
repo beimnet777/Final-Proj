@@ -127,6 +127,37 @@ Then rerun the same analysis on the TIMIT bundle. Use `causal` and `swap` only
 after the descriptive tables look sane, because those train small external
 evaluators and take longer.
 
+If TIMIT or independent LibriSpeech phone alignments are not available yet, do
+not fabricate frame-level phone labels.  Build an in-domain LibriSpeech bundle
+without alignments and run the descriptive analyses:
+
+```bash
+python -m SAEUnitAnalysis.build_librispeech_bundle \
+  --librispeech-root /scratch/$USER/data/LibriSpeech \
+  --output /scratch/$USER/data/sae_analysis/librispeech_bundle \
+  --max-train 2000 \
+  --max-validation 500 \
+  --max-test 500
+
+python -m SAEUnitAnalysis \
+  --checkpoint /path/to/stage2.pt \
+  --data /scratch/$USER/data/sae_analysis/librispeech_bundle \
+  --analysis health,atlas,selectivity,clustering,similarity,geometry
+```
+
+Without `alignments.csv`, phone/manner/place/boundary scores are skipped, but
+speaker/acoustic selectivity, unit health, route summaries, geometry, similarity
+plots, top examples, and the HTML report still run.  `causal`, `swap`, and
+`all` still require independent phone alignments.
+
+For a TIMIT phonetic-validation bundle, use:
+
+```bash
+python -m SAEUnitAnalysis.build_timit_bundle \
+  --timit-root /scratch/$USER/data/TIMIT \
+  --output /scratch/$USER/data/sae_analysis/timit_bundle
+```
+
 ## Old checkpoints
 
 The loader accepts `model`, `model_state`, and raw state dictionaries. It reads

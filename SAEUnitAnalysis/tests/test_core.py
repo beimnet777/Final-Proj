@@ -22,6 +22,8 @@ from SAEUnitAnalysis.analyses import (
     selectivity_analysis,
 )
 from SAEUnitAnalysis.bundle import AnalysisBundle
+from SAEUnitAnalysis.build_librispeech_bundle import build_bundle as build_librispeech_bundle
+from SAEUnitAnalysis.build_timit_bundle import build_bundle
 from SAEUnitAnalysis.checkpoint import load_checkpoint, route_information, unresolved_critical
 from SAEUnitAnalysis.extraction import FeatureCache
 from SAEUnitAnalysis.pipeline import run_analysis
@@ -90,7 +92,7 @@ class CoreTests(unittest.TestCase):
                 cp=Path(td)/f"{key}.pt"; torch.save({key:_state(),"analysis_config":{"topk":2,"spear_layernorm":False}},cp)
                 r=load_checkpoint(cp); self.assertEqual(r.config["K"],8); self.assertTrue(r.capabilities["unit_routes"])
 
-    def test_missing_alignment_is_rejected_for_semantic_analysis(self):
+    def test_missing_alignment_allows_descriptive_but_rejects_causal_analysis(self):
         with tempfile.TemporaryDirectory() as td:
             root=_bundle(Path(td)/"bundle")
             (root/"alignments.csv").unlink()
@@ -98,7 +100,9 @@ class CoreTests(unittest.TestCase):
             config["factors"]=[f for f in config["factors"] if f["name"]!="phone"]
             (root/"dataset.yaml").write_text(json.dumps(config))
             b=AnalysisBundle(root)
-            with self.assertRaises(AnalysisError): b.require("selectivity")
+            b.require("selectivity")
+            b.require("clustering")
+            with self.assertRaises(AnalysisError): b.require("causal")
 
     def test_synthetic_factor_alignment(self):
         with tempfile.TemporaryDirectory() as td:
@@ -180,6 +184,46 @@ class CoreTests(unittest.TestCase):
             self.assertGreater(summary["thesis_summary"]["L_paralinguistic_leak_fraction"], 0.0)
             self.assertEqual(int(leaky.iloc[0].unit), 0)
             self.assertIn("metadata_paralinguistic_selective_fraction", route_summary.columns)
+
+    def test_build_timit_bundle(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "TIMIT"
+            spk = root / "TRAIN" / "DR1" / "FCJF0"
+            spk.mkdir(parents=True)
+            _wav(spk / "SA1.WAV")
+            (spk / "SA1.TXT").write_text("0 16000 she had your dark suit\n")
+            (spk / "SA1.PHN").write_text("0 8000 sh\n8000 16000 iy\n")
+
+            out = Path(td) / "bundle"
+            build_bundle(root, out)
+            bundle = AnalysisBundle(out)
+            self.assertEqual(len(bundle.utterances), 1)
+            self.assertEqual(len(bundle.alignments), 2)
+            self.assertTrue((out / "dataset.yaml").exists())
+            self.assertTrue((out / "audio" / "TRAIN" / "DR1" / "FCJF0" / "SA1.WAV").exists())
+            self.assertIn("phone", {factor.name for factor in bundle.spec.factors})
+            self.assertIn("sex", {factor.name for factor in bundle.spec.factors})
+
+    def test_build_librispeech_bundle_without_phone_alignments(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "LibriSpeech"
+            for split, uid in (("train-clean-100", "1-2-0000"), ("dev-clean", "3-4-0000"), ("test-clean", "5-6-0000")):
+                speaker, chapter, _ = uid.split("-")
+                folder = root / split / speaker / chapter
+                folder.mkdir(parents=True)
+                _wav(folder / f"{uid}.wav")
+                (folder / f"{speaker}-{chapter}.trans.txt").write_text(f"{uid} a small test\n")
+
+            out = Path(td) / "libri_bundle"
+            build_librispeech_bundle(root, out, max_train=1, max_validation=1, max_test=1)
+            bundle = AnalysisBundle(out)
+            self.assertEqual(len(bundle.utterances), 3)
+            self.assertIsNone(bundle.alignments)
+            self.assertIn("speaker_id", {factor.name for factor in bundle.spec.factors})
+            bundle.require("selectivity")
+            bundle.require("clustering")
+            with self.assertRaises(AnalysisError):
+                bundle.require("causal")
 
 
 if __name__ == "__main__":

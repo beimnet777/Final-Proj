@@ -132,7 +132,7 @@ class AnalysisBundle:
 
     def require(self, analysis: str) -> None:
         factor_names = {f.name for f in self.spec.factors}
-        if analysis in {"selectivity", "clustering", "causal", "swap", "all"}:
+        if analysis in {"causal", "swap", "all"}:
             if "phone" not in factor_names:
                 raise AnalysisError(f"Analysis '{analysis}' requires independent phone alignments.")
         if analysis in {"causal", "swap", "all"}:
