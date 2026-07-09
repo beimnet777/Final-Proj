@@ -59,6 +59,13 @@ SKIP_TRAINING="${SKIP_TRAINING:-0}"
 RUN_PROBES="${RUN_PROBES:-1}"
 RUN_SAE_ANALYSIS="${RUN_SAE_ANALYSIS:-1}"
 
+# SPEAR's cached HuggingFace module currently emits repeated PyTorch
+# FutureWarnings for torch.cuda.amp.autocast.  They are not actionable for this
+# experiment and can bury real failures in tmux/log output.
+export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore::FutureWarning}"
+export TRANSFORMERS_VERBOSITY="${TRANSFORMERS_VERBOSITY:-error}"
+export TF_CPP_MIN_LOG_LEVEL="${TF_CPP_MIN_LOG_LEVEL:-2}"
+
 SAE_ANALYSIS="${SAE_ANALYSIS:-health,atlas,selectivity,clustering,similarity,geometry}"
 SAE_PROFILE="${SAE_PROFILE:-full}"
 SAE_SEED="${SAE_SEED:-42}"
