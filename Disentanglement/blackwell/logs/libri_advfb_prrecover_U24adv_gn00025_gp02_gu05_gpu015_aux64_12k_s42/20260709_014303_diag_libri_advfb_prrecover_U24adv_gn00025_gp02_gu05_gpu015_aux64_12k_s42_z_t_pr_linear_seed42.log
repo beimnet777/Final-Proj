@@ -1,0 +1,57 @@
+[diag_probe] run=diag_libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42_z_t_pr_linear_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/scratch/bbg25/runs/libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/scratch/bbg25/runs/libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] sources=['z_t']  tasks=['pr']
+[diag_probe] probe_steps=5000  pr_lr=0.0005  sid_lr=0.001  pr_warmup=500  other_warmup=0  val_every=250  patience=5
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading PR train-clean-100 …
+[dis_data] loading PR dev-clean …
+[dis_data] loading PR test-clean …
+[dis_data]  PR train=28539 val=2703 test=2620 vocab=74
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[diag_probe] topk confirmed: 256
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from /scratch/bbg25/runs/libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42/checkpoints/stage2_step12000.pt  (step=12000  val=0.1408)
+[diag_probe] skipped 8 shape-mismatched/stale keys (e.g. ['grl_head_u.projector.weight', 'grl_head_u.projector.bias', 'grl_head_u.fc.weight']) — fine, probe does not use adversarial heads
+[diag_probe] loaded stage2 weights from /scratch/bbg25/runs/libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42/checkpoints/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: stage-2-matched 74-phone targets — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_t -> PR ...
+[dis_data] g2p_en loaded for OOV words
+      [pr z_t] step 250/5000  train loss=4.339  dev loss=3.273  dev PER=0.912  (best 0.912, bad 0/5)
+      [pr z_t] step 500/5000  train loss=2.491  dev loss=1.536  dev PER=0.496  (best 0.496, bad 0/5)
+      [pr z_t] step 750/5000  train loss=1.136  dev loss=0.954  dev PER=0.317  (best 0.317, bad 0/5)
+      [pr z_t] step 1000/5000  train loss=0.878  dev loss=0.862  dev PER=0.225  (best 0.225, bad 0/5)
+      [pr z_t] step 1250/5000  train loss=0.766  dev loss=0.725  dev PER=0.208  (best 0.208, bad 0/5)
+      [pr z_t] step 1500/5000  train loss=0.702  dev loss=0.679  dev PER=0.201  (best 0.201, bad 0/5)
+      [pr z_t] step 1750/5000  train loss=0.657  dev loss=0.694  dev PER=0.208  (best 0.201, bad 1/5)
+      [pr z_t] step 2000/5000  train loss=0.615  dev loss=0.613  dev PER=0.168  (best 0.168, bad 0/5)
+      [pr z_t] step 2250/5000  train loss=0.594  dev loss=0.619  dev PER=0.197  (best 0.168, bad 1/5)
+      [pr z_t] step 2500/5000  train loss=0.571  dev loss=0.575  dev PER=0.166  (best 0.166, bad 0/5)
+      [pr z_t] step 2750/5000  train loss=0.553  dev loss=0.556  dev PER=0.142  (best 0.142, bad 0/5)
+      [pr z_t] step 3000/5000  train loss=0.544  dev loss=0.533  dev PER=0.140  (best 0.140, bad 0/5)
+      [pr z_t] step 3250/5000  train loss=0.529  dev loss=0.531  dev PER=0.143  (best 0.140, bad 1/5)
+      [pr z_t] step 3500/5000  train loss=0.513  dev loss=0.513  dev PER=0.127  (best 0.127, bad 0/5)
+      [pr z_t] step 3750/5000  train loss=0.501  dev loss=0.502  dev PER=0.130  (best 0.127, bad 1/5)
+      [pr z_t] step 4000/5000  train loss=0.487  dev loss=0.492  dev PER=0.135  (best 0.127, bad 2/5)
+      [pr z_t] step 4250/5000  train loss=0.479  dev loss=0.489  dev PER=0.126  (best 0.126, bad 0/5)
+      [pr z_t] step 4500/5000  train loss=0.471  dev loss=0.478  dev PER=0.125  (best 0.125, bad 0/5)
+      [pr z_t] step 4750/5000  train loss=0.467  dev loss=0.472  dev PER=0.126  (best 0.125, bad 1/5)
+      [pr z_t] step 5000/5000  train loss=0.456  dev loss=0.463  dev PER=0.123  (best 0.123, bad 0/5)
+    z_t -> PR               PER test=0.127  (val 0.123)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42_z_t_pr_linear_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_t              0.127           nan
+==================================================================
+

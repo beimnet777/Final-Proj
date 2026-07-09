@@ -1,0 +1,43 @@
+[diag_probe] run=diag_libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42_z_U_pr_direct_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/scratch/bbg25/runs/libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/scratch/bbg25/runs/libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] sources=['z_U']  tasks=['pr']
+[diag_probe] probe_steps=5000  pr_lr=0.0005  sid_lr=0.001  pr_warmup=500  other_warmup=0  val_every=250  patience=5
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading PR train-clean-100 …
+[dis_data] loading PR dev-clean …
+[dis_data] loading PR test-clean …
+[dis_data]  PR train=28539 val=2703 test=2620 vocab=74
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[diag_probe] topk confirmed: 256
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from /scratch/bbg25/runs/libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42/checkpoints/stage2_step12000.pt  (step=12000  val=0.1408)
+[diag_probe] skipped 8 shape-mismatched/stale keys (e.g. ['grl_head_u.projector.weight', 'grl_head_u.projector.bias', 'grl_head_u.fc.weight']) — fine, probe does not use adversarial heads
+[diag_probe] loaded stage2 weights from /scratch/bbg25/runs/libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42/checkpoints/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: stage-2-matched 74-phone targets — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_U -> PR ...
+[dis_data] g2p_en loaded for OOV words
+      [pr z_U] step 250/5000  train loss=5.250  dev loss=3.629  dev PER=1.000  (best 1.000, bad 0/5)
+      [pr z_U] step 500/5000  train loss=3.588  dev loss=3.669  dev PER=1.000  (best 1.000, bad 1/5)
+      [pr z_U] step 750/5000  train loss=3.593  dev loss=3.641  dev PER=1.000  (best 1.000, bad 2/5)
+      [pr z_U] step 1000/5000  train loss=3.591  dev loss=3.625  dev PER=1.000  (best 1.000, bad 3/5)
+      [pr z_U] step 1250/5000  train loss=3.588  dev loss=3.624  dev PER=1.000  (best 1.000, bad 4/5)
+      [pr z_U] step 1500/5000  train loss=3.590  dev loss=3.643  dev PER=1.000  (best 1.000, bad 5/5)
+    z_U -> PR               PER test=1.000  (val 1.000)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_libri_advfb_prrecover_U24adv_gn00025_gp02_gu05_gpu015_aux64_12k_s42_z_U_pr_direct_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_U              1.000           nan
+==================================================================
+
