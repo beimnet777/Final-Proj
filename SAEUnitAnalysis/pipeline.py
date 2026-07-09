@@ -9,7 +9,7 @@ import torch
 
 from .analyses import (
     clustering_analysis, geometry_analysis, health_analysis, selectivity_analysis,
-    similarity_analysis, top_examples,
+    disentanglement_tables, similarity_analysis, top_examples,
 )
 from .bundle import AnalysisBundle
 from .causal import causal_analysis, swap_analysis
@@ -94,6 +94,11 @@ def run_analysis(
         if health is not None:
             profiles = profiles.merge(health[["unit", "frame_frequency"]], on="unit", how="left")
         tables["scores"], tables["profiles"] = scores, profiles
+        disent, leaky, route_summary, summaries["disentanglement"] = disentanglement_tables(
+            health, profiles, scores, output)
+        tables["disentanglement"] = disent
+        tables["leaky"] = leaky
+        tables["route_summary"] = route_summary
     if "clustering" in selected:
         clustered, summaries["clustering"] = clustering_analysis(cache, profiles, output, seed)
         tables["clusters"] = clustered

@@ -15,7 +15,12 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-from SAEUnitAnalysis.analyses import clustering_analysis, health_analysis, selectivity_analysis
+from SAEUnitAnalysis.analyses import (
+    clustering_analysis,
+    disentanglement_tables,
+    health_analysis,
+    selectivity_analysis,
+)
 from SAEUnitAnalysis.bundle import AnalysisBundle
 from SAEUnitAnalysis.checkpoint import load_checkpoint, route_information, unresolved_critical
 from SAEUnitAnalysis.extraction import FeatureCache
@@ -134,6 +139,47 @@ class CoreTests(unittest.TestCase):
                 result=run_analysis(cp,root,"health,atlas",output_dir=td/"result",device="cpu",profile="quick")
             self.assertTrue(result.artifacts["report"].exists())
             self.assertTrue((td/"result"/"tables"/"units.csv").exists())
+
+    def test_timit_style_metadata_counts_as_l_route_leakage(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "out"
+            (out / "tables").mkdir(parents=True)
+            profiles = pd.DataFrame([
+                {
+                    "unit": 0, "route": "L", "route_id": 0,
+                    "linguistic_score": 0.5, "paralinguistic_score": 9.0,
+                    "sex__score": 9.0, "speaker_id__score": 0.0,
+                },
+                {
+                    "unit": 1, "route": "L", "route_id": 0,
+                    "linguistic_score": 8.0, "paralinguistic_score": 0.0,
+                    "phone__score": 8.0, "speaker_id__score": 0.0,
+                },
+                {
+                    "unit": 2, "route": "P", "route_id": 1,
+                    "linguistic_score": 7.0, "paralinguistic_score": 0.0,
+                    "phone__score": 7.0, "speaker_id__score": 0.0,
+                },
+                {
+                    "unit": 3, "route": "P", "route_id": 1,
+                    "linguistic_score": 0.0, "paralinguistic_score": 7.0,
+                    "phone__score": 0.0, "speaker_id__score": 7.0,
+                },
+            ])
+            scores = pd.DataFrame([
+                {"unit": 0, "factor": "sex", "family": "paralinguistic", "score": 9.0, "q": 0.001},
+                {"unit": 1, "factor": "phone", "family": "linguistic", "score": 8.0, "q": 0.001},
+                {"unit": 2, "factor": "phone", "family": "linguistic", "score": 7.0, "q": 0.001},
+                {"unit": 3, "factor": "speaker_id", "family": "paralinguistic", "score": 7.0, "q": 0.001},
+            ])
+            units, leaky, route_summary, summary = disentanglement_tables(None, profiles, scores, out)
+            unit0 = units[units.unit == 0].iloc[0]
+            self.assertTrue(bool(unit0.route_violation))
+            self.assertIn("metadata_in_L", unit0.issue_tags)
+            self.assertGreater(float(unit0.leakage_score), 0.0)
+            self.assertGreater(summary["thesis_summary"]["L_paralinguistic_leak_fraction"], 0.0)
+            self.assertEqual(int(leaky.iloc[0].unit), 0)
+            self.assertIn("metadata_paralinguistic_selective_fraction", route_summary.columns)
 
 
 if __name__ == "__main__":

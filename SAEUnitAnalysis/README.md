@@ -57,6 +57,45 @@ factors:
   - {name: f0, family: paralinguistic, level: frame, type: continuous, source: "computed:f0"}
 ```
 
+### Recommended dissertation bundles
+
+Use two complementary bundles rather than forcing one dataset to answer every
+question:
+
+1. **LibriSpeech in-domain bundle** — the primary evidence for the
+   disentanglement experiments. Use the same domain as training/probing, with
+   `speaker_id`, independent phone alignments, transcripts, and computed
+   acoustic factors (`f0`, `energy`, `voicing`). This is the bundle to cite for
+   “does `z_L` keep phones while removing speaker information?”.
+2. **TIMIT phonetic-validation bundle** — a cleaner phonetic sanity check. TIMIT
+   has human phone boundaries, so it is useful for inspecting whether individual
+   SAE units are phone/manner/place/boundary units. It should be treated as
+   out-of-domain validation, not as a replacement for the LibriSpeech
+   disentanglement result.
+
+TIMIT-style manifest columns can be:
+
+```csv
+utterance_id,audio_path,split,transcript,speaker_id,sex,dialect_region
+dr1-fcjf0-sa1,audio/dr1/fcjf0/sa1.wav,test,she had your dark suit in greasy wash water,fcjf0,F,DR1
+```
+
+TIMIT-style factors:
+
+```yaml
+factors:
+  - {name: phone, family: linguistic, level: frame, type: categorical, source: alignment}
+  - {name: speaker_id, family: paralinguistic, level: utterance, type: categorical, source: speaker_id}
+  - {name: sex, family: paralinguistic, level: utterance, type: categorical, source: sex}
+  - {name: dialect_region, family: paralinguistic, level: utterance, type: categorical, source: dialect_region}
+  - {name: energy, family: paralinguistic, level: frame, type: continuous, source: "computed:energy"}
+  - {name: voicing, family: paralinguistic, level: frame, type: continuous, source: "computed:voicing"}
+```
+
+If `factors` is omitted, the bundle loader auto-detects common columns including
+`speaker_id`, `sex`, `gender`, `dialect_region`, `age`, `emotion`, and computed
+`f0/energy/voicing`.
+
 Required manifest columns:
 
 ```csv
@@ -74,6 +113,19 @@ u001,0.00,0.12,EH
 Phone timings must come from an aligner independent of the checkpoint's CTC
 head. Missing factors are allowed for descriptive analyses; `causal`, `swap`,
 and `all` require train/validation/test splits, phone alignments, and speakers.
+
+For a first pass, run:
+
+```bash
+python -m SAEUnitAnalysis \
+  --checkpoint /path/to/stage2.pt \
+  --data /path/to/librispeech_analysis_bundle \
+  --analysis health,atlas,selectivity,clustering,similarity,geometry
+```
+
+Then rerun the same analysis on the TIMIT bundle. Use `causal` and `swap` only
+after the descriptive tables look sane, because those train small external
+evaluators and take longer.
 
 ## Old checkpoints
 
@@ -114,4 +166,3 @@ synthesize waveform audio.
 ```bash
 python -m unittest discover -s SAEUnitAnalysis/tests -v
 ```
-

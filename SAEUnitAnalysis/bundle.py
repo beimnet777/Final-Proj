@@ -13,6 +13,10 @@ from .utils import AnalysisError, read_structured, write_json
 STANDARD_FACTORS = {
     "phone": FactorSpec("phone", "linguistic", "frame", "categorical", "alignment"),
     "speaker_id": FactorSpec("speaker_id", "paralinguistic", "utterance", "categorical", "speaker_id"),
+    "sex": FactorSpec("sex", "paralinguistic", "utterance", "categorical", "sex"),
+    "gender": FactorSpec("gender", "paralinguistic", "utterance", "categorical", "gender"),
+    "dialect_region": FactorSpec("dialect_region", "paralinguistic", "utterance", "categorical", "dialect_region"),
+    "age": FactorSpec("age", "paralinguistic", "utterance", "continuous", "age"),
     "emotion": FactorSpec("emotion", "paralinguistic", "utterance", "categorical", "emotion"),
     "arousal": FactorSpec("arousal", "paralinguistic", "utterance", "continuous", "arousal"),
     "valence": FactorSpec("valence", "paralinguistic", "utterance", "continuous", "valence"),
@@ -150,4 +154,3 @@ class AnalysisBundle:
 
     def write_validation_report(self, path: Path) -> None:
         write_json(path, self.validation_report())
-

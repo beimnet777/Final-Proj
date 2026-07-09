@@ -328,6 +328,11 @@ def selectivity_analysis(
         profiles = profiles.rename(columns={"linguistic": "linguistic_score", "paralinguistic": "paralinguistic_score"})
         profiles["delta_L_minus_P"] = profiles.linguistic_score - profiles.paralinguistic_score
     profiles = pd.DataFrame({"unit": np.arange(cache.K)}).merge(profiles, on="unit", how="left").fillna(0)
+    for col in ("linguistic_score", "paralinguistic_score"):
+        if col not in profiles:
+            profiles[col] = 0.0
+    if "delta_L_minus_P" not in profiles:
+        profiles["delta_L_minus_P"] = profiles["linguistic_score"] - profiles["paralinguistic_score"]
     profiles["route_id"] = cache.route
     profiles["route"] = [ROUTE_NAMES.get(int(x), str(x)) for x in cache.route]
     L = profiles[profiles.route_id == 0].delta_L_minus_P.to_numpy()
@@ -354,6 +359,245 @@ def selectivity_analysis(
         pass
     write_json(output / "selectivity.json", summary)
     return scores, profiles, summary
+
+
+_PHONE_LIKE_FACTORS = (
+    "phone", "manner", "place", "phonetic_voicing",
+    "phone_boundary", "phone_transition",
+)
+_PROSODY_LIKE_FACTORS = ("f0", "energy", "voicing")
+_METADATA_LIKE_FACTORS = ("sex", "gender", "dialect_region", "age")
+
+
+def _max_existing(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.Series:
+    present = [c for c in columns if c in frame.columns]
+    if not present:
+        return pd.Series(np.zeros(len(frame)), index=frame.index, dtype=float)
+    return frame[present].max(axis=1).astype(float)
+
+
+def _significant_units(
+    scores: pd.DataFrame, factors: tuple[str, ...], *, q_threshold: float,
+    score_threshold: float,
+) -> set[int]:
+    if scores is None or scores.empty:
+        return set()
+    sub = scores[scores["factor"].isin(factors)].copy()
+    if sub.empty:
+        return set()
+    if "q" in sub:
+        sub = sub[(sub["q"] <= q_threshold) & (sub["score"].abs() >= 3.0)]
+    else:
+        sub = sub[sub["score"].abs() >= score_threshold]
+    return set(sub["unit"].astype(int).tolist())
+
+
+def disentanglement_tables(
+    health: pd.DataFrame | None,
+    profiles: pd.DataFrame,
+    scores: pd.DataFrame,
+    output: Path,
+    *,
+    score_threshold: float = 5.0,
+    q_threshold: float = 0.05,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    """Create thesis-facing unit tables for routed disentanglement.
+
+    The raw selectivity table is intentionally broad.  This helper condenses it
+    into the views we actually need for the dissertation claim: phone-like
+    units, speaker-like units, prosody-like units, mixed units, and route
+    violations such as speaker-selective L units or phone-selective P units.
+    """
+    units = profiles.copy()
+    units["unit"] = units["unit"].astype(int)
+    if health is not None and len(health):
+        keep = [
+            "unit", "frame_frequency", "utterance_frequency", "decoder_norm",
+            "mean_abs_contribution", "dead", "rare", "ubiquitous",
+        ]
+        keep = [c for c in keep if c in health.columns]
+        units = units.drop(columns=[c for c in keep if c in units.columns and c != "unit"], errors="ignore")
+        units = units.merge(health[keep], on="unit", how="left")
+
+    for col in ("linguistic_score", "paralinguistic_score", "delta_L_minus_P"):
+        if col not in units:
+            units[col] = 0.0
+
+    factor_score_cols = {c[:-7]: c for c in units.columns if c.endswith("__score")}
+    phone_cols = tuple(f"{f}__score" for f in _PHONE_LIKE_FACTORS)
+    prosody_cols = tuple(f"{f}__score" for f in _PROSODY_LIKE_FACTORS)
+    units["phone_like_score"] = _max_existing(units, phone_cols)
+    units["speaker_score"] = units.get("speaker_id__score", 0.0)
+    units["speaker_score"] = units["speaker_score"].astype(float)
+    units["prosody_score"] = _max_existing(units, prosody_cols)
+    metadata_cols = tuple(f"{f}__score" for f in _METADATA_LIKE_FACTORS)
+    units["metadata_paralinguistic_score"] = _max_existing(units, metadata_cols)
+    units["emotion_score"] = units.get("emotion__score", 0.0)
+    units["emotion_score"] = units["emotion_score"].astype(float)
+    units["max_factor_score"] = _max_existing(units, tuple(factor_score_cols.values()))
+    units["dominant_family"] = np.where(
+        units["linguistic_score"] > units["paralinguistic_score"],
+        "linguistic",
+        np.where(units["paralinguistic_score"] > units["linguistic_score"], "paralinguistic", "tie"),
+    )
+
+    sig_phone = _significant_units(scores, _PHONE_LIKE_FACTORS, q_threshold=q_threshold,
+                                   score_threshold=score_threshold)
+    sig_speaker = _significant_units(scores, ("speaker_id",), q_threshold=q_threshold,
+                                     score_threshold=score_threshold)
+    sig_prosody = _significant_units(scores, _PROSODY_LIKE_FACTORS, q_threshold=q_threshold,
+                                     score_threshold=score_threshold)
+    sig_emotion = _significant_units(scores, ("emotion",), q_threshold=q_threshold,
+                                     score_threshold=score_threshold)
+    sig_metadata = _significant_units(scores, _METADATA_LIKE_FACTORS, q_threshold=q_threshold,
+                                      score_threshold=score_threshold)
+
+    units["phone_selective"] = (
+        units["phone_like_score"].ge(score_threshold) |
+        units["unit"].isin(sig_phone)
+    )
+    units["speaker_selective"] = (
+        units["speaker_score"].ge(score_threshold) |
+        units["unit"].isin(sig_speaker)
+    )
+    units["prosody_selective"] = (
+        units["prosody_score"].ge(score_threshold) |
+        units["unit"].isin(sig_prosody)
+    )
+    units["emotion_selective"] = (
+        units["emotion_score"].ge(score_threshold) |
+        units["unit"].isin(sig_emotion)
+    )
+    units["metadata_paralinguistic_selective"] = (
+        units["metadata_paralinguistic_score"].ge(score_threshold) |
+        units["unit"].isin(sig_metadata)
+    )
+    units["paralinguistic_selective"] = (
+        units["speaker_selective"] | units["prosody_selective"] |
+        units["emotion_selective"] | units["metadata_paralinguistic_selective"] |
+        units["paralinguistic_score"].ge(score_threshold)
+    )
+    units["linguistic_selective"] = (
+        units["phone_selective"] | units["linguistic_score"].ge(score_threshold)
+    )
+    units["mixed_phone_speaker"] = units["phone_selective"] & units["speaker_selective"]
+    units["mixed_linguistic_paralinguistic"] = (
+        units["linguistic_selective"] & units["paralinguistic_selective"]
+    )
+
+    units["route_violation"] = False
+    # L is the linguistic route: any speaker/prosody/emotion/metadata
+    # paralinguistic selectivity is leakage, not only closed-set speaker ID.
+    # This matters for TIMIT-style phonetic validation bundles where sex and
+    # dialect-region labels are useful nuisance factors even when each speaker
+    # has few utterances.
+    units.loc[(units["route"] == "L") & units["paralinguistic_selective"], "route_violation"] = True
+    # P is the paralinguistic route: phone-like selectivity is content leakage.
+    units.loc[(units["route"] == "P") & units["phone_selective"], "route_violation"] = True
+    units.loc[(units["route"] == "U") & (units["linguistic_selective"] | units["paralinguistic_selective"]),
+              "route_violation"] = True
+
+    def tags(row: pd.Series) -> str:
+        out: list[str] = []
+        if row.get("mixed_phone_speaker", False): out.append("mixed_phone_speaker")
+        if row.get("mixed_linguistic_paralinguistic", False): out.append("mixed_linguistic_paralinguistic")
+        if row.get("route") == "L" and row.get("speaker_selective", False): out.append("speaker_in_L")
+        if row.get("route") == "L" and row.get("prosody_selective", False): out.append("prosody_in_L")
+        if row.get("route") == "L" and row.get("emotion_selective", False): out.append("emotion_in_L")
+        if row.get("route") == "L" and row.get("metadata_paralinguistic_selective", False): out.append("metadata_in_L")
+        if row.get("route") == "L" and row.get("paralinguistic_selective", False): out.append("paralinguistic_in_L")
+        if row.get("route") == "P" and row.get("phone_selective", False): out.append("phone_in_P")
+        if row.get("route") == "U" and row.get("linguistic_selective", False): out.append("linguistic_in_U")
+        if row.get("route") == "U" and row.get("paralinguistic_selective", False): out.append("paralinguistic_in_U")
+        # Preserve order while removing duplicates such as speaker_in_L and the
+        # broader paralinguistic_in_L both firing.
+        return ";".join(dict.fromkeys(out))
+
+    units["issue_tags"] = units.apply(tags, axis=1)
+    units["leakage_score"] = 0.0
+    units.loc[units.route == "L", "leakage_score"] = units.loc[units.route == "L", "paralinguistic_score"]
+    units.loc[units.route == "P", "leakage_score"] = units.loc[units.route == "P", "phone_like_score"]
+    units.loc[units.route == "U", "leakage_score"] = units.loc[
+        units.route == "U", ["linguistic_score", "paralinguistic_score"]
+    ].max(axis=1)
+
+    leaky = units[(units["issue_tags"] != "") | units["route_violation"]].copy()
+    leaky = leaky.sort_values(["leakage_score", "max_factor_score"], ascending=False)
+
+    route_rows: list[dict[str, Any]] = []
+    for route, group in units.groupby("route", dropna=False):
+        active = group[~group.get("dead", False).fillna(False)] if "dead" in group else group
+        denom = max(len(group), 1)
+        active_denom = max(len(active), 1)
+        route_rows.append({
+            "route": route,
+            "units": int(len(group)),
+            "active_units": int(len(active)),
+            "dead_fraction": float(group.get("dead", False).fillna(False).mean()) if "dead" in group else 0.0,
+            "phone_selective_fraction": float(group["phone_selective"].mean()),
+            "speaker_selective_fraction": float(group["speaker_selective"].mean()),
+            "prosody_selective_fraction": float(group["prosody_selective"].mean()),
+            "metadata_paralinguistic_selective_fraction": float(group["metadata_paralinguistic_selective"].mean()),
+            "mixed_phone_speaker_fraction": float(group["mixed_phone_speaker"].mean()),
+            "mixed_any_fraction": float(group["mixed_linguistic_paralinguistic"].mean()),
+            "route_violation_fraction": float(group["route_violation"].mean()),
+            "active_phone_selective_fraction": float(active["phone_selective"].mean()) if active_denom else 0.0,
+            "active_speaker_selective_fraction": float(active["speaker_selective"].mean()) if active_denom else 0.0,
+            "mean_phone_like_score": float(group["phone_like_score"].mean()),
+            "mean_speaker_score": float(group["speaker_score"].mean()),
+            "mean_linguistic_score": float(group["linguistic_score"].mean()),
+            "mean_paralinguistic_score": float(group["paralinguistic_score"].mean()),
+            "median_frame_frequency": float(group.get("frame_frequency", pd.Series([0.0])).median()),
+        })
+    route_summary = pd.DataFrame(route_rows).sort_values("route")
+
+    def route_value(route: str, column: str) -> float | None:
+        row = route_summary[route_summary.route == route]
+        if row.empty or column not in row:
+            return None
+        return float(row.iloc[0][column])
+
+    thesis = pd.DataFrame([{
+        "score_threshold": score_threshold,
+        "q_threshold": q_threshold,
+        "L_phone_selective_fraction": route_value("L", "phone_selective_fraction"),
+        "L_speaker_leak_fraction": route_value("L", "speaker_selective_fraction"),
+        "L_paralinguistic_leak_fraction": route_value("L", "route_violation_fraction"),
+        "P_speaker_selective_fraction": route_value("P", "speaker_selective_fraction"),
+        "P_phone_leak_fraction": route_value("P", "phone_selective_fraction"),
+        "U_info_fraction": route_value("U", "route_violation_fraction"),
+        "mixed_phone_speaker_fraction_all": float(units["mixed_phone_speaker"].mean()),
+        "mixed_any_fraction_all": float(units["mixed_linguistic_paralinguistic"].mean()),
+        "route_violation_fraction_all": float(units["route_violation"].mean()),
+        "leaky_units": int(len(leaky)),
+    }])
+
+    units.to_csv(output / "tables" / "unit_disentanglement.csv", index=False)
+    leaky.to_csv(output / "tables" / "leaky_units.csv", index=False)
+    route_summary.to_csv(output / "tables" / "route_disentanglement_summary.csv", index=False)
+    thesis.to_csv(output / "tables" / "thesis_disentanglement_summary.csv", index=False)
+    try:
+        units.to_parquet(output / "tables" / "unit_disentanglement.parquet", index=False)
+        leaky.to_parquet(output / "tables" / "leaky_units.parquet", index=False)
+    except Exception:
+        pass
+    leaky_preview_cols = [
+        c for c in (
+            "unit", "route", "issue_tags", "phone_like_score",
+            "speaker_score", "prosody_score", "metadata_paralinguistic_score",
+            "paralinguistic_score", "leakage_score",
+            "frame_frequency",
+        ) if c in leaky.columns
+    ]
+    summary = {
+        "score_threshold": score_threshold,
+        "q_threshold": q_threshold,
+        "route_summary": route_summary.to_dict(orient="records"),
+        "thesis_summary": thesis.iloc[0].to_dict(),
+        "top_leaky_units": leaky.head(25)[leaky_preview_cols].to_dict(orient="records") if len(leaky) else [],
+    }
+    write_json(output / "disentanglement.json", summary)
+    return units, leaky, route_summary, summary
 
 
 def _kmeans(x: np.ndarray, k: int, seed: int = 42, steps: int = 50) -> tuple[np.ndarray, np.ndarray]:
