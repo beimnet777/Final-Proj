@@ -68,6 +68,48 @@ def _normal_p(z: np.ndarray) -> np.ndarray:
     return np.vectorize(lambda x: math.erfc(abs(float(x)) / math.sqrt(2.0)))(z)
 
 
+def _training_like_deadness(cache: FeatureCache, resolved: ResolvedModel) -> dict[str, Any]:
+    """Approximate the trainer's dead-latent counter on the analysis stream.
+
+    Training deadness is not "never fired in a corpus"; it is a transient
+    counter: a unit is dead if it has not fired for dead_steps_threshold
+    optimizer batches.  The counter is intentionally not checkpointed, so the
+    best post-hoc analogue is to replay the analysis utterances in batches and
+    count how many consecutive analysis batches each unit has missed.
+    """
+    K = cache.K
+    cfg = resolved.config
+    batch_size = int(cfg.get("batch_size", cfg.get("eval_batch_size", 16)) or 16)
+    batch_size = max(batch_size, 1)
+    threshold = int(cfg.get("dead_steps_threshold", 256) or 256)
+    inactive = np.zeros(K, dtype=np.int32)
+    max_inactive = np.zeros(K, dtype=np.int32)
+    fired_batches = np.zeros(K, dtype=np.int32)
+    n_utterances = len(cache.utterance_ids)
+    n_batches = int(math.ceil(n_utterances / batch_size)) if n_utterances else 0
+    for start in range(0, n_utterances, batch_size):
+        fired = np.zeros(K, dtype=bool)
+        for ui in range(start, min(start + batch_size, n_utterances)):
+            sl = cache.utterance_slice(ui)
+            if sl.stop > sl.start:
+                fired[np.unique(cache.indices[sl].reshape(-1).astype(np.int64))] = True
+        inactive += 1
+        inactive[fired] = 0
+        fired_batches[fired] += 1
+        max_inactive = np.maximum(max_inactive, inactive)
+    train_like_dead = inactive > threshold
+    return {
+        "batch_size": batch_size,
+        "threshold": threshold,
+        "n_batches": n_batches,
+        "final_inactive_batches": inactive,
+        "max_inactive_batches": max_inactive,
+        "fired_batches": fired_batches,
+        "train_like_dead": train_like_dead,
+        "comparable": bool(n_batches > threshold),
+    }
+
+
 def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) -> tuple[pd.DataFrame, dict]:
     K = cache.K
     flat_idx = cache.indices.reshape(-1)
@@ -96,6 +138,10 @@ def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) 
     decoder_norm = np.linalg.norm(decoder, axis=0)
     mean = np.divide(total, count, out=np.zeros(K), where=count > 0)
     var = np.divide(sq, count, out=np.zeros(K), where=count > 0) - mean ** 2
+    deadness = _training_like_deadness(cache, resolved)
+    observed_active = count > 0
+    unobserved = ~observed_active
+    train_like_dead = deadness["train_like_dead"]
     rows = []
     for j in range(K):
         rows.append({
@@ -110,7 +156,17 @@ def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) 
             "mean_abs_contribution": float(abs_total[j] * decoder_norm[j] / max(cache.n_frames, 1)),
             "decoder_norm": float(decoder_norm[j]), "bursts": int(bursts[j]),
             "mean_burst_frames": float(count[j] / bursts[j]) if bursts[j] else 0.0,
-            "dead": bool(count[j] == 0), "rare": bool(0 < count[j] < max(5, cache.n_frames * 1e-5)),
+            "observed_active": bool(observed_active[j]),
+            "unobserved": bool(unobserved[j]),
+            "train_like_dead": bool(train_like_dead[j]),
+            # Keep the historical column name, but make it comparable to the
+            # trainer: dead now means inactive for > dead_steps_threshold
+            # analysis batches, not merely absent from the analysis subset.
+            "dead": bool(train_like_dead[j]),
+            "final_inactive_batches": int(deadness["final_inactive_batches"][j]),
+            "max_inactive_batches": int(deadness["max_inactive_batches"][j]),
+            "fired_batches": int(deadness["fired_batches"][j]),
+            "rare": bool(0 < count[j] < max(5, cache.n_frames * 1e-5)),
             "ubiquitous": bool(count[j] > 0.5 * cache.n_frames),
         })
     frame = pd.DataFrame(rows)
@@ -119,13 +175,23 @@ def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) 
         subset = frame[frame.route_id == rid]
         route_summary.append({
             "route": ROUTE_NAMES.get(int(rid), str(rid)), "assigned_units": int(len(subset)),
-            "active_units": int((~subset.dead).sum()), "dead_fraction": float(subset.dead.mean()),
+            "active_units": int(subset.observed_active.sum()),
+            "unobserved_fraction": float(subset.unobserved.mean()),
+            "train_like_dead_fraction": float(subset.train_like_dead.mean()),
+            "dead_fraction": float(subset.train_like_dead.mean()),
             "median_frame_frequency": float(subset.frame_frequency.median()),
             "active_slots_per_frame": float(subset.active_frames.sum() / max(cache.n_frames, 1)),
         })
     summary = {
         "frames": cache.n_frames, "utterances": len(cache.utterance_ids), "K": K,
-        "active_units": int((count > 0).sum()), "dead_units": int((count == 0).sum()),
+        "active_units": int(observed_active.sum()),
+        "unobserved_units": int(unobserved.sum()),
+        "dead_units": int(train_like_dead.sum()),
+        "train_like_dead_units": int(train_like_dead.sum()),
+        "deadness_batch_size": int(deadness["batch_size"]),
+        "deadness_threshold_batches": int(deadness["threshold"]),
+        "deadness_analysis_batches": int(deadness["n_batches"]),
+        "deadness_comparable_to_training": bool(deadness["comparable"]),
         "route_summary": route_summary,
     }
     frame.to_csv(output / "tables" / "units.csv", index=False)
@@ -400,6 +466,7 @@ def disentanglement_tables(
     *,
     score_threshold: float = 5.0,
     q_threshold: float = 0.05,
+    focus: str = "speaker_content",
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """Create thesis-facing unit tables for routed disentanglement.
 
@@ -413,7 +480,9 @@ def disentanglement_tables(
     if health is not None and len(health):
         keep = [
             "unit", "frame_frequency", "utterance_frequency", "decoder_norm",
-            "mean_abs_contribution", "dead", "rare", "ubiquitous",
+            "mean_abs_contribution", "observed_active", "unobserved",
+            "train_like_dead", "dead", "rare", "ubiquitous",
+            "final_inactive_batches", "max_inactive_batches", "fired_batches",
         ]
         keep = [c for c in keep if c in health.columns]
         units = units.drop(columns=[c for c in keep if c in units.columns and c != "unit"], errors="ignore")
@@ -485,37 +554,52 @@ def disentanglement_tables(
         units["linguistic_selective"] & units["paralinguistic_selective"]
     )
 
+    focus = str(focus or "speaker_content").lower().replace("-", "_")
+    if focus not in {"speaker_content", "broad"}:
+        raise ValueError(f"Unknown disentanglement focus: {focus}")
+
     units["route_violation"] = False
-    # L is the linguistic route: any speaker/prosody/emotion/metadata
-    # paralinguistic selectivity is leakage, not only closed-set speaker ID.
-    # This matters for TIMIT-style phonetic validation bundles where sex and
-    # dialect-region labels are useful nuisance factors even when each speaker
-    # has few utterances.
-    units.loc[(units["route"] == "L") & units["paralinguistic_selective"], "route_violation"] = True
-    # P is the paralinguistic route: phone-like selectivity is content leakage.
-    units.loc[(units["route"] == "P") & units["phone_selective"], "route_violation"] = True
-    units.loc[(units["route"] == "U") & (units["linguistic_selective"] | units["paralinguistic_selective"]),
-              "route_violation"] = True
+    if focus == "speaker_content":
+        # Current Libri adversarial runs are about content vs speaker.  Energy,
+        # voicing and other acoustic correlates remain diagnostic columns, but
+        # they are not counted as headline route failures here.
+        units.loc[(units["route"] == "L") & units["speaker_selective"], "route_violation"] = True
+        units.loc[(units["route"] == "P") & units["phone_selective"], "route_violation"] = True
+        units.loc[(units["route"] == "U") & (units["speaker_selective"] | units["phone_selective"]),
+                  "route_violation"] = True
+    else:
+        # Broad nuisance validation mode: useful for TIMIT-style analyses where
+        # sex, dialect-region, prosody, emotion, etc. are explicit nuisance
+        # factors.  This is stricter than the Libri speaker/content headline.
+        units.loc[(units["route"] == "L") & units["paralinguistic_selective"], "route_violation"] = True
+        units.loc[(units["route"] == "P") & units["phone_selective"], "route_violation"] = True
+        units.loc[(units["route"] == "U") & (units["linguistic_selective"] | units["paralinguistic_selective"]),
+                  "route_violation"] = True
 
     def tags(row: pd.Series) -> str:
         out: list[str] = []
         if row.get("mixed_phone_speaker", False): out.append("mixed_phone_speaker")
         if row.get("mixed_linguistic_paralinguistic", False): out.append("mixed_linguistic_paralinguistic")
         if row.get("route") == "L" and row.get("speaker_selective", False): out.append("speaker_in_L")
-        if row.get("route") == "L" and row.get("prosody_selective", False): out.append("prosody_in_L")
-        if row.get("route") == "L" and row.get("emotion_selective", False): out.append("emotion_in_L")
-        if row.get("route") == "L" and row.get("metadata_paralinguistic_selective", False): out.append("metadata_in_L")
-        if row.get("route") == "L" and row.get("paralinguistic_selective", False): out.append("paralinguistic_in_L")
+        if focus == "broad":
+            if row.get("route") == "L" and row.get("prosody_selective", False): out.append("prosody_in_L")
+            if row.get("route") == "L" and row.get("emotion_selective", False): out.append("emotion_in_L")
+            if row.get("route") == "L" and row.get("metadata_paralinguistic_selective", False): out.append("metadata_in_L")
+            if row.get("route") == "L" and row.get("paralinguistic_selective", False): out.append("paralinguistic_in_L")
         if row.get("route") == "P" and row.get("phone_selective", False): out.append("phone_in_P")
         if row.get("route") == "U" and row.get("linguistic_selective", False): out.append("linguistic_in_U")
-        if row.get("route") == "U" and row.get("paralinguistic_selective", False): out.append("paralinguistic_in_U")
+        if focus == "broad" and row.get("route") == "U" and row.get("paralinguistic_selective", False):
+            out.append("paralinguistic_in_U")
         # Preserve order while removing duplicates such as speaker_in_L and the
         # broader paralinguistic_in_L both firing.
         return ";".join(dict.fromkeys(out))
 
     units["issue_tags"] = units.apply(tags, axis=1)
     units["leakage_score"] = 0.0
-    units.loc[units.route == "L", "leakage_score"] = units.loc[units.route == "L", "paralinguistic_score"]
+    if focus == "speaker_content":
+        units.loc[units.route == "L", "leakage_score"] = units.loc[units.route == "L", "speaker_score"]
+    else:
+        units.loc[units.route == "L", "leakage_score"] = units.loc[units.route == "L", "paralinguistic_score"]
     units.loc[units.route == "P", "leakage_score"] = units.loc[units.route == "P", "phone_like_score"]
     units.loc[units.route == "U", "leakage_score"] = units.loc[
         units.route == "U", ["linguistic_score", "paralinguistic_score"]
@@ -526,14 +610,23 @@ def disentanglement_tables(
 
     route_rows: list[dict[str, Any]] = []
     for route, group in units.groupby("route", dropna=False):
-        active = group[~group.get("dead", False).fillna(False)] if "dead" in group else group
+        if "observed_active" in group:
+            active = group[group["observed_active"].fillna(False)]
+        elif "dead" in group:
+            active = group[~group.get("dead", False).fillna(False)]
+        else:
+            active = group
         denom = max(len(group), 1)
         active_denom = max(len(active), 1)
         route_rows.append({
             "route": route,
             "units": int(len(group)),
             "active_units": int(len(active)),
-            "dead_fraction": float(group.get("dead", False).fillna(False).mean()) if "dead" in group else 0.0,
+            "unobserved_fraction": float(group.get("unobserved", False).fillna(False).mean()) if "unobserved" in group else 0.0,
+            "train_like_dead_fraction": float(group.get("train_like_dead", False).fillna(False).mean()) if "train_like_dead" in group else 0.0,
+            "dead_fraction": float(group.get("train_like_dead", False).fillna(False).mean()) if "train_like_dead" in group else (
+                float(group.get("dead", False).fillna(False).mean()) if "dead" in group else 0.0
+            ),
             "phone_selective_fraction": float(group["phone_selective"].mean()),
             "speaker_selective_fraction": float(group["speaker_selective"].mean()),
             "prosody_selective_fraction": float(group["prosody_selective"].mean()),
@@ -558,11 +651,13 @@ def disentanglement_tables(
         return float(row.iloc[0][column])
 
     thesis = pd.DataFrame([{
+        "focus": focus,
         "score_threshold": score_threshold,
         "q_threshold": q_threshold,
         "L_phone_selective_fraction": route_value("L", "phone_selective_fraction"),
         "L_speaker_leak_fraction": route_value("L", "speaker_selective_fraction"),
         "L_paralinguistic_leak_fraction": route_value("L", "route_violation_fraction"),
+        "L_speaker_content_leak_fraction": route_value("L", "route_violation_fraction"),
         "P_speaker_selective_fraction": route_value("P", "speaker_selective_fraction"),
         "P_phone_leak_fraction": route_value("P", "phone_selective_fraction"),
         "U_info_fraction": route_value("U", "route_violation_fraction"),
@@ -592,6 +687,7 @@ def disentanglement_tables(
     summary = {
         "score_threshold": score_threshold,
         "q_threshold": q_threshold,
+        "focus": focus,
         "route_summary": route_summary.to_dict(orient="records"),
         "thesis_summary": thesis.iloc[0].to_dict(),
         "top_leaky_units": leaky.head(25)[leaky_preview_cols].to_dict(orient="records") if len(leaky) else [],

@@ -95,7 +95,9 @@ def run_analysis(
             profiles = profiles.merge(health[["unit", "frame_frequency"]], on="unit", how="left")
         tables["scores"], tables["profiles"] = scores, profiles
         disent, leaky, route_summary, summaries["disentanglement"] = disentanglement_tables(
-            health, profiles, scores, output)
+            health, profiles, scores, output,
+            focus=str(resolved.config.get("analysis_focus", "speaker_content")),
+        )
         tables["disentanglement"] = disent
         tables["leaky"] = leaky
         tables["route_summary"] = route_summary

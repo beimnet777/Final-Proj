@@ -150,6 +150,33 @@ def load_checkpoint(path: str | Path) -> ResolvedModel:
 
     config = {**CRITICAL_DEFAULTS, **structural, **_project_metadata(checkpoint), **embedded, **sidecar}
     warnings: list[str] = []
+
+    # Older training checkpoints serialize fixed-block budgets as topk_L,
+    # topk_P, topk_U rather than the extraction-facing block_topk list.  Do not
+    # fall back to reconstruction calibration when the checkpoint already tells
+    # us the intended per-block active budgets.
+    if (
+        config.get("fixed_blocks")
+        and "block_topk" not in config
+        and "topk_blocks" not in config
+        and any(name in config for name in ("topk_L", "topk_P", "topk_U"))
+    ):
+        block_topk = [
+            int(config.get("topk_L", 0) or 0),
+            int(config.get("topk_P", 0) or 0),
+            int(config.get("topk_U", 0) or 0),
+        ]
+        config["block_topk"] = block_topk
+        config["topk_blocks"] = block_topk
+        if sum(block_topk) > 0:
+            if "topk" in config and int(config["topk"]) != sum(block_topk):
+                warnings.append(
+                    "Checkpoint topk differs from topk_L/topk_P/topk_U; "
+                    f"using block_topk={block_topk} for fixed-block extraction."
+                )
+            else:
+                config["topk"] = sum(block_topk)
+
     # The MSP trainer has a stable extraction contract even though old files did
     # not serialize it.
     if source_format == "msp:model":

@@ -178,6 +178,15 @@ def calibrate(resolved: ResolvedModel, bundle: AnalysisBundle, device: str) -> A
     model = build_model(resolved, device)
     if not missing and not needs_blocks:
         return model
+    if needs_blocks:
+        raise AnalysisError(
+            "Fixed-block checkpoint is missing per-block extraction budgets. "
+            "Refusing to infer block_topk by reconstruction calibration because "
+            "using the wrong L/P/U active budget changes unit activity, deadness, "
+            "examples, and selectivity. Add a checkpoint sidecar such as "
+            "<checkpoint>.analysis.yaml with block_topk: [240, 16, 0], or ensure "
+            "the checkpoint config serializes topk_L/topk_P/topk_U."
+        )
 
     candidates = _candidate_specs(resolved)
     if not candidates:
@@ -349,4 +358,3 @@ def extract(
         "profile": profile, "config": resolved.config,
     })
     return cache
-

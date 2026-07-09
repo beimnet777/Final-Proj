@@ -104,7 +104,10 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
     health = tables.get("health")
     if health is not None and len(health):
         path = output / "plots" / "route_activity"
-        active = health[~health.dead].copy()
+        if "observed_active" in health.columns:
+            active = health[health.observed_active.fillna(False)].copy()
+        else:
+            active = health[~health.dead].copy()
         active["log10_frame_frequency"] = np.log10(active.frame_frequency.clip(lower=1e-9))
         _save_plot_data(
             output,
@@ -154,7 +157,9 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
     disent = tables.get("disentanglement")
     if disent is not None and len(disent):
         active = disent.copy()
-        if "dead" in active:
+        if "observed_active" in active:
+            active = active[active.observed_active.fillna(False)]
+        elif "dead" in active:
             active = active[~active.dead.fillna(False)]
         active["log_phone_like_score"] = np.log1p(active.get("phone_like_score", 0.0))
         active["log_speaker_score"] = np.log1p(active.get("speaker_score", 0.0))
@@ -415,7 +420,11 @@ def build_atlas(
     examples.to_csv(output / "tables" / "top_examples.csv", index=False)
     try: examples.to_parquet(output / "tables" / "top_examples.parquet", index=False)
     except Exception: pass
-    for _, unit in health[~health.dead].iterrows():
+    if "observed_active" in health.columns:
+        atlas_units = health[health.observed_active.fillna(False)]
+    else:
+        atlas_units = health[~health.dead]
+    for _, unit in atlas_units.iterrows():
         uid = int(unit.unit)
         ex = examples[examples.unit == uid]
         assoc = scores[scores.unit == uid].sort_values("score", ascending=False).head(12) if scores is not None and len(scores) else pd.DataFrame()
@@ -471,7 +480,8 @@ def build_report(
     route_summary = tables.get("route_summary", pd.DataFrame())
     if len(route_summary):
         show = [c for c in (
-            "route", "units", "active_units", "dead_fraction",
+            "route", "units", "active_units", "unobserved_fraction",
+            "train_like_dead_fraction",
             "phone_selective_fraction", "speaker_selective_fraction",
             "prosody_selective_fraction", "metadata_paralinguistic_selective_fraction",
             "mixed_phone_speaker_fraction",
@@ -501,10 +511,12 @@ def build_report(
     disent = summaries.get("disentanglement", {}).get("thesis_summary", {})
     thesis_cards = ""
     if disent:
+        focus = str(disent.get("focus", "speaker_content"))
+        l_leak_label = "L speaker/content leak" if focus == "speaker_content" else "L para leak"
         card_items = [
             ("L phone units", disent.get("L_phone_selective_fraction")),
             ("L speaker leak", disent.get("L_speaker_leak_fraction")),
-            ("L para leak", disent.get("L_paralinguistic_leak_fraction")),
+            (l_leak_label, disent.get("L_speaker_content_leak_fraction", disent.get("L_paralinguistic_leak_fraction"))),
             ("P speaker units", disent.get("P_speaker_selective_fraction")),
             ("P phone leak", disent.get("P_phone_leak_fraction")),
             ("mixed phone/speaker", disent.get("mixed_phone_speaker_fraction_all")),
@@ -518,6 +530,8 @@ def build_report(
     <body><header><h1>SAE Unit Analysis</h1><p>{html.escape(resolved.checkpoint.name)} · {', '.join(completed)}</p></header><main>
     {warning_html}<div class='cards'><div class='card'>K<br><b>{resolved.config['K']}</b></div>
     <div class='card'>active units<br><b>{summaries.get('health',{}).get('active_units','—')}</b></div>
+    <div class='card'>unobserved units<br><b>{summaries.get('health',{}).get('unobserved_units','—')}</b></div>
+    <div class='card'>train-like dead<br><b>{summaries.get('health',{}).get('train_like_dead_units','—')}</b></div>
     <div class='card'>frames<br><b>{summaries.get('health',{}).get('frames','—')}</b></div>
     <div class='card'>format<br><b>{resolved.source_format}</b></div></div>
     {thesis_cards}{route_table_html}{leaky_html}

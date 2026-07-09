@@ -138,6 +138,29 @@ class CoreTests(unittest.TestCase):
             np.testing.assert_array_equal(route,np.array([0,0,0,0,1,1,1,1]))
             self.assertTrue((probability>.99).all())
 
+    def test_fixed_block_legacy_topk_fields_resolve_to_block_topk(self):
+        with tempfile.TemporaryDirectory() as td:
+            state = _state(K=8, D=4)
+            state.pop("routing.logits")
+            state["block_idx"] = torch.tensor([0, 0, 0, 0, 1, 1, 1, 1])
+            cp = Path(td) / "fixed.pt"
+            torch.save({
+                "model": state,
+                "analysis_config": {
+                    "topk": 4,
+                    "spear_layernorm": True,
+                    "fixed_blocks": True,
+                    "per_block_topk": True,
+                    "topk_L": 3,
+                    "topk_P": 1,
+                    "topk_U": 0,
+                },
+            }, cp)
+            r = load_checkpoint(cp)
+            self.assertEqual(r.config["block_topk"], [3, 1, 0])
+            self.assertEqual(r.config["topk_blocks"], [3, 1, 0])
+            self.assertEqual(unresolved_critical(r), [])
+
     def test_fake_spear_cli_vertical_slice(self):
         with tempfile.TemporaryDirectory() as td:
             td=Path(td); root=_bundle(td/"bundle")
@@ -185,7 +208,9 @@ class CoreTests(unittest.TestCase):
                 {"unit": 2, "factor": "phone", "family": "linguistic", "score": 7.0, "q": 0.001},
                 {"unit": 3, "factor": "speaker_id", "family": "paralinguistic", "score": 7.0, "q": 0.001},
             ])
-            units, leaky, route_summary, summary = disentanglement_tables(None, profiles, scores, out)
+            units, leaky, route_summary, summary = disentanglement_tables(
+                None, profiles, scores, out, focus="broad",
+            )
             unit0 = units[units.unit == 0].iloc[0]
             self.assertTrue(bool(unit0.route_violation))
             self.assertIn("metadata_in_L", unit0.issue_tags)
