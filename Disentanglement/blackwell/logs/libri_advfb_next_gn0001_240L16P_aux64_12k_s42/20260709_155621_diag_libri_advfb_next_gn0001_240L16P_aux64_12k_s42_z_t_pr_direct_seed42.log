@@ -1,0 +1,44 @@
+[diag_probe] run=diag_libri_advfb_next_gn0001_240L16P_aux64_12k_s42_z_t_pr_direct_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/scratch/bbg25/runs/libri_advfb_next_gn0001_240L16P_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/scratch/bbg25/runs/libri_advfb_next_gn0001_240L16P_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] sources=['z_t']  tasks=['pr']
+[diag_probe] probe_steps=5000  pr_lr=0.0005  sid_lr=0.001  pr_warmup=500  other_warmup=0  val_every=250  patience=5
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading PR train-clean-100 …
+[dis_data] loading PR dev-clean …
+[dis_data] loading PR test-clean …
+[dis_data]  PR train=28539 val=2703 test=2620 vocab=74
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[diag_probe] topk confirmed: 256
+[train] WARNING: unexpected missing SAE keys: ['block_idx', 'block_m_L', 'block_m_P', 'block_m_U']
+[train] loaded 3 SAE tensors from /scratch/bbg25/runs/libri_advfb_next_gn0001_240L16P_aux64_12k_s42/checkpoints/stage2_step12000.pt  (step=12000  val=0.1136)
+[diag_probe] loaded stage2 weights from /scratch/bbg25/runs/libri_advfb_next_gn0001_240L16P_aux64_12k_s42/checkpoints/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  D=1280  K=5120
+[diag_probe] PR: stage-2-matched 74-phone targets — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_t -> PR ...
+[dis_data] g2p_en loaded for OOV words
+      [pr z_t] step 250/5000  train loss=6.190  dev loss=5.981  dev PER=0.881  (best 0.881, bad 0/5)
+      [pr z_t] step 500/5000  train loss=4.591  dev loss=5.462  dev PER=0.914  (best 0.881, bad 1/5)
+      [pr z_t] step 750/5000  train loss=4.542  dev loss=5.597  dev PER=0.875  (best 0.875, bad 0/5)
+      [pr z_t] step 1000/5000  train loss=4.415  dev loss=5.428  dev PER=0.876  (best 0.875, bad 1/5)
+      [pr z_t] step 1250/5000  train loss=4.422  dev loss=5.520  dev PER=0.877  (best 0.875, bad 2/5)
+      [pr z_t] step 1500/5000  train loss=4.460  dev loss=5.450  dev PER=0.895  (best 0.875, bad 3/5)
+      [pr z_t] step 1750/5000  train loss=4.409  dev loss=5.362  dev PER=0.898  (best 0.875, bad 4/5)
+      [pr z_t] step 2000/5000  train loss=4.394  dev loss=5.326  dev PER=0.904  (best 0.875, bad 5/5)
+    z_t -> PR               PER test=0.872  (val 0.875)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_libri_advfb_next_gn0001_240L16P_aux64_12k_s42_z_t_pr_direct_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_t              0.872           nan
+==================================================================
+
