@@ -18,6 +18,7 @@ import torch.nn as nn
 from SAEUnitAnalysis.analyses import (
     clustering_analysis,
     disentanglement_tables,
+    geometry_analysis,
     health_analysis,
     selectivity_analysis,
 )
@@ -121,6 +122,10 @@ class CoreTests(unittest.TestCase):
             scores,profiles,_=selectivity_analysis(cache,b,out)
             self.assertTrue(len(scores)>0); self.assertEqual(len(profiles),K)
             clustered,summary=clustering_analysis(cache,profiles,out); self.assertIn("route_nmi",summary)
+            geometry, geometry_summary = geometry_analysis(cache, resolved, health, out)
+            self.assertIn("mean_nearest_cosine", geometry_summary)
+            self.assertTrue((out/"tables"/"decoder_neighbors.csv").exists())
+            self.assertEqual(len(geometry), K * min(5, K - 1))
             cache.save(); loaded=FeatureCache.load(cache.path)
             np.testing.assert_array_equal(loaded.indices,cache.indices)
 
@@ -140,9 +145,13 @@ class CoreTests(unittest.TestCase):
             fake_transformers = types.ModuleType("transformers")
             fake_transformers.AutoModel = FakeAutoModel
             with patch.dict(sys.modules, {"transformers": fake_transformers}):
-                result=run_analysis(cp,root,"health,atlas",output_dir=td/"result",device="cpu",profile="quick")
+                result=run_analysis(
+                    cp, root, "health,atlas,selectivity,clustering,similarity,geometry",
+                    output_dir=td/"result", device="cpu", profile="quick")
             self.assertTrue(result.artifacts["report"].exists())
             self.assertTrue((td/"result"/"tables"/"units.csv").exists())
+            self.assertTrue((td/"result"/"tables"/"decoder_neighbors.csv").exists())
+            self.assertTrue((td/"result"/"report"/"index.html").exists())
 
     def test_timit_style_metadata_counts_as_l_route_leakage(self):
         with tempfile.TemporaryDirectory() as td:

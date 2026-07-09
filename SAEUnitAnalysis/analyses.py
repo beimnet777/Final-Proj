@@ -741,12 +741,15 @@ def geometry_analysis(cache: FeatureCache, resolved: ResolvedModel, health: pd.D
     decoder /= np.maximum(np.linalg.norm(decoder, axis=1, keepdims=True), 1e-12)
     rows = []
     # Chunked exact nearest decoder atoms; avoids materializing K x K.
+    n_neighbors = min(5, max(cache.K - 1, 0))
     for start in range(0, cache.K, 256):
         sims = decoder[start:start+256] @ decoder.T
         for local in range(len(sims)):
             unit = start + local
             sims[local, unit] = -np.inf
-            near = np.argpartition(sims[local], -5)[-5:]
+            if n_neighbors <= 0:
+                continue
+            near = np.argpartition(sims[local], -n_neighbors)[-n_neighbors:]
             near = near[np.argsort(sims[local, near])[::-1]]
             for rank, other in enumerate(near, 1):
                 rows.append({
@@ -756,7 +759,7 @@ def geometry_analysis(cache: FeatureCache, resolved: ResolvedModel, health: pd.D
                     "neighbor_route": ROUTE_NAMES.get(int(cache.route[other]), str(cache.route[other])),
                 })
     table = pd.DataFrame(rows)
-    cross = table.unit_route != table.neighbor_route
+    cross = table.unit_route != table.neighbor_route if len(table) else np.asarray([], dtype=bool)
     # Empirical coactivation is complementary to decoder geometry. Restrict to
     # frequently active units and a deterministic frame grid to bound memory.
     top = health.sort_values("active_frames", ascending=False).head(min(1000, cache.K)).unit.to_numpy(dtype=int)
@@ -780,8 +783,8 @@ def geometry_analysis(cache: FeatureCache, resolved: ResolvedModel, health: pd.D
                             "same_route": bool(cache.route[unit] == cache.route[other])})
     co_table = pd.DataFrame(co_rows)
     summary = {
-        "mean_nearest_cosine": float(table[table.rank == 1].decoder_cosine.mean()),
-        "cross_route_neighbor_fraction": float(cross.mean()),
+        "mean_nearest_cosine": float(table[table["rank"] == 1].decoder_cosine.mean()) if len(table) else None,
+        "cross_route_neighbor_fraction": float(cross.mean()) if len(table) else None,
         "mean_top_coactivation_jaccard": float(co_table.coactivation_jaccard.mean()) if len(co_table) else None,
     }
     table.to_csv(output / "tables" / "decoder_neighbors.csv", index=False)
