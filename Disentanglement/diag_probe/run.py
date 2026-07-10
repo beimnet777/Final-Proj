@@ -133,7 +133,7 @@ def _parse_args():
     p.add_argument("--sources", default="z_t,z_L,z_P",
                    help="Comma-separated sources. Default excludes fixed h_t.")
     p.add_argument("--tasks", default="pr,sid",
-                   help="Comma-separated tasks from {pr,sid,emotion}. Prosody is toggled by --prosody.")
+                   help="Comma-separated tasks from {pr,asr,sid,emotion}. Prosody is toggled by --prosody.")
     p.add_argument("--prosody", action=argparse.BooleanOptionalAction, default=cfg.prosody,
                    help="Master switch: add the per-frame log-F0 + log-energy prosody probe "
                         "(off by default — experiments run without prosody unless this is set).")
@@ -154,11 +154,15 @@ def _parse_args():
     p.add_argument("--max_val_examples", type=int, default=500)
     p.add_argument("--max_test_examples", type=int, default=500)
     p.add_argument("--pr_max_examples", type=int, default=0)
+    p.add_argument("--asr_max_examples", type=int, default=0)
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--pr_probe_lr", type=float, default=5e-4)
     p.add_argument("--pr_probe_warmup_steps", type=int, default=500,
                    help="PR-only linear warmup before decay; applies to direct, "
                         "linear, and MLP PR probes without changing SID warmup")
+    p.add_argument("--asr_probe_lr", type=float, default=5e-4)
+    p.add_argument("--asr_probe_warmup_steps", type=int, default=500,
+                   help="ASR character-CTC probe warmup before linear decay.")
     p.add_argument("--pr_sanity_only", action="store_true",
                    help="evaluate the checkpoint's trained PR head through the "
                         "reconstructed model and exit before training fresh probes")
@@ -188,6 +192,8 @@ def _parse_args():
                    help="PR probe: 'linear'=projector->linear (SUPERB-style, 256 bottleneck); "
                         "'direct'=single Linear(input_dim->vocab), matching the trained PRHead; "
                         "'mlp'=projector->ReLU->linear (SUPERB + one ReLU).")
+    p.add_argument("--asr_probe_arch", choices=("linear", "direct", "mlp"), default="linear",
+                   help="ASR character-CTC probe: same architectures as PR, but with a 29-symbol char vocab.")
     p.add_argument("--sid_dataset", choices=("libri", "arctic"), default="libri",
                    help="SID probe data source. 'libri'=LibriSpeech 251 speakers (default, leakage); "
                         "'arctic'=CMU ARCTIC 18 speakers (matched-distribution check for invariance runs).")
@@ -256,9 +262,9 @@ def main() -> None:
     _set_seed(args.seed)
     sources = _parse_sources(args.sources)
     tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
-    bad_tasks = [t for t in tasks if t not in ("pr", "sid", "prosody", "emotion")]
+    bad_tasks = [t for t in tasks if t not in ("pr", "asr", "sid", "prosody", "emotion")]
     if bad_tasks:
-        raise ValueError(f"Unknown task(s): {bad_tasks}. Valid: ('pr', 'sid', 'prosody', 'emotion')")
+        raise ValueError(f"Unknown task(s): {bad_tasks}. Valid: ('pr', 'asr', 'sid', 'prosody', 'emotion')")
     # The --prosody switch is authoritative: --prosody adds it, --no-prosody removes
     # it (even if listed in --tasks).  Default off → experiments run without prosody.
     if args.prosody and "prosody" not in tasks:
@@ -276,6 +282,9 @@ def main() -> None:
         if "emotion" in tasks:
             print("[diag_probe] --mdl_only: emotion not supported by MDL probe, dropping.")
             tasks.remove("emotion")
+        if "asr" in tasks:
+            print("[diag_probe] --mdl_only: ASR not supported by MDL probe, dropping.")
+            tasks.remove("asr")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -325,8 +334,9 @@ def main() -> None:
     print(f"[diag_probe] sources={sources}  tasks={tasks}")
     print(
         f"[diag_probe] probe_steps={args.probe_steps}  "
-        f"pr_lr={args.pr_probe_lr}  sid_lr={args.sid_probe_lr}  "
+        f"pr_lr={args.pr_probe_lr}  asr_lr={args.asr_probe_lr}  sid_lr={args.sid_probe_lr}  "
         f"pr_warmup={args.pr_probe_warmup_steps}  "
+        f"asr_warmup={args.asr_probe_warmup_steps}  "
         f"other_warmup={args.probe_warmup_steps}  "
         f"val_every={args.probe_val_every}  patience={args.probe_patience}"
     )
@@ -347,6 +357,18 @@ def main() -> None:
         pr_vocab_size = pr_tokenizer.vocab_size
     else:
         print("[diag_probe] PR task not requested — skipping PR dataloaders.")
+    # ASR: character CTC over LibriSpeech transcripts.  Build lazily because it
+    # is a downstream check, not needed for normal PR/SID sweeps.
+    asr_tokenizer = asr_train_dl = asr_val_dl = asr_test_dl = None
+    asr_vocab_size = 0
+    if "asr" in tasks:
+        from data.dataset import make_asr_probe_dataloaders
+        asr_tokenizer, asr_train_dl, asr_val_dl, asr_test_dl = (
+            make_asr_probe_dataloaders(cfg, max_examples=args.asr_max_examples)
+        )
+        asr_vocab_size = asr_tokenizer.vocab_size
+    else:
+        print("[diag_probe] ASR task not requested — skipping ASR dataloaders.")
     # SID: closed-set — same speakers, split by utterance into train / val / test.
     _, sid_train_dl, sid_val_dl, sid_test_dl = make_stage2_dataloaders(cfg)
     emo_train_dl = emo_val_dl = emo_test_dl = None
@@ -472,12 +494,18 @@ def main() -> None:
                             "z_P": view_dim, "z_U": view_dim}
     results: Dict[str, Dict[str, float]] = {}
 
-    print(f"\n[diag_probe] speakers={cfg.num_speakers}  pr_vocab={pr_vocab_size}  D={cfg.D}  K={cfg.K}")
+    print(f"\n[diag_probe] speakers={cfg.num_speakers}  pr_vocab={pr_vocab_size}  "
+          f"asr_vocab={asr_vocab_size or 'n/a'}  D={cfg.D}  K={cfg.K}")
     if "pr" in tasks:
         print("[diag_probe] PR: stage-2-matched 74-phone targets — "
               "train-clean-100 → val=dev-clean, test=test-clean")
     else:
         print("[diag_probe] PR: skipped")
+    if "asr" in tasks:
+        print(f"[diag_probe] ASR: character CTC transcripts — "
+              f"train-clean-100 → val=dev-clean, test=test-clean; probe arch={args.asr_probe_arch}")
+    else:
+        print("[diag_probe] ASR: skipped")
     print(f"[diag_probe] SID: closed-set utterance split (val/test held out); probe arch={args.sid_probe_arch}")
     if "emotion" in tasks:
         print(f"[diag_probe] Emotion: IEMOCAP fold={cfg.iemocap_fold}  root={cfg.iemocap_root}")
@@ -540,6 +568,43 @@ def main() -> None:
                 results[src]["prosody_f0_val"] = vf0
                 results[src]["prosody_e_val"]  = ve
                 print(f"    {label:<22s}  F0 r={f0c:.3f}  E r={ec:.3f}  (val F0 {vf0:.3f}, E {ve:.3f})", flush=True)
+                continue
+            if task == "asr":
+                if asr_train_dl is None or asr_val_dl is None or asr_test_dl is None or asr_tokenizer is None:
+                    raise RuntimeError("ASR task requested but ASR dataloaders were not built.")
+                asr_map = {
+                    "linear": base_probe._PRProbe,
+                    "direct": base_probe._PRProbeDirect,
+                    "mlp": base_probe._PRProbeMLP,
+                }
+                asr_cls = asr_map[args.asr_probe_arch]
+                probe = asr_cls(dims[src], asr_vocab_size).to(device)
+                val_cache = base_probe._cache_features(
+                    src, asr_val_dl, model, device, use_bf16, has_routing, "asr")
+                test_cache = base_probe._cache_features(
+                    src, asr_test_dl, model, device, use_bf16, has_routing, "asr")
+                best = base_probe._train_asr_probe(
+                    probe, src, asr_train_dl, model, device, use_bf16, has_routing,
+                    steps=args.probe_steps, lr=args.asr_probe_lr,
+                    warmup_steps=args.asr_probe_warmup_steps,
+                    grad_clip=args.probe_grad_clip,
+                    val_cache=val_cache, tokenizer=asr_tokenizer,
+                    val_every=args.probe_val_every, patience=args.probe_patience,
+                )
+                if best is not None:
+                    val_wer, val_cer = best
+                else:
+                    val_wer, val_cer = base_probe._eval_asr_probe_cached(
+                        probe, val_cache, asr_tokenizer, device)
+                test_wer, test_cer = base_probe._eval_asr_probe_cached(
+                    probe, test_cache, asr_tokenizer, device)
+                results[src]["asr"] = test_wer
+                results[src]["asr_wer"] = test_wer
+                results[src]["asr_cer"] = test_cer
+                results[src]["asr_wer_val"] = val_wer
+                results[src]["asr_cer_val"] = val_cer
+                print(f"    {label:<22s}  WER test={test_wer:.3f}  CER test={test_cer:.3f}  "
+                      f"(val WER {val_wer:.3f}, CER {val_cer:.3f})", flush=True)
                 continue
             if not args.mdl_only:
                 if task == "sid":
@@ -620,9 +685,10 @@ def main() -> None:
                       f"compression={mdl['compression']*100:.1f}%  "
                       f"(n={mdl['n_examples']}, {mdl['n_blocks']} blocks)", flush=True)
 
+    has_asr = "asr" in tasks
     has_prosody = "prosody" in tasks
     has_emotion = "emotion" in tasks
-    width = 66 + (28 if has_prosody else 0) + (15 if has_emotion else 0)
+    width = 66 + (28 if has_asr else 0) + (28 if has_prosody else 0) + (15 if has_emotion else 0)
     if args.mdl_only:
         # Skip the standard-probe summary table; the MDL table below is the
         # only output relevant in this mode.
@@ -633,12 +699,16 @@ def main() -> None:
         print(f"  DIAGNOSTIC PROBE RESULTS - {args.run_name}")
         print(f"{'=' * width}")
         header = f"  {'Source':<8s}  {'PR (PER↓)':>12s}  {'SID (acc↑)':>12s}"
+        if has_asr:
+            header += f"  {'ASR WER↓':>12s}  {'ASR CER↓':>12s}"
         if has_prosody:
             header += f"  {'F0 (r↑)':>12s}  {'E (r↑)':>12s}"
         if has_emotion:
             header += f"  {'EMO (acc↑)':>12s}"
         print(header)
         dashes = f"  {'-' * 8}  {'-' * 12}  {'-' * 12}"
+        if has_asr:
+            dashes += f"  {'-' * 12}  {'-' * 12}"
         if has_prosody:
             dashes += f"  {'-' * 12}  {'-' * 12}"
         if has_emotion:
@@ -648,6 +718,10 @@ def main() -> None:
             per = results[src].get("pr", float("nan"))
             acc = results[src].get("sid", float("nan"))
             row = f"  {src:<8s}  {per:>12.3f}  {acc:>12.3f}"
+            if has_asr:
+                wer = results[src].get("asr_wer", float("nan"))
+                cer = results[src].get("asr_cer", float("nan"))
+                row += f"  {wer:>12.3f}  {cer:>12.3f}"
             if has_prosody:
                 f0c = results[src].get("prosody_f0", float("nan"))
                 ec  = results[src].get("prosody_e", float("nan"))
@@ -686,7 +760,9 @@ def main() -> None:
         tmp.write_text(json.dumps({
             "run_name": args.run_name, "sources": sources, "tasks": tasks,
             "seed": args.seed, "sid_probe_arch": args.sid_probe_arch,
-            "pr_probe_arch": args.pr_probe_arch, "results": results,
+            "pr_probe_arch": args.pr_probe_arch,
+            "asr_probe_arch": args.asr_probe_arch,
+            "results": results,
         }, indent=2, sort_keys=True) + "\n")
         tmp.replace(output)
 

@@ -374,6 +374,45 @@ def _phone_error_rate(refs: List[str], hyps: List[str]) -> float:
     return edits / max(total, 1)
 
 
+def _normalize_asr_text(text: str, tokenizer=None) -> str:
+    """Normalize ASR references/hypotheses to the character CTC alphabet."""
+    text = str(text or "").lower()
+    if tokenizer is not None and hasattr(tokenizer, "char_to_id"):
+        allowed = set(tokenizer.char_to_id.keys())
+        text = "".join(c for c in text if c in allowed)
+    return " ".join(text.split())
+
+
+def _safe_text_refs(refs: List[str]) -> List[str]:
+    return [r if r else " " for r in refs]
+
+
+def _char_error_rate(refs: List[str], hyps: List[str]) -> float:
+    refs = _safe_text_refs(refs)
+    if jiwer is not None:
+        return float(jiwer.cer(refs, hyps))
+
+    edits = total = 0
+    for ref, hyp in zip(refs, hyps):
+        edits += _edit_distance(list(hyp), list(ref))
+        total += len(ref)
+    return edits / max(total, 1)
+
+
+def _word_error_rate(refs: List[str], hyps: List[str]) -> float:
+    refs = _safe_text_refs(refs)
+    if jiwer is not None:
+        return float(jiwer.wer(refs, hyps))
+
+    edits = total = 0
+    for ref, hyp in zip(refs, hyps):
+        ref_tokens = ref.split()
+        hyp_tokens = hyp.split()
+        edits += _edit_distance(hyp_tokens, ref_tokens)
+        total += len(ref_tokens)
+    return edits / max(total, 1)
+
+
 def _phones_from_text(text: str, tokenizer) -> str:
     if _pr_data._LEXICON is None:
         raise RuntimeError("PR lexicon is not loaded. Call make_pr_dataloaders() first.")
@@ -468,6 +507,94 @@ def _train_pr_probe(
     if best_state is not None:
         probe.load_state_dict({k: v.to(device) for k, v in best_state.items()})
     return best_val if do_val else None
+
+
+def _train_asr_probe(
+    probe: nn.Module,
+    src_key: str,
+    train_dl,
+    model,
+    device,
+    use_bf16: bool,
+    has_routing: bool,
+    steps: int,
+    lr: float,
+    warmup_steps: int,
+    grad_clip: float,
+    val_cache=None,
+    tokenizer=None,
+    val_every: int = 0,
+    patience: int = 0,
+):
+    """Train a character-CTC ASR probe and select by dev CER.
+
+    Returns ``(best_dev_wer, best_dev_cer)`` when validating, else ``None``.
+    """
+    trainable = [p for p in probe.parameters() if p.requires_grad]
+    opt = AdamW(trainable, lr=lr, weight_decay=1e-4)
+    scheduler = _make_linear_schedule(opt, warmup_steps, steps)
+    ctc_loss = nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
+    probe.train()
+    step = 0
+    model.eval()
+
+    do_val = val_cache is not None and val_every > 0
+    best_cer: float = float("inf")
+    best_wer: float = float("inf")
+    best_state = None
+    bad = 0
+    stop = False
+    train_loss_sum = 0.0
+    train_loss_count = 0
+
+    while step < steps and not stop:
+        for audios, audio_lens, targets, target_lens, _texts in train_dl:
+            feats = _extract_representations(
+                model, audios, audio_lens, device, use_bf16, has_routing
+            )
+            z = feats[src_key]
+            lens = feats["out_lengths"]
+            targets = targets.to(device, non_blocking=True)
+            target_lens = target_lens.to(device, non_blocking=True)
+
+            opt.zero_grad(set_to_none=True)
+            log_probs = probe(z)
+            loss = ctc_loss(log_probs.permute(1, 0, 2), targets, lens, target_lens)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable, grad_clip)
+            opt.step()
+            scheduler.step()
+            step += 1
+            train_loss_sum += float(loss.detach().item())
+            train_loss_count += 1
+
+            if do_val and step % val_every == 0:
+                wer, cer, dev_loss = _eval_asr_probe_cached(
+                    probe, val_cache, tokenizer, device, return_loss=True
+                )
+                train_loss = train_loss_sum / max(train_loss_count, 1)
+                train_loss_sum = 0.0
+                train_loss_count = 0
+                probe.train()
+                if cer < best_cer - 1e-4:
+                    best_cer, best_wer, bad = cer, wer, 0
+                    best_state = {k: v.detach().cpu().clone()
+                                  for k, v in probe.state_dict().items()}
+                else:
+                    bad += 1
+                print(f"      [asr {src_key}] step {step}/{steps}  "
+                      f"train loss={train_loss:.3f}  dev loss={dev_loss:.3f}  "
+                      f"dev WER={wer:.3f}  dev CER={cer:.3f}  "
+                      f"(best CER {best_cer:.3f}, bad {bad}/{patience})", flush=True)
+                if patience > 0 and bad >= patience:
+                    stop = True
+                    break
+            if step >= steps:
+                break
+
+    if best_state is not None:
+        probe.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+    return (best_wer, best_cer) if do_val else None
 
 
 def _train_sid_probe(
@@ -843,6 +970,10 @@ def _cache_features(src_key, dl, model, device, use_bf16, has_routing, task):
             f0, voiced, energy = _prosody_targets(
                 audios.cpu(), audio_lens.cpu(), feats["out_lengths"].detach().cpu())
             entry["f0"], entry["voiced"], entry["energy"] = f0, voiced, energy
+        elif task == "asr":
+            entry["targets"] = targets.detach().to("cpu")
+            entry["target_lens"] = target_lens.detach().to("cpu")
+            entry["texts"] = list(last)
         else:
             entry["targets"] = targets.detach().to("cpu")
             entry["target_lens"] = target_lens.detach().to("cpu")
@@ -895,6 +1026,40 @@ def _eval_pr_probe_cached(probe, cache, tokenizer, device, return_loss: bool = F
     if return_loss:
         return per, loss_sum / max(loss_count, 1)
     return per
+
+
+@torch.no_grad()
+def _eval_asr_probe_cached(probe, cache, tokenizer, device, return_loss: bool = False):
+    probe.eval()
+    all_hyps: List[str] = []
+    all_refs: List[str] = []
+    loss_sum = 0.0
+    loss_count = 0
+    ctc_loss = nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True) if return_loss else None
+    for e in cache:
+        z = e["z"].to(device)
+        log_probs = probe(z)
+        hyps = [
+            _normalize_asr_text(h, tokenizer)
+            for h in _greedy_pr_decode(log_probs.cpu(), e["out_lengths"], tokenizer)
+        ]
+        refs = [_normalize_asr_text(t, tokenizer) for t in e["texts"]]
+        all_hyps.extend(hyps)
+        all_refs.extend(refs)
+        if return_loss and "targets" in e and "target_lens" in e:
+            loss = ctc_loss(
+                log_probs.permute(1, 0, 2),
+                e["targets"].to(device),
+                e["out_lengths"].to(device),
+                e["target_lens"].to(device),
+            )
+            loss_sum += float(loss.item())
+            loss_count += 1
+    wer = _word_error_rate(all_refs, all_hyps)
+    cer = _char_error_rate(all_refs, all_hyps)
+    if return_loss:
+        return wer, cer, loss_sum / max(loss_count, 1)
+    return wer, cer
 
 
 @torch.no_grad()

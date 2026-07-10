@@ -14,6 +14,7 @@ import numpy as np
 import soundfile as sf
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torch.nn.utils.rnn import pad_sequence
 try:  # script-style legacy entry point vs package import
     from training_runtime import StatefulRandomSampler
 except ImportError:  # pragma: no cover
@@ -145,6 +146,39 @@ class PhoneTokenizer:
         return " ".join(phones)
 
 
+# ---------------------------------------------------------------- Character tokenizer for ASR probes
+
+class CharTokenizer:
+    """LibriSpeech character CTC tokenizer.
+
+    Index layout:
+        0           -> CTC blank/pad
+        1..len(V)   -> visible characters
+
+    This intentionally mirrors ``Probing/asr`` so WER/CER diagnostic ASR probes
+    are comparable to the existing SPEAR ASR probing code.
+    """
+
+    BLANK_ID = 0
+    VOCAB = " 'abcdefghijklmnopqrstuvwxyz"
+
+    def __init__(self, vocab: str | None = None) -> None:
+        self.vocab = vocab or self.VOCAB
+        self.char_to_id = {c: i + 1 for i, c in enumerate(self.vocab)}
+        self.id_to_char = {i + 1: c for i, c in enumerate(self.vocab)}
+        self.vocab_size = len(self.vocab) + 1
+
+    def encode(self, text: str) -> torch.Tensor:
+        text = str(text or "").lower()
+        return torch.tensor(
+            [self.char_to_id[c] for c in text if c in self.char_to_id],
+            dtype=torch.long,
+        )
+
+    def decode(self, ids) -> str:
+        return "".join(self.id_to_char.get(int(i), "") for i in ids)
+
+
 # ---------------------------------------------------------------- audio helper
 
 def _decode_audio(audio_dict: dict, target_sr: int) -> np.ndarray:
@@ -266,6 +300,36 @@ class Stage2Dataset(Dataset):
             pert = perturb_speaker(arr, self.sample_rate, **self.perturb_kwargs)
             return audio, arr.shape[0], phone_ids, speaker_idx, torch.from_numpy(pert)
         return audio, arr.shape[0], phone_ids, speaker_idx
+
+
+class ASRDataset(Dataset):
+    """Audio + character transcript labels for downstream ASR probing."""
+
+    def __init__(self, examples: List[dict], tokenizer: CharTokenizer, sample_rate: int) -> None:
+        self.examples = examples
+        self.tokenizer = tokenizer
+        self.sample_rate = sample_rate
+
+    def __len__(self) -> int:
+        return len(self.examples)
+
+    def __getitem__(self, idx: int):
+        ex = self.examples[idx]
+        arr = _decode_audio(ex["audio"], self.sample_rate)
+        text = str(ex["text"]).lower()
+        return torch.from_numpy(arr), arr.shape[0], self.tokenizer.encode(text), text
+
+
+def collate_asr(batch: List[Tuple]) -> Tuple:
+    """Batch item: (waveform, n_samples, char_ids, text)."""
+    audios, lengths, char_ids, texts = zip(*batch)
+    return (
+        pad_sequence(list(audios), batch_first=True, padding_value=0.0),
+        torch.tensor(list(lengths), dtype=torch.long),
+        pad_sequence(list(char_ids), batch_first=True, padding_value=0),
+        torch.tensor([c.size(0) for c in char_ids], dtype=torch.long),
+        list(texts),
+    )
 
 
 # ---------------------------------------------------------------- DataLoader factories
@@ -415,6 +479,43 @@ def make_pr_probe_dataloaders(cfg, max_examples: int = 0):
     pin = torch.cuda.is_available()
     loader_kwargs = dict(num_workers=cfg.num_workers, pin_memory=pin,
                          collate_fn=collate_stage2)
+    return (
+        tokenizer,
+        DataLoader(train_ds, batch_size=cfg.batch_size,
+                   sampler=StatefulRandomSampler(train_ds, cfg.seed),
+                   drop_last=True, **loader_kwargs),
+        DataLoader(val_ds, batch_size=cfg.eval_batch_size, shuffle=False,
+                   **loader_kwargs),
+        DataLoader(test_ds, batch_size=cfg.eval_batch_size, shuffle=False,
+                   **loader_kwargs),
+    )
+
+
+def make_asr_probe_dataloaders(cfg, max_examples: int = 0):
+    """ASR probe loaders: train-clean-100 -> dev-clean -> test-clean.
+
+    Unlike PR, targets stay as normalized LibriSpeech character transcripts and
+    evaluation reports character/word error rates.
+    """
+    tokenizer = CharTokenizer()
+    cap = max_examples if max_examples > 0 else None
+
+    print("[dis_data] loading ASR train-clean-100 …")
+    train_ex = _stream_examples("train.100", cfg, cap)
+    print("[dis_data] loading ASR dev-clean …")
+    val_ex = _stream_examples("validation", cfg, cap)
+    print("[dis_data] loading ASR test-clean …")
+    test_ex = _stream_examples("test", cfg, cap)
+
+    train_ds = ASRDataset(train_ex, tokenizer, cfg.sample_rate)
+    val_ds = ASRDataset(val_ex, tokenizer, cfg.sample_rate)
+    test_ds = ASRDataset(test_ex, tokenizer, cfg.sample_rate)
+
+    print(f"[dis_data]  ASR train={len(train_ds)} val={len(val_ds)} "
+          f"test={len(test_ds)} vocab={tokenizer.vocab_size}")
+    pin = torch.cuda.is_available()
+    loader_kwargs = dict(num_workers=cfg.num_workers, pin_memory=pin,
+                         collate_fn=collate_asr)
     return (
         tokenizer,
         DataLoader(train_ds, batch_size=cfg.batch_size,

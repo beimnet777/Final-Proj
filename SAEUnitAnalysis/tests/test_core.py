@@ -27,7 +27,9 @@ from SAEUnitAnalysis.build_librispeech_bundle import build_bundle as build_libri
 from SAEUnitAnalysis.build_timit_bundle import build_bundle
 from SAEUnitAnalysis.checkpoint import load_checkpoint, route_information, unresolved_critical
 from SAEUnitAnalysis.extraction import FeatureCache
+from SAEUnitAnalysis.import_mfa_alignments import import_alignments, parse_textgrid
 from SAEUnitAnalysis.pipeline import run_analysis
+from SAEUnitAnalysis.prepare_librispeech_mfa_corpus import prepare_corpus
 from SAEUnitAnalysis.types import ResolvedModel
 from SAEUnitAnalysis.utils import AnalysisError
 
@@ -258,6 +260,74 @@ class CoreTests(unittest.TestCase):
             bundle.require("clustering")
             with self.assertRaises(AnalysisError):
                 bundle.require("causal")
+
+    def test_librispeech_mfa_bridge_imports_phone_alignments(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            root = td / "LibriSpeech"
+            for split, uid in (("train-clean-100", "1-2-0000"), ("dev-clean", "3-4-0000"), ("test-clean", "5-6-0000")):
+                speaker, chapter, _ = uid.split("-")
+                folder = root / split / speaker / chapter
+                folder.mkdir(parents=True)
+                _wav(folder / f"{uid}.wav")
+                (folder / f"{speaker}-{chapter}.trans.txt").write_text(f"{uid} A SMALL TEST\n")
+
+            bundle_root = td / "libri_bundle"
+            build_librispeech_bundle(root, bundle_root, max_train=1, max_validation=1, max_test=1)
+
+            mfa_corpus = td / "mfa_corpus"
+            prepare_corpus(bundle_root, mfa_corpus)
+            self.assertTrue((mfa_corpus / "audio" / "1-2-0000.lab").exists())
+            self.assertTrue((mfa_corpus / "mfa_utterance_map.csv").exists())
+
+            aligned = td / "aligned"
+            aligned.mkdir()
+            (aligned / "1-2-0000.TextGrid").write_text(
+                '''File type = "ooTextFile"
+Object class = "TextGrid"
+
+xmin = 0
+xmax = 0.2
+tiers? <exists>
+size = 1
+item []:
+    item [1]:
+        class = "IntervalTier"
+        name = "phones"
+        xmin = 0
+        xmax = 0.2
+        intervals: size = 3
+        intervals [1]:
+            xmin = 0
+            xmax = 0.05
+            text = "sil"
+        intervals [2]:
+            xmin = 0.05
+            xmax = 0.12
+            text = "AH0"
+        intervals [3]:
+            xmin = 0.12
+            xmax = 0.2
+            text = "T"
+''',
+                encoding="utf-8",
+            )
+            intervals = parse_textgrid(aligned / "1-2-0000.TextGrid")
+            self.assertEqual(len(intervals), 3)
+
+            out = td / "aligned_bundle"
+            import_alignments(
+                bundle_root,
+                aligned,
+                output=out,
+                utterance_map=mfa_corpus / "mfa_utterance_map.csv",
+                min_coverage=0.0,
+            )
+            aligned_bundle = AnalysisBundle(out)
+            self.assertIn("phone", {factor.name for factor in aligned_bundle.spec.factors})
+            self.assertEqual(len(aligned_bundle.alignments), 2)
+            self.assertEqual(set(aligned_bundle.alignments["phone"]), {"AH", "T"})
+            aligned_bundle.require("causal")
 
 
 if __name__ == "__main__":

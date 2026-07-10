@@ -150,6 +150,50 @@ speaker/acoustic selectivity, unit health, route summaries, geometry, similarity
 plots, top examples, and the HTML report still run.  `causal`, `swap`, and
 `all` still require independent phone alignments.
 
+### LibriSpeech phone alignments with MFA
+
+For in-domain phone interpretability on LibriSpeech, first build a Libri bundle,
+then prepare a Montreal Forced Aligner corpus from that bundle:
+
+```bash
+python -m SAEUnitAnalysis.build_librispeech_bundle \
+  --librispeech-root /scratch/$USER/data/LibriSpeech \
+  --output /scratch/$USER/data/sae_analysis/librispeech_bundle_more \
+  --max-train 10000 \
+  --max-validation 1000 \
+  --max-test 1000
+
+python -m SAEUnitAnalysis.prepare_librispeech_mfa_corpus \
+  --bundle /scratch/$USER/data/sae_analysis/librispeech_bundle_more \
+  --output /scratch/$USER/data/sae_analysis/mfa_librispeech_corpus
+```
+
+Run MFA outside this package:
+
+```bash
+mfa model download acoustic english_us_arpa
+mfa model download dictionary english_us_arpa
+mfa align \
+  /scratch/$USER/data/sae_analysis/mfa_librispeech_corpus \
+  english_us_arpa \
+  english_us_arpa \
+  /scratch/$USER/data/sae_analysis/mfa_librispeech_aligned
+```
+
+Then import the MFA TextGrid phone intervals back into an SAE bundle:
+
+```bash
+python -m SAEUnitAnalysis.import_mfa_alignments \
+  --bundle /scratch/$USER/data/sae_analysis/librispeech_bundle_more \
+  --mfa-output /scratch/$USER/data/sae_analysis/mfa_librispeech_aligned \
+  --utterance-map /scratch/$USER/data/sae_analysis/mfa_librispeech_corpus/mfa_utterance_map.csv \
+  --output /scratch/$USER/data/sae_analysis/librispeech_bundle_more_mfa
+```
+
+By default, the importer strips ARPABET stress digits (`AH0 -> AH`) and skips
+silence/noise intervals. Use `--preserve-stress` or `--keep-silence` if those
+distinctions are part of the question.
+
 For a TIMIT phonetic-validation bundle, use:
 
 ```bash
