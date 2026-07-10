@@ -163,6 +163,18 @@ def _parse_args():
     p.add_argument("--asr_probe_lr", type=float, default=5e-4)
     p.add_argument("--asr_probe_warmup_steps", type=int, default=500,
                    help="ASR character-CTC probe warmup before linear decay.")
+    p.add_argument("--asr_probe_proj_dim", type=int, default=1024,
+                   help="ASR projector dim. Default 1024 matches Probing/asr.")
+    p.add_argument("--asr_lstm_hidden", type=int, default=1024,
+                   help="ASR LSTM hidden units per direction. Default 1024 matches Probing/asr probe_type=lstm.")
+    p.add_argument("--asr_lstm_layers", type=int, default=2,
+                   help="ASR LSTM layers. Default 2 matches Probing/asr probe_type=lstm.")
+    p.add_argument("--asr_time_mask_param", type=int, default=50,
+                   help="ASR SpecAugment time mask max. Default 50 matches Probing/asr.")
+    p.add_argument("--asr_freq_mask_param", type=int, default=64,
+                   help="ASR SpecAugment feature mask max. Default 64 matches Probing/asr.")
+    p.add_argument("--asr_probe_dropout", type=float, default=0.1,
+                   help="ASR probe dropout. Default 0.1 matches Probing/asr.")
     p.add_argument("--pr_sanity_only", action="store_true",
                    help="evaluate the checkpoint's trained PR head through the "
                         "reconstructed model and exit before training fresh probes")
@@ -192,8 +204,11 @@ def _parse_args():
                    help="PR probe: 'linear'=projector->linear (SUPERB-style, 256 bottleneck); "
                         "'direct'=single Linear(input_dim->vocab), matching the trained PRHead; "
                         "'mlp'=projector->ReLU->linear (SUPERB + one ReLU).")
-    p.add_argument("--asr_probe_arch", choices=("linear", "direct", "mlp"), default="linear",
-                   help="ASR character-CTC probe: same architectures as PR, but with a 29-symbol char vocab.")
+    p.add_argument("--asr_probe_arch", choices=("lstm", "linear", "direct", "mlp"), default="lstm",
+                   help="ASR character-CTC probe. Default 'lstm' matches Probing/asr "
+                        "probe_type=lstm after the input representation is chosen: "
+                        "Linear(input->1024), SpecAugment, 2-layer BiLSTM, Dropout(0.1), "
+                        "Linear(2048->29). Other choices are ablations.")
     p.add_argument("--sid_dataset", choices=("libri", "arctic"), default="libri",
                    help="SID probe data source. 'libri'=LibriSpeech 251 speakers (default, leakage); "
                         "'arctic'=CMU ARCTIC 18 speakers (matched-distribution check for invariance runs).")
@@ -572,13 +587,26 @@ def main() -> None:
             if task == "asr":
                 if asr_train_dl is None or asr_val_dl is None or asr_test_dl is None or asr_tokenizer is None:
                     raise RuntimeError("ASR task requested but ASR dataloaders were not built.")
-                asr_map = {
-                    "linear": base_probe._PRProbe,
-                    "direct": base_probe._PRProbeDirect,
-                    "mlp": base_probe._PRProbeMLP,
-                }
-                asr_cls = asr_map[args.asr_probe_arch]
-                probe = asr_cls(dims[src], asr_vocab_size).to(device)
+                if args.asr_probe_arch == "lstm":
+                    probe = base_probe._ASRLSTMProbe(
+                        dims[src], asr_vocab_size,
+                        proj_dim=args.asr_probe_proj_dim,
+                        lstm_hidden=args.asr_lstm_hidden,
+                        num_layers=args.asr_lstm_layers,
+                        dropout=args.asr_probe_dropout,
+                        time_mask_param=args.asr_time_mask_param,
+                        freq_mask_param=args.asr_freq_mask_param,
+                    ).to(device)
+                elif args.asr_probe_arch == "linear":
+                    probe = base_probe._ASRProbe(
+                        dims[src], asr_vocab_size,
+                        proj_dim=args.asr_probe_proj_dim,
+                        dropout=args.asr_probe_dropout,
+                    ).to(device)
+                elif args.asr_probe_arch == "direct":
+                    probe = base_probe._PRProbeDirect(dims[src], asr_vocab_size).to(device)
+                else:
+                    probe = base_probe._PRProbeMLP(dims[src], asr_vocab_size).to(device)
                 val_cache = base_probe._cache_features(
                     src, asr_val_dl, model, device, use_bf16, has_routing, "asr")
                 test_cache = base_probe._cache_features(

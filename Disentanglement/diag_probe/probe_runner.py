@@ -37,6 +37,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import random
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -188,6 +189,84 @@ class _PRProbeMLP(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = torch.relu(self.projector(x))
         x = self.linear(x)
+        return F.log_softmax(x, dim=-1)
+
+
+class _ASRProbe(nn.Module):
+    """Probing/asr-style single-representation ASR CTC head.
+
+    Matches ``Probing/asr/model.py::SingleLayerProbe`` after the upstream
+    representation is chosen: Linear(input_dim -> 1024), Dropout(0.1),
+    Linear(1024 -> char_vocab).  This diagnostic variant returns log-probs
+    because ``_train_asr_probe`` calls ``nn.CTCLoss`` directly.
+    """
+
+    def __init__(self, in_dim: int, vocab_size: int,
+                 proj_dim: int = 1024, dropout: float = 0.1) -> None:
+        super().__init__()
+        self.projector = nn.Linear(in_dim, proj_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(proj_dim, vocab_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.projector(x)
+        x = self.dropout(x)
+        x = self.classifier(x)
+        return F.log_softmax(x, dim=-1)
+
+
+class _ASRLSTMProbe(nn.Module):
+    """Probing/asr ``probe_type='lstm'`` head for a single representation.
+
+    Matches ``Probing/asr/model.py::LSTMProbe`` after the input representation
+    is chosen:
+      Linear(input_dim -> 1024), SpecAugment during training, 2-layer
+      bidirectional LSTM with 1024 units per direction, Dropout(0.1),
+      Linear(2048 -> char_vocab).  This diagnostic variant returns log-probs
+      because ``_train_asr_probe`` calls ``nn.CTCLoss`` directly.
+    """
+
+    def __init__(self, in_dim: int, vocab_size: int,
+                 proj_dim: int = 1024, lstm_hidden: int = 1024,
+                 num_layers: int = 2, dropout: float = 0.1,
+                 time_mask_param: int = 50, freq_mask_param: int = 64) -> None:
+        super().__init__()
+        self.projector = nn.Linear(in_dim, proj_dim)
+        self.time_mask_param = time_mask_param
+        self.freq_mask_param = freq_mask_param
+        self.lstm = nn.LSTM(
+            input_size=proj_dim,
+            hidden_size=lstm_hidden,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0.0,
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(lstm_hidden * 2, vocab_size)
+
+    def _spec_augment(self, h: torch.Tensor) -> torch.Tensor:
+        if self.time_mask_param > 0:
+            B, T, _D = h.shape
+            for b in range(B):
+                t = random.randint(0, self.time_mask_param)
+                t0 = random.randint(0, max(0, T - t))
+                h[b, t0:t0 + t, :] = 0.0
+        if self.freq_mask_param > 0:
+            D = h.size(2)
+            f = random.randint(0, self.freq_mask_param)
+            f0 = random.randint(0, max(0, D - f))
+            h[:, :, f0:f0 + f] = 0.0
+        return h
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.projector(x)
+        if self.training:
+            x = x.clone()
+            x = self._spec_augment(x)
+        x, _ = self.lstm(x)
+        x = self.dropout(x)
+        x = self.classifier(x)
         return F.log_softmax(x, dim=-1)
 
 
