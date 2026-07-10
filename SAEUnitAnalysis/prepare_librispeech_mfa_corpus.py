@@ -56,8 +56,15 @@ def prepare_corpus(
             continue
         audio = bundle.audio_path(row)
         suffix = audio.suffix.lower() or ".flac"
-        audio_rel = Path("audio") / f"{utt_id}{suffix}"
-        lab_rel = Path("audio") / f"{utt_id}.lab"
+        # MFA infers speaker identity from the corpus directory layout.  Keep a
+        # speaker subdirectory when speaker_id is available; otherwise MFA sees
+        # the whole corpus as one speaker and disables useful parallelism /
+        # speaker adaptation.  The utterance map preserves the original ID, so
+        # importing TextGrids remains stable.
+        speaker = str(row.get("speaker_id", "")).strip()
+        speaker_dir = Path("audio") / speaker if speaker else Path("audio")
+        audio_rel = speaker_dir / f"{utt_id}{suffix}"
+        lab_rel = speaker_dir / f"{utt_id}.lab"
         _link_or_copy(audio, output / audio_rel, copy_audio=copy_audio)
         (output / lab_rel).write_text(transcript + "\n", encoding="utf-8")
         map_rows.append(
@@ -67,6 +74,7 @@ def prepare_corpus(
                 "audio_path": str(audio_rel),
                 "lab_path": str(lab_rel),
                 "split": str(row["split"]),
+                "speaker_id": speaker,
                 "transcript": transcript,
             }
         )
@@ -83,6 +91,7 @@ def prepare_corpus(
                 "audio_path",
                 "lab_path",
                 "split",
+                "speaker_id",
                 "transcript",
             ],
         )
