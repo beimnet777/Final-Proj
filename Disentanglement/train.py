@@ -67,9 +67,19 @@ def _make_scheduler(
     return LambdaLR(optimizer, _lr)
 
 
-def _dann_lambda(step: int, total: int) -> float:
-    """DANN ramp: 0 at start → 1 at end."""
-    p = step / max(1, total)
+def _dann_lambda(step: int, total: int, ramp_steps: int = 0) -> float:
+    """DANN ramp: 0 at start → 1 at end.
+
+    By default the ramp spans the full training schedule.  If ramp_steps > 0,
+    it reaches 1.0 by that step and then stays there.
+    """
+    if int(ramp_steps) > 0:
+        if step >= int(ramp_steps):
+            return 1.0
+        denom = max(1, int(ramp_steps))
+    else:
+        denom = max(1, total)
+    p = step / denom
     return 2.0 / (1.0 + math.exp(-10.0 * p)) - 1.0
 
 
@@ -1622,7 +1632,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         # VIB KL ramp (let z_L form before compressing)
         eff_vib_w = (vib_w * min(1.0, step / vib_ramp_end)) if (vib_w > 0 and vib_ramp_end > 0) else vib_w
         grl_active        = (cfg.grl_delay_steps == 0 or step >= cfg.grl_delay_steps)
-        ramp              = _dann_lambda(step, schedule_steps) if grl_active else 0.0
+        ramp              = (_dann_lambda(step, schedule_steps, getattr(cfg, "dann_ramp_steps", 0))
+                             if grl_active else 0.0)
         grl_target_scale  = (_scheduled_grl_lambda_scale(cfg, step)
                              if getattr(cfg, "grl_grad_norm", False) else 1.0)
         if dann_fix:

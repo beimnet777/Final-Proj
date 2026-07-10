@@ -138,6 +138,11 @@ class DISConfig:
     # Default False preserves the legacy behaviour, where the weight also scaled
     # the discriminator's own learning signal (starving it at small weights).
     dann_full_discriminator: bool = False
+    # Optional DANN ramp length. 0 preserves the default schedule that ramps over
+    # the full optimizer schedule. Positive values ramp 0->1 over this many
+    # optimizer steps and then hold at 1. Useful for learned-routing freeze runs
+    # where the adversary should become effective before route freeze.
+    dann_ramp_steps: int = 0
     rho:                 float = 0.001 # routing anti-collapse weight
 
     # ---------------------------------------------------------------- Option A: fixed-block supervised SAE

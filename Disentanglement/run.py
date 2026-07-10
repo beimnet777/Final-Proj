@@ -164,6 +164,9 @@ def _parse_args():
     p.add_argument("--dann_full_discriminator", action="store_true", default=cfg.dann_full_discriminator,
                    help="Canonical DANN: adversary heads train at full strength; grl weights only scale "
                         "the reversed (encoder-side) gradient via lambda.")
+    p.add_argument("--dann_ramp_steps", type=int, default=cfg.dann_ramp_steps,
+                   help="If >0, ramp DANN lambda to 1 over this many optimizer steps, "
+                        "then hold. Default 0 ramps over the full stage schedule.")
     p.add_argument("--rho",             type=float, default=cfg.rho)
 
     # ablation flags (D / E / F)
@@ -444,6 +447,7 @@ def _parse_args():
     cfg.inv_formant_low       = args.inv_formant_low
     cfg.inv_formant_high      = args.inv_formant_high
     cfg.dann_full_discriminator = args.dann_full_discriminator
+    cfg.dann_ramp_steps       = args.dann_ramp_steps
     cfg.rho                   = args.rho
     cfg.fixed_blocks          = args.fixed_blocks
     cfg.K_L                   = args.K_L
@@ -584,6 +588,8 @@ def _parse_args():
             p.error("GRL grad-norm schedule targets must be positive")
         if cfg.grl_grad_norm_decay_end <= cfg.grl_grad_norm_decay_start:
             p.error("--grl_grad_norm_decay_end must be greater than --grl_grad_norm_decay_start")
+    if cfg.dann_ramp_steps < 0:
+        p.error("--dann_ramp_steps must be >= 0")
     if cfg.club_full_diagnostics and not cfg.club_enabled:
         p.error("--club_full_diagnostics requires --club_enabled")
     if cfg.club_diagnostics_every <= 0:
