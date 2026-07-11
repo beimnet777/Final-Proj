@@ -1,0 +1,443 @@
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=12000  α=0.0  β=0.0  grl=0.0  ρ=0.0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=17,493,642  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.0  β=0.0  grl=0.0  ρ=0.0  hard_gumbel=True  spear_ln=True
+[stage 2] steps=12000  schedule_steps=12000  batch=16  grad_clip=1.0
+[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + (1 - grl_p_per)  — in-training head proxies, NOT a probe; run diag_probe/ for the authoritative leakage signal.
+[stage 2] AuxK on: aux_k=64  coef=0.03125  dead_thresh=256  renorm_dec=False
+[stage 2] precision requested=auto resolved=bf16
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step      1/12000  recon=0.3685  pr=17.7404  sid=5.5391  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-07
+  step    100/12000  recon=0.3123  pr=20.6430  sid=5.5332  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.00e-05
+  step    200/12000  recon=0.2672  pr=19.1349  sid=5.5273  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.00e-05
+  step    300/12000  recon=0.2341  pr=17.9040  sid=5.5332  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.00e-05
+  step    400/12000  recon=0.2072  pr=20.2771  sid=5.5293  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.00e-05
+  [grad_norms @500]
+    recon             |g|=0.02573  ratio=1.000x recon
+    pr_raw            |g|=5.23679  ratio=203.534x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=0.91369  ratio=35.512x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.005
+      cos(recon_vs_sid          ) = +0.000
+      cos(pr_vs_sid             ) = -0.016
+  step    500/12000  recon=0.1813  pr=19.7392  sid=5.5234  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  step    600/12000  recon=0.1571  pr=18.0970  sid=5.5332  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-04
+  step    700/12000  recon=0.1382  pr=17.4149  sid=5.5156  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.99e-05
+  step    800/12000  recon=0.1220  pr=18.3033  sid=5.5312  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.98e-05
+  step    900/12000  recon=0.1104  pr=18.9353  sid=5.5449  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.97e-05
+  [grad_norms @1000]
+    recon             |g|=0.01777  ratio=1.000x recon
+    pr_raw            |g|=4.89498  ratio=275.468x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=0.94846  ratio=53.375x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @1000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.003
+      cos(recon_vs_sid          ) = -0.005
+      cos(pr_vs_sid             ) = -0.015
+  step   1000/12000  recon=0.1014  pr=19.5727  sid=5.5176  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.96e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=1000  recon=0.1014  pr=18.7217  | z_L PR=3.154  | z_P SID=0.004
+  ✓ best checkpoint (disent=4.1539  PER=3.154 sid=0.004 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step   1100/12000  recon=0.0943  pr=19.6708  sid=5.5273  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.94e-05
+  step   1200/12000  recon=0.0901  pr=18.8555  sid=5.5391  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.92e-05
+  step   1300/12000  recon=0.0865  pr=19.3955  sid=5.5156  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.89e-05
+  step   1400/12000  recon=0.0845  pr=17.3547  sid=5.5156  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.86e-05
+  [grad_norms @1500]
+    recon             |g|=0.01909  ratio=1.000x recon
+    pr_raw            |g|=5.05272  ratio=264.728x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=0.99560  ratio=52.162x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @1500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = -0.003
+      cos(pr_vs_sid             ) = +0.008
+  step   1500/12000  recon=0.0804  pr=19.8867  sid=5.4824  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.83e-05
+  step   1600/12000  recon=0.0828  pr=18.1615  sid=5.4785  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.80e-05
+  step   1700/12000  recon=0.0797  pr=18.8766  sid=5.5352  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.76e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   1800/12000  recon=0.0789  pr=18.7185  sid=5.5059  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.72e-05
+  step   1900/12000  recon=0.0800  pr=16.6750  sid=5.5664  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.67e-05
+  [grad_norms @2000]
+    recon             |g|=0.02085  ratio=1.000x recon
+    pr_raw            |g|=4.36883  ratio=209.579x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=0.90553  ratio=43.439x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @2000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.003
+      cos(pr_vs_sid             ) = -0.004
+  step   2000/12000  recon=0.0780  pr=19.2840  sid=5.5137  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.63e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=2000  recon=0.0785  pr=18.5645  | z_L PR=3.043  | z_P SID=0.006
+  ✓ best checkpoint (disent=4.0372  PER=3.043 sid=0.006 grl_acc=0.000 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step   2100/12000  recon=0.0780  pr=20.2319  sid=5.5469  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.58e-05
+  step   2200/12000  recon=0.0762  pr=18.7928  sid=5.5371  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.52e-05
+  step   2300/12000  recon=0.0766  pr=19.3909  sid=5.5371  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.47e-05
+  step   2400/12000  recon=0.0762  pr=19.0498  sid=5.5371  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.41e-05
+  [grad_norms @2500]
+    recon             |g|=0.02545  ratio=1.000x recon
+    pr_raw            |g|=4.51715  ratio=177.459x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=0.96508  ratio=37.914x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @2500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.008
+      cos(recon_vs_sid          ) = -0.006
+      cos(pr_vs_sid             ) = +0.006
+  step   2500/12000  recon=0.0761  pr=20.0237  sid=5.5156  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.34e-05
+  step   2600/12000  recon=0.0764  pr=16.6264  sid=5.5195  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.28e-05
+  step   2700/12000  recon=0.0756  pr=16.3716  sid=5.5234  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.21e-05
+  step   2800/12000  recon=0.0736  pr=18.3115  sid=5.5273  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.14e-05
+  step   2900/12000  recon=0.0760  pr=16.6637  sid=5.5762  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=9.07e-05
+  [grad_norms @3000]
+    recon             |g|=0.02819  ratio=1.000x recon
+    pr_raw            |g|=4.16805  ratio=147.879x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=0.93300  ratio=33.102x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @3000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.008
+      cos(recon_vs_sid          ) = +0.005
+      cos(pr_vs_sid             ) = +0.016
+  step   3000/12000  recon=0.0750  pr=17.7022  sid=5.4961  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.99e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=3000  recon=0.0749  pr=18.3897  | z_L PR=2.980  | z_P SID=0.008
+  ✓ best checkpoint (disent=3.9756  PER=2.980 sid=0.008 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step   3100/12000  recon=0.0734  pr=19.3676  sid=5.5176  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.91e-05
+  step   3200/12000  recon=0.0739  pr=18.8720  sid=5.5312  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.83e-05
+  step   3300/12000  recon=0.0719  pr=17.6984  sid=5.5430  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.75e-05
+  step   3400/12000  recon=0.0745  pr=18.1620  sid=5.5430  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.66e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [grad_norms @3500]
+    recon             |g|=0.03117  ratio=1.000x recon
+    pr_raw            |g|=4.13120  ratio=132.547x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=0.99034  ratio=31.775x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @3500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.009
+      cos(recon_vs_sid          ) = -0.002
+      cos(pr_vs_sid             ) = -0.020
+  step   3500/12000  recon=0.0721  pr=18.0891  sid=5.5039  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.57e-05
+  step   3600/12000  recon=0.0718  pr=19.6357  sid=5.5508  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.48e-05
+  step   3700/12000  recon=0.0748  pr=18.0872  sid=5.5508  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.39e-05
+  step   3800/12000  recon=0.0732  pr=17.0140  sid=5.6445  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.29e-05
+  step   3900/12000  recon=0.0708  pr=16.7673  sid=5.4297  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.19e-05
+  [grad_norms @4000]
+    recon             |g|=0.03526  ratio=1.000x recon
+    pr_raw            |g|=4.62307  ratio=131.104x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.08362  ratio=30.730x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @4000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.004
+      cos(recon_vs_sid          ) = +0.009
+      cos(pr_vs_sid             ) = +0.000
+  step   4000/12000  recon=0.0724  pr=18.1647  sid=5.5371  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=8.10e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=4000  recon=0.0726  pr=18.2279  | z_L PR=2.940  | z_P SID=0.008
+  ✓ best checkpoint (disent=3.9360  PER=2.940 sid=0.008 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step   4100/12000  recon=0.0714  pr=19.7160  sid=5.5039  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.99e-05
+  step   4200/12000  recon=0.0715  pr=18.5377  sid=5.5703  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.89e-05
+  step   4300/12000  recon=0.0708  pr=18.0966  sid=5.5195  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.79e-05
+  step   4400/12000  recon=0.0706  pr=17.7379  sid=5.5527  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.68e-05
+  [grad_norms @4500]
+    recon             |g|=0.03823  ratio=1.000x recon
+    pr_raw            |g|=4.32870  ratio=113.241x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.12133  ratio=29.335x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @4500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = -0.002
+      cos(pr_vs_sid             ) = +0.008
+  step   4500/12000  recon=0.0709  pr=17.2344  sid=5.4922  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.57e-05
+  step   4600/12000  recon=0.0716  pr=17.3163  sid=5.5234  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.46e-05
+  step   4700/12000  recon=0.0717  pr=17.9725  sid=5.5391  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.35e-05
+  step   4800/12000  recon=0.0703  pr=17.0228  sid=5.5918  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.24e-05
+  step   4900/12000  recon=0.0716  pr=17.3531  sid=5.5840  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.12e-05
+  [grad_norms @5000]
+    recon             |g|=0.04101  ratio=1.000x recon
+    pr_raw            |g|=4.48862  ratio=109.444x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.06195  ratio=25.893x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @5000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.008
+      cos(recon_vs_sid          ) = -0.003
+      cos(pr_vs_sid             ) = -0.005
+  step   5000/12000  recon=0.0703  pr=17.9389  sid=5.6152  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=7.01e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=5000  recon=0.0708  pr=18.1035  | z_L PR=2.900  | z_P SID=0.010
+  ✓ best checkpoint (disent=3.8937  PER=2.900 sid=0.010 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step   5100/12000  recon=0.0703  pr=17.0850  sid=5.5156  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.89e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   5200/12000  recon=0.0700  pr=17.5064  sid=5.4629  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.77e-05
+  step   5300/12000  recon=0.0695  pr=17.4412  sid=5.5742  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.65e-05
+  step   5400/12000  recon=0.0690  pr=18.2781  sid=5.5410  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.54e-05
+  [grad_norms @5500]
+    recon             |g|=0.04286  ratio=1.000x recon
+    pr_raw            |g|=4.57367  ratio=106.708x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.17460  ratio=27.404x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @5500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.007
+      cos(recon_vs_sid          ) = +0.009
+      cos(pr_vs_sid             ) = -0.004
+  step   5500/12000  recon=0.0702  pr=17.1188  sid=5.5586  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.42e-05
+  step   5600/12000  recon=0.0707  pr=19.8189  sid=5.5078  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.29e-05
+  step   5700/12000  recon=0.0680  pr=17.3921  sid=5.4766  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.17e-05
+  step   5800/12000  recon=0.0705  pr=17.9134  sid=5.5605  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=6.05e-05
+  step   5900/12000  recon=0.0696  pr=17.3280  sid=5.5215  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.93e-05
+  [grad_norms @6000]
+    recon             |g|=0.04663  ratio=1.000x recon
+    pr_raw            |g|=4.73151  ratio=101.473x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.28429  ratio=27.543x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @6000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.002
+      cos(recon_vs_sid          ) = +0.002
+      cos(pr_vs_sid             ) = +0.003
+  step   6000/12000  recon=0.0698  pr=17.4699  sid=5.6348  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.81e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=6000  recon=0.0693  pr=18.0172  | z_L PR=2.869  | z_P SID=0.010
+  ✓ best checkpoint (disent=3.8634  PER=2.869 sid=0.010 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step   6100/12000  recon=0.0687  pr=18.0458  sid=5.5332  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.68e-05
+  step   6200/12000  recon=0.0682  pr=18.2225  sid=5.5996  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.56e-05
+  step   6300/12000  recon=0.0677  pr=18.0939  sid=5.6016  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.44e-05
+  step   6400/12000  recon=0.0686  pr=16.5101  sid=5.5098  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.32e-05
+  [grad_norms @6500]
+    recon             |g|=0.04665  ratio=1.000x recon
+    pr_raw            |g|=5.03771  ratio=107.988x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.20129  ratio=25.751x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @6500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.002
+      cos(recon_vs_sid          ) = -0.005
+      cos(pr_vs_sid             ) = -0.003
+  step   6500/12000  recon=0.0695  pr=17.7309  sid=5.5918  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.19e-05
+  step   6600/12000  recon=0.0684  pr=18.5933  sid=5.6367  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=5.07e-05
+  step   6700/12000  recon=0.0679  pr=17.0785  sid=5.5254  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.95e-05
+  step   6800/12000  recon=0.0696  pr=17.4521  sid=5.5410  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.83e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   6900/12000  recon=0.0667  pr=18.7634  sid=5.6270  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.71e-05
+  [grad_norms @7000]
+    recon             |g|=0.05405  ratio=1.000x recon
+    pr_raw            |g|=4.83033  ratio=89.371x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.34773  ratio=24.936x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @7000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.001
+      cos(recon_vs_sid          ) = -0.001
+      cos(pr_vs_sid             ) = -0.010
+  step   7000/12000  recon=0.0687  pr=17.1921  sid=5.4688  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.58e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=7000  recon=0.0683  pr=17.9655  | z_L PR=2.848  | z_P SID=0.008
+  ✓ best checkpoint (disent=3.8438  PER=2.848 sid=0.008 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step   7100/12000  recon=0.0686  pr=18.5333  sid=5.5098  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.46e-05
+  step   7200/12000  recon=0.0683  pr=19.0759  sid=5.5391  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.35e-05
+  step   7300/12000  recon=0.0676  pr=17.1170  sid=5.6172  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.23e-05
+  step   7400/12000  recon=0.0678  pr=17.5111  sid=5.5176  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=4.11e-05
+  [grad_norms @7500]
+    recon             |g|=0.04968  ratio=1.000x recon
+    pr_raw            |g|=4.94504  ratio=99.532x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.23658  ratio=24.890x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @7500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.003
+      cos(recon_vs_sid          ) = +0.012
+      cos(pr_vs_sid             ) = -0.009
+  step   7500/12000  recon=0.0687  pr=17.3577  sid=5.5254  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.99e-05
+  step   7600/12000  recon=0.0672  pr=17.3559  sid=5.6699  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.88e-05
+  step   7700/12000  recon=0.0677  pr=18.6022  sid=5.5312  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.76e-05
+  step   7800/12000  recon=0.0676  pr=17.5299  sid=5.4453  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.65e-05
+  step   7900/12000  recon=0.0680  pr=17.8408  sid=5.4863  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.54e-05
+  [grad_norms @8000]
+    recon             |g|=0.05145  ratio=1.000x recon
+    pr_raw            |g|=5.44523  ratio=105.838x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.30276  ratio=25.322x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @8000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.012
+      cos(recon_vs_sid          ) = +0.001
+      cos(pr_vs_sid             ) = -0.016
+  step   8000/12000  recon=0.0681  pr=18.3248  sid=5.5039  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.43e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=8000  recon=0.0675  pr=17.9404  | z_L PR=2.830  | z_P SID=0.008
+  ✓ best checkpoint (disent=3.8262  PER=2.830 sid=0.008 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step   8100/12000  recon=0.0684  pr=18.1192  sid=5.5859  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.32e-05
+  step   8200/12000  recon=0.0666  pr=17.4630  sid=5.5977  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.21e-05
+  step   8300/12000  recon=0.0660  pr=17.9456  sid=5.4922  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.11e-05
+  step   8400/12000  recon=0.0679  pr=16.8576  sid=5.4902  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=3.01e-05
+  [grad_norms @8500]
+    recon             |g|=0.04958  ratio=1.000x recon
+    pr_raw            |g|=5.08770  ratio=102.619x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.28738  ratio=25.966x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @8500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.007
+      cos(recon_vs_sid          ) = -0.009
+      cos(pr_vs_sid             ) = -0.005
+  step   8500/12000  recon=0.0665  pr=18.2620  sid=5.5098  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.90e-05
+  step   8600/12000  recon=0.0670  pr=16.8015  sid=5.5469  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.81e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   8700/12000  recon=0.0663  pr=17.0103  sid=5.6836  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.71e-05
+  step   8800/12000  recon=0.0673  pr=17.2322  sid=5.7383  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.61e-05
+  step   8900/12000  recon=0.0669  pr=16.9856  sid=5.4453  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.52e-05
+  [grad_norms @9000]
+    recon             |g|=0.04865  ratio=1.000x recon
+    pr_raw            |g|=4.87948  ratio=100.302x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.35988  ratio=27.953x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @9000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.008
+      cos(recon_vs_sid          ) = +0.008
+      cos(pr_vs_sid             ) = +0.020
+  step   9000/12000  recon=0.0657  pr=16.2432  sid=5.6621  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.43e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=9000  recon=0.0669  pr=17.9362  | z_L PR=2.824  | z_P SID=0.008
+  ✓ best checkpoint (disent=3.8204  PER=2.824 sid=0.008 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step   9100/12000  recon=0.0679  pr=17.3385  sid=5.4961  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.34e-05
+  step   9200/12000  recon=0.0667  pr=18.0863  sid=5.5898  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.25e-05
+  step   9300/12000  recon=0.0665  pr=18.8132  sid=5.5391  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.17e-05
+  step   9400/12000  recon=0.0681  pr=17.4291  sid=5.5547  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.09e-05
+  [grad_norms @9500]
+    recon             |g|=0.05609  ratio=1.000x recon
+    pr_raw            |g|=5.40800  ratio=96.409x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.47436  ratio=26.284x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @9500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.006
+      cos(recon_vs_sid          ) = -0.001
+      cos(pr_vs_sid             ) = -0.008
+  step   9500/12000  recon=0.0674  pr=18.6173  sid=5.6035  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=2.01e-05
+  step   9600/12000  recon=0.0665  pr=17.4704  sid=5.6836  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.93e-05
+  step   9700/12000  recon=0.0661  pr=17.7831  sid=5.4023  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.86e-05
+  step   9800/12000  recon=0.0666  pr=17.6205  sid=5.5645  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.79e-05
+  step   9900/12000  recon=0.0680  pr=18.5154  sid=5.7656  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.72e-05
+  [grad_norms @10000]
+    recon             |g|=0.05367  ratio=1.000x recon
+    pr_raw            |g|=4.96621  ratio=92.538x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.39522  ratio=25.998x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @10000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.011
+      cos(recon_vs_sid          ) = +0.002
+      cos(pr_vs_sid             ) = -0.020
+  step  10000/12000  recon=0.0668  pr=16.8073  sid=5.6680  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.66e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=10000  recon=0.0665  pr=17.9467  | z_L PR=2.818  | z_P SID=0.008
+  ✓ best checkpoint (disent=3.8137  PER=2.818 sid=0.008 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step  10100/12000  recon=0.0661  pr=18.1202  sid=5.5059  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.59e-05
+  step  10200/12000  recon=0.0664  pr=16.7914  sid=5.6387  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.53e-05
+  step  10300/12000  recon=0.0652  pr=17.3673  sid=5.5645  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.48e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step  10400/12000  recon=0.0655  pr=18.3565  sid=5.5273  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.42e-05
+  [grad_norms @10500]
+    recon             |g|=0.05275  ratio=1.000x recon
+    pr_raw            |g|=5.28087  ratio=100.111x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.37964  ratio=26.154x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @10500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.003
+      cos(recon_vs_sid          ) = +0.003
+      cos(pr_vs_sid             ) = +0.008
+  step  10500/12000  recon=0.0657  pr=16.9965  sid=5.6934  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.37e-05
+  step  10600/12000  recon=0.0664  pr=16.6066  sid=5.6582  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.33e-05
+  step  10700/12000  recon=0.0671  pr=18.1529  sid=5.5059  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.28e-05
+  step  10800/12000  recon=0.0666  pr=16.5041  sid=5.7070  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.24e-05
+  step  10900/12000  recon=0.0660  pr=16.1737  sid=5.5430  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.20e-05
+  [grad_norms @11000]
+    recon             |g|=0.05054  ratio=1.000x recon
+    pr_raw            |g|=4.95867  ratio=98.109x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.30000  ratio=25.721x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @11000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.013
+      cos(recon_vs_sid          ) = +0.006
+      cos(pr_vs_sid             ) = +0.014
+  step  11000/12000  recon=0.0662  pr=16.4336  sid=5.4785  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.17e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=11000  recon=0.0663  pr=17.9615  | z_L PR=2.819  | z_P SID=0.010
+  ✓ best checkpoint (disent=3.8127  PER=2.819 sid=0.010 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+  step  11100/12000  recon=0.0670  pr=17.2843  sid=5.5586  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.14e-05
+  step  11200/12000  recon=0.0672  pr=18.7423  sid=5.5117  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.11e-05
+  step  11300/12000  recon=0.0671  pr=17.9524  sid=5.5371  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.08e-05
+  step  11400/12000  recon=0.0663  pr=17.8645  sid=5.7070  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.06e-05
+  [grad_norms @11500]
+    recon             |g|=0.05602  ratio=1.000x recon
+    pr_raw            |g|=5.06683  ratio=90.451x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.42537  ratio=25.445x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @11500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.003
+      cos(recon_vs_sid          ) = +0.008
+      cos(pr_vs_sid             ) = -0.002
+  step  11500/12000  recon=0.0658  pr=15.9841  sid=5.6191  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.04e-05
+  step  11600/12000  recon=0.0660  pr=19.4828  sid=5.4395  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.03e-05
+  step  11700/12000  recon=0.0664  pr=17.0977  sid=5.5430  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.02e-05
+  step  11800/12000  recon=0.0659  pr=18.9324  sid=5.6738  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.01e-05
+  step  11900/12000  recon=0.0656  pr=18.0870  sid=5.4492  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-05
+  [grad_norms @12000]
+    recon             |g|=0.05449  ratio=1.000x recon
+    pr_raw            |g|=4.86595  ratio=89.307x recon
+    pr_weighted       |g|=0.00000  ratio=0.000x recon
+    sid_raw           |g|=1.43954  ratio=26.421x recon
+    sid_weighted      |g|=0.00000  ratio=0.000x recon
+    [grad_cos @12000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.006
+      cos(recon_vs_sid          ) = -0.000
+      cos(pr_vs_sid             ) = +0.005
+  step  12000/12000  recon=0.0656  pr=16.9457  sid=5.4961  aux=0.0000  dead=0.0%  L/P/U=5120/0/0  actL/P/U=nan/nan/nan  H=nan  Hu=nan  spec<.5=nan  marg=nan  lstd=nan  lr=1.00e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=12000  recon=0.0661  pr=17.9807  | z_L PR=2.814  | z_P SID=0.010
+  ✓ best checkpoint (disent=3.8082  PER=2.814 sid=0.010 grl_acc=0.004 grl_p_per=nan) → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+
+[stage 2] done.  Best disent_score=3.8082  → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt
+
+[done]  best checkpoint → /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_best.pt

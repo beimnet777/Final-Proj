@@ -1,0 +1,56 @@
+[diag_probe] run=diag_libri_sae_recon_topk256_aux64_12k_s42_asr_lstm_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] sources=['z_t']  tasks=['asr']
+[diag_probe] probe_steps=5000  pr_lr=0.0005  asr_lr=0.0001  sid_lr=0.001  pr_warmup=500  asr_warmup=500  other_warmup=0  val_every=250  patience=10
+[diag_probe] PR task not requested — skipping PR dataloaders.
+[dis_data] loading ASR train-clean-100 …
+[dis_data] loading ASR dev-clean …
+[dis_data] loading ASR test-clean …
+[dis_data]  ASR train=28539 val=2703 test=2620 vocab=29
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[diag_probe] topk confirmed: 256
+[train] loaded 3 SAE tensors from /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_step12000.pt  (step=12000  val=3.8082)
+[diag_probe] loaded stage2 weights from /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  asr_vocab=29  D=1280  K=5120
+[diag_probe] PR: skipped
+[diag_probe] ASR: character CTC transcripts — train-clean-100 → val=dev-clean, test=test-clean; probe arch=lstm
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_t -> ASR ...
+      [asr z_t] step 250/5000  train loss=3.543  dev loss=0.849  dev WER=0.704  dev CER=0.279  (best CER 0.279, bad 0/10)
+      [asr z_t] step 500/5000  train loss=0.520  dev loss=0.305  dev WER=0.319  dev CER=0.090  (best CER 0.090, bad 0/10)
+      [asr z_t] step 750/5000  train loss=0.311  dev loss=0.214  dev WER=0.228  dev CER=0.062  (best CER 0.062, bad 0/10)
+      [asr z_t] step 1000/5000  train loss=0.251  dev loss=0.171  dev WER=0.178  dev CER=0.047  (best CER 0.047, bad 0/10)
+      [asr z_t] step 1250/5000  train loss=0.215  dev loss=0.149  dev WER=0.148  dev CER=0.040  (best CER 0.040, bad 0/10)
+      [asr z_t] step 1500/5000  train loss=0.196  dev loss=0.134  dev WER=0.128  dev CER=0.034  (best CER 0.034, bad 0/10)
+      [asr z_t] step 1750/5000  train loss=0.185  dev loss=0.125  dev WER=0.119  dev CER=0.032  (best CER 0.032, bad 0/10)
+      [asr z_t] step 2000/5000  train loss=0.149  dev loss=0.115  dev WER=0.105  dev CER=0.028  (best CER 0.028, bad 0/10)
+      [asr z_t] step 2250/5000  train loss=0.142  dev loss=0.110  dev WER=0.099  dev CER=0.026  (best CER 0.026, bad 0/10)
+      [asr z_t] step 2500/5000  train loss=0.139  dev loss=0.106  dev WER=0.095  dev CER=0.026  (best CER 0.026, bad 0/10)
+      [asr z_t] step 2750/5000  train loss=0.134  dev loss=0.103  dev WER=0.090  dev CER=0.024  (best CER 0.024, bad 0/10)
+      [asr z_t] step 3000/5000  train loss=0.132  dev loss=0.099  dev WER=0.085  dev CER=0.023  (best CER 0.023, bad 0/10)
+      [asr z_t] step 3250/5000  train loss=0.125  dev loss=0.094  dev WER=0.082  dev CER=0.022  (best CER 0.022, bad 0/10)
+      [asr z_t] step 3500/5000  train loss=0.123  dev loss=0.092  dev WER=0.079  dev CER=0.021  (best CER 0.021, bad 0/10)
+      [asr z_t] step 3750/5000  train loss=0.106  dev loss=0.090  dev WER=0.075  dev CER=0.020  (best CER 0.020, bad 0/10)
+      [asr z_t] step 4000/5000  train loss=0.099  dev loss=0.089  dev WER=0.073  dev CER=0.020  (best CER 0.020, bad 0/10)
+      [asr z_t] step 4250/5000  train loss=0.099  dev loss=0.088  dev WER=0.072  dev CER=0.019  (best CER 0.019, bad 0/10)
+      [asr z_t] step 4500/5000  train loss=0.096  dev loss=0.088  dev WER=0.071  dev CER=0.019  (best CER 0.019, bad 0/10)
+      [asr z_t] step 4750/5000  train loss=0.096  dev loss=0.086  dev WER=0.070  dev CER=0.019  (best CER 0.019, bad 0/10)
+      [asr z_t] step 5000/5000  train loss=0.090  dev loss=0.086  dev WER=0.069  dev CER=0.019  (best CER 0.019, bad 0/10)
+    z_t -> ASR              WER test=0.070  CER test=0.018  (val WER 0.069, CER 0.019)
+
+==============================================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_libri_sae_recon_topk256_aux64_12k_s42_asr_lstm_seed42
+==============================================================================================
+  Source       PR (PER↓)    SID (acc↑)      ASR WER↓      ASR CER↓
+  --------  ------------  ------------  ------------  ------------
+  z_t                nan           nan         0.070         0.018
+==============================================================================================
+

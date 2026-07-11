@@ -1,0 +1,57 @@
+[diag_probe] run=diag_libri_sae_recon_topk256_aux64_12k_s42_z_t_pr_linear_seed42  device=cuda
+[diag_probe] seed=42
+[diag_probe] stage1_ckpt=/scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] stage2_ckpt=/scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_step12000.pt
+[diag_probe] sources=['z_t']  tasks=['pr']
+[diag_probe] probe_steps=5000  pr_lr=0.0005  asr_lr=0.0005  sid_lr=0.001  pr_warmup=500  asr_warmup=500  other_warmup=0  val_every=250  patience=10
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading PR train-clean-100 …
+[dis_data] loading PR dev-clean …
+[dis_data] loading PR test-clean …
+[dis_data]  PR train=28539 val=2703 test=2620 vocab=74
+[diag_probe] ASR task not requested — skipping ASR dataloaders.
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[diag_probe] topk confirmed: 256
+[train] loaded 3 SAE tensors from /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_step12000.pt  (step=12000  val=3.8082)
+[diag_probe] loaded stage2 weights from /scratch/bbg25/runs/libri_sae_recon_topk256_aux64_12k_s42/checkpoints/stage2_step12000.pt
+
+[diag_probe] speakers=251  pr_vocab=74  asr_vocab=n/a  D=1280  K=5120
+[diag_probe] PR: stage-2-matched 74-phone targets — train-clean-100 → val=dev-clean, test=test-clean
+[diag_probe] ASR: skipped
+[diag_probe] SID: closed-set utterance split (val/test held out); probe arch=linear
+[diag_probe] reported metric = TEST (val shown in parentheses)
+
+  training probe: z_t -> PR ...
+[dis_data] g2p_en loaded for OOV words
+      [pr z_t] step 250/5000  train loss=2.604  dev loss=0.397  dev PER=0.103  (best 0.103, bad 0/10)
+      [pr z_t] step 500/5000  train loss=0.369  dev loss=0.344  dev PER=0.089  (best 0.089, bad 0/10)
+      [pr z_t] step 750/5000  train loss=0.321  dev loss=0.308  dev PER=0.077  (best 0.077, bad 0/10)
+      [pr z_t] step 1000/5000  train loss=0.303  dev loss=0.286  dev PER=0.070  (best 0.070, bad 0/10)
+      [pr z_t] step 1250/5000  train loss=0.289  dev loss=0.277  dev PER=0.065  (best 0.065, bad 0/10)
+      [pr z_t] step 1500/5000  train loss=0.275  dev loss=0.277  dev PER=0.071  (best 0.065, bad 1/10)
+      [pr z_t] step 1750/5000  train loss=0.274  dev loss=0.267  dev PER=0.067  (best 0.065, bad 2/10)
+      [pr z_t] step 2000/5000  train loss=0.229  dev loss=0.263  dev PER=0.061  (best 0.061, bad 0/10)
+      [pr z_t] step 2250/5000  train loss=0.230  dev loss=0.264  dev PER=0.062  (best 0.061, bad 1/10)
+      [pr z_t] step 2500/5000  train loss=0.230  dev loss=0.262  dev PER=0.064  (best 0.061, bad 2/10)
+      [pr z_t] step 2750/5000  train loss=0.230  dev loss=0.253  dev PER=0.062  (best 0.061, bad 3/10)
+      [pr z_t] step 3000/5000  train loss=0.230  dev loss=0.253  dev PER=0.058  (best 0.058, bad 0/10)
+      [pr z_t] step 3250/5000  train loss=0.226  dev loss=0.244  dev PER=0.062  (best 0.058, bad 1/10)
+      [pr z_t] step 3500/5000  train loss=0.225  dev loss=0.244  dev PER=0.061  (best 0.058, bad 2/10)
+      [pr z_t] step 3750/5000  train loss=0.200  dev loss=0.240  dev PER=0.059  (best 0.058, bad 3/10)
+      [pr z_t] step 4000/5000  train loss=0.189  dev loss=0.240  dev PER=0.057  (best 0.057, bad 0/10)
+      [pr z_t] step 4250/5000  train loss=0.190  dev loss=0.239  dev PER=0.057  (best 0.057, bad 1/10)
+      [pr z_t] step 4500/5000  train loss=0.188  dev loss=0.237  dev PER=0.057  (best 0.057, bad 0/10)
+      [pr z_t] step 4750/5000  train loss=0.193  dev loss=0.235  dev PER=0.057  (best 0.057, bad 1/10)
+      [pr z_t] step 5000/5000  train loss=0.186  dev loss=0.234  dev PER=0.057  (best 0.057, bad 0/10)
+    z_t -> PR               PER test=0.060  (val 0.057)
+
+==================================================================
+  DIAGNOSTIC PROBE RESULTS - diag_libri_sae_recon_topk256_aux64_12k_s42_z_t_pr_linear_seed42
+==================================================================
+  Source       PR (PER↓)    SID (acc↑)
+  --------  ------------  ------------
+  z_t              0.060           nan
+==================================================================
+
