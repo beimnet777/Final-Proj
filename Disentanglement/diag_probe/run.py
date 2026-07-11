@@ -469,12 +469,17 @@ def main() -> None:
                     if k in model_sd and model_sd[k].shape == v.shape}
         skipped = [k for k in ckpt_state if k not in filtered]
         missing, _ = model.load_state_dict(filtered, strict=False)
-        non_spear = [k for k in missing if not k.startswith("encoder._spear.")]
+        route_topk_buffers = {"sae.route_topk_enabled", "sae.route_topk_idx", "sae.route_topk_quotas"}
+        non_spear = [k for k in missing
+                     if not k.startswith("encoder._spear.") and k not in route_topk_buffers]
         if skipped:
             print(f"[diag_probe] skipped {len(skipped)} shape-mismatched/stale keys "
                   f"(e.g. {skipped[:3]}) — fine, probe does not use adversarial heads")
         if non_spear:
             print(f"[diag_probe] WARNING missing keys: {non_spear[:5]}")
+        if bool(getattr(model.sae, "route_topk_enabled").item()):
+            print("[diag_probe] learned-route TopK loaded: "
+                  f"quotas={getattr(model.sae, 'route_topk_quotas').detach().cpu().tolist()}")
         print(f"[diag_probe] loaded stage2 weights from {args.stage2_ckpt}")
         has_routing = True
 

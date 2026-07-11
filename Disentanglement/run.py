@@ -204,6 +204,20 @@ def _parse_args():
         help=("Restore a stage-2 resume checkpoint, then freeze its learned logits "
               "and use deterministic routing masks while SAE/head training continues."),
     )
+    p.add_argument(
+        "--freeze_route_topk_on_resume",
+        action=argparse.BooleanOptionalAction,
+        default=cfg.freeze_route_topk_on_resume,
+        help=("After --freeze_learned_routing_on_resume, calibrate the learned "
+              "active L/P(/U) counts from the resume checkpoint and enforce those "
+              "route-local TopK quotas for the continuation."),
+    )
+    p.add_argument(
+        "--route_topk_calib_batches",
+        type=int,
+        default=cfg.route_topk_calib_batches,
+        help="Number of train batches used to estimate learned route-local active TopK quotas.",
+    )
 
     # experiment flags
     p.add_argument("--grl_phoneme_weight",  type=float, default=cfg.grl_phoneme_weight)
@@ -470,6 +484,8 @@ def _parse_args():
     cfg.routing_dynamic       = args.routing_dynamic
     cfg.routing_dynamic_hidden = args.routing_dynamic_hidden
     cfg.freeze_learned_routing_on_resume = args.freeze_learned_routing_on_resume
+    cfg.freeze_route_topk_on_resume = args.freeze_route_topk_on_resume
+    cfg.route_topk_calib_batches = args.route_topk_calib_batches
     cfg.grl_phoneme_weight    = args.grl_phoneme_weight
     cfg.grl_u_weight          = args.grl_u_weight
     cfg.grl_phoneme_u_weight  = args.grl_phoneme_u_weight
@@ -590,6 +606,10 @@ def _parse_args():
             p.error("--grl_grad_norm_decay_end must be greater than --grl_grad_norm_decay_start")
     if cfg.dann_ramp_steps < 0:
         p.error("--dann_ramp_steps must be >= 0")
+    if cfg.route_topk_calib_batches <= 0:
+        p.error("--route_topk_calib_batches must be positive")
+    if cfg.freeze_route_topk_on_resume and not cfg.freeze_learned_routing_on_resume:
+        p.error("--freeze_route_topk_on_resume requires --freeze_learned_routing_on_resume")
     if cfg.club_full_diagnostics and not cfg.club_enabled:
         p.error("--club_full_diagnostics requires --club_enabled")
     if cfg.club_diagnostics_every <= 0:

@@ -36,6 +36,13 @@ assert _routing_spec.loader is not None
 _routing_spec.loader.exec_module(_routing_module)
 RoutingModule = _routing_module.RoutingModule
 
+_sae_spec = importlib.util.spec_from_file_location(
+    "_sae_under_test", Path(__file__).resolve().parents[1] / "model" / "sae.py")
+_sae_module = importlib.util.module_from_spec(_sae_spec)
+assert _sae_spec.loader is not None
+_sae_spec.loader.exec_module(_sae_module)
+SparseAutoencoder = _sae_module.SparseAutoencoder
+
 
 class PresetTests(unittest.TestCase):
     def test_precision_resolution_covers_every_policy(self):
@@ -132,6 +139,19 @@ class FrozenLearnedRoutingTests(unittest.TestCase):
             routing_init_std=0.0, routing_dynamic=False,
             fixed_routing=False,
         )
+
+    def test_learned_route_topk_uses_arbitrary_partition_quotas(self):
+        cfg = SimpleNamespace(D=3, K=6, topk=3, fixed_blocks=False,
+                              aux_k=0, dead_steps_threshold=256)
+        sae = SparseAutoencoder(cfg)
+        sae.set_route_topk(torch.tensor([0, 1, 0, 1, 0, 1]), torch.tensor([2, 1]))
+        pre = torch.tensor([[[6.0, 5.0, 4.0, 3.0, 2.0, 1.0]]])
+        z = _sae_module._route_topk_straight_through(
+            pre, sae.route_topk_idx, sae.route_topk_quotas)
+        active = (z != 0).squeeze(0).squeeze(0)
+        self.assertEqual(3, int(active.sum().item()))
+        self.assertEqual(2, int(active[torch.tensor([0, 2, 4])].sum().item()))
+        self.assertEqual(1, int(active[torch.tensor([1, 3, 5])].sum().item()))
 
     def test_hard_freeze_keeps_loaded_argmax_and_disables_gumbel(self):
         routing = RoutingModule(self._cfg(hard=True))

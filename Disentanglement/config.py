@@ -51,6 +51,13 @@ class DISConfig:
     # keep its learned partition deterministic and fixed while SAE/head training
     # continues. Unlike fixed_routing, this does not create a predetermined split.
     freeze_learned_routing_on_resume: bool = False
+    # Optional continuation companion: after freezing learned route membership,
+    # estimate the route-local active budgets produced by the learned model under
+    # global TopK, then enforce those budgets for the remaining training.  This
+    # keeps the split learned (not preset 240/16), while preventing the active
+    # L/P count from drifting after the membership freeze.
+    freeze_route_topk_on_resume: bool = False
+    route_topk_calib_batches: int = 20
 
     # ---------------------------------------------------------------- GradNorm (automatic loss balancing)
     # When on, the listed task weights are LEARNED online (Chen et al. 2018): each

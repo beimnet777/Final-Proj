@@ -47,6 +47,42 @@ def _blockwise_topk_straight_through(pre: torch.Tensor, spec) -> torch.Tensor:
     return torch.cat(parts, dim=-1)
 
 
+def _route_topk_straight_through(
+    pre: torch.Tensor,
+    route_idx: torch.Tensor,
+    route_quotas: torch.Tensor,
+) -> torch.Tensor:
+    """Route-local TopK for an arbitrary learned partition.
+
+    Unlike fixed blocks, learned-routing partitions are not contiguous index
+    ranges.  This function keeps exactly ``route_quotas[r]`` activations from
+    the units assigned to route ``r`` for each frame, using the same
+    straight-through backward as the global TopK.
+    """
+    if route_idx.numel() != pre.shape[-1]:
+        raise ValueError(
+            f"route_idx has {route_idx.numel()} entries, expected K={pre.shape[-1]}")
+    route_idx = route_idx.to(device=pre.device)
+    route_quotas = route_quotas.to(device=pre.device)
+    z_sparse = torch.zeros_like(pre)
+    view_shape = [1] * (pre.dim() - 1) + [pre.shape[-1]]
+    for route in range(int(route_quotas.numel())):
+        k = int(route_quotas[route].item())
+        if k <= 0:
+            continue
+        route_mask = (route_idx == route)
+        n_route = int(route_mask.sum().item())
+        if n_route <= 0:
+            continue
+        if k > n_route:
+            raise ValueError(
+                f"route-local TopK quota {k} exceeds route {route} size {n_route}")
+        masked = pre.masked_fill(~route_mask.view(*view_shape), -1e30)
+        vals, idx = masked.topk(k, dim=-1)
+        z_sparse.scatter_(-1, idx, vals)
+    return pre + (z_sparse - pre).detach()
+
+
 class SparseAutoencoder(nn.Module):
     """Overcomplete SAE with TopK sparsity (Gao et al. 2024).
 
@@ -72,6 +108,12 @@ class SparseAutoencoder(nn.Module):
             self.block_spec = [(0, kL, cfg.topk_L),
                                (kL, kL + kP, cfg.topk_P),
                                (kL + kP, K, cfg.topk_U)]
+        # Learned-route quota TopK, enabled only after a freeze continuation has
+        # calibrated and stored the learned active split.  Buffers are persistent
+        # so diagnostic probes use the same post-freeze representation.
+        self.register_buffer('route_topk_enabled', torch.tensor(False, dtype=torch.bool), persistent=True)
+        self.register_buffer('route_topk_idx', torch.full((K,), -1, dtype=torch.long), persistent=True)
+        self.register_buffer('route_topk_quotas', torch.zeros(3, dtype=torch.long), persistent=True)
 
         # Pre-bias: absorbs data mean. Shape (D,).
         # Shared between encoder (subtracted) and decoder (added back).
@@ -90,6 +132,34 @@ class SparseAutoencoder(nn.Module):
         self.aux_k          = int(getattr(cfg, 'aux_k', 0))
         self.dead_threshold = int(getattr(cfg, 'dead_steps_threshold', 256))
         self.register_buffer('steps_since_fired', torch.zeros(K), persistent=False)
+
+    @torch.no_grad()
+    def set_route_topk(self, route_idx: torch.Tensor, route_quotas: torch.Tensor) -> None:
+        """Enable arbitrary learned-route TopK quotas for future encodes."""
+        route_idx = torch.as_tensor(route_idx, dtype=torch.long, device=self.route_topk_idx.device)
+        route_quotas = torch.as_tensor(route_quotas, dtype=torch.long, device=self.route_topk_quotas.device)
+        if route_idx.numel() != self.K:
+            raise ValueError(f"route_idx has {route_idx.numel()} entries, expected K={self.K}")
+        if route_quotas.numel() > self.route_topk_quotas.numel():
+            raise ValueError(
+                f"route_quotas has {route_quotas.numel()} routes, "
+                f"but buffer supports {self.route_topk_quotas.numel()}")
+        if int(route_quotas.sum().item()) <= 0:
+            raise ValueError("route-local TopK quotas must sum to a positive value")
+        for route, quota in enumerate(route_quotas.tolist()):
+            n_route = int((route_idx == route).sum().item())
+            if int(quota) > n_route:
+                raise ValueError(
+                    f"route-local TopK quota {quota} exceeds route {route} size {n_route}")
+        self.route_topk_idx.copy_(route_idx)
+        self.route_topk_quotas.zero_()
+        self.route_topk_quotas[:route_quotas.numel()].copy_(route_quotas)
+        self.route_topk_enabled.fill_(True)
+
+    @torch.no_grad()
+    def clear_route_topk(self) -> None:
+        """Disable learned-route TopK quotas and return to cfg/global TopK."""
+        self.route_topk_enabled.fill_(False)
 
     # ---------------------------------------------------------------- dead latents / AuxK
     @torch.no_grad()
@@ -142,7 +212,10 @@ class SparseAutoencoder(nn.Module):
         """
         centred = h_t - self.b_pre                         # (B, T, D)
         z_pre   = F.linear(centred, self.enc_weight)       # (B, T, K)  no bias
-        if self.block_spec is None:
+        if bool(self.route_topk_enabled.item()):
+            z_t = _route_topk_straight_through(
+                z_pre, self.route_topk_idx, self.route_topk_quotas)
+        elif self.block_spec is None:
             z_t = _topk_straight_through(z_pre, self.topk)
         else:
             z_t = _blockwise_topk_straight_through(z_pre, self.block_spec)

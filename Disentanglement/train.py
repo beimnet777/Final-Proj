@@ -83,6 +83,123 @@ def _dann_lambda(step: int, total: int, ramp_steps: int = 0) -> float:
     return 2.0 / (1.0 + math.exp(-10.0 * p)) - 1.0
 
 
+@torch.no_grad()
+def _calibrate_route_topk_quotas(model, train_dl, device, cfg, use_bf16) -> tuple[torch.Tensor, torch.Tensor]:
+    """Estimate learned route-local active budgets under the current global TopK.
+
+    This is used after a learned-routing freeze.  We do not inject a preset
+    240/16 split; instead, we measure how many globally selected units currently
+    fall into each learned route, round that average to integer quotas that sum
+    to cfg.topk, and store those quotas in the SAE.  Subsequent training/probing
+    then keeps the learned route membership and the learned active split stable.
+    """
+    if getattr(model.routing, "dynamic", False):
+        raise ValueError("route-local TopK calibration supports static learned routing only")
+
+    n_routes = int(getattr(cfg, "n_routes", 3))
+    max_batches = max(1, int(getattr(cfg, "route_topk_calib_batches", 20)))
+    was_training = model.training
+    route_topk_was_enabled = bool(getattr(model.sae, "route_topk_enabled").item())
+    if route_topk_was_enabled:
+        model.sae.clear_route_topk()
+    model.eval()
+
+    # Calibration should not consume the exact-resume sampler cursor.
+    sampler_state = None
+    if hasattr(train_dl, "sampler") and hasattr(train_dl.sampler, "state_dict"):
+        sampler_state = train_dl.sampler.state_dict()
+
+    route_idx = model.routing.logits.detach().argmax(dim=-1).to(device)
+    route_counts = torch.stack([(route_idx == r).sum() for r in range(n_routes)]).long()
+    active_counts = torch.zeros(n_routes, device=device)
+    frame_count = torch.zeros((), device=device)
+    batches_seen = 0
+    data_iter = iter(train_dl)
+    ctx = (torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16
+           else torch.autocast("cuda", enabled=False))
+    for _ in range(max_batches):
+        try:
+            batch = next(data_iter)
+        except StopIteration:
+            data_iter = iter(train_dl)
+            batch = next(data_iter)
+        audios, audio_lengths = batch[0].to(device), batch[1].to(device)
+        with ctx:
+            out = model(audios, audio_lengths, stage=2, grl_lambda=0.0,
+                        grl_p_lambda=0.0, emit_emotion=False)
+        z_active = (out["z_t"] != 0).float()
+        _, T_ = z_active.shape[:2]
+        fmask = (torch.arange(T_, device=device).unsqueeze(0)
+                 < out["out_lengths"].unsqueeze(1)).float()
+        valid_frames = fmask.sum()
+        if valid_frames.item() <= 0:
+            continue
+        for r in range(n_routes):
+            active_counts[r] += (
+                (z_active * (route_idx == r).float()).sum(-1) * fmask
+            ).sum()
+        frame_count += valid_frames
+        batches_seen += 1
+
+    if sampler_state is not None and hasattr(train_dl.sampler, "load_state_dict"):
+        train_dl.sampler.load_state_dict(sampler_state)
+
+    if was_training:
+        model.train()
+    else:
+        model.eval()
+
+    if frame_count.item() <= 0 or batches_seen == 0:
+        raise ValueError("route-local TopK calibration saw no valid frames")
+
+    avg = active_counts / frame_count
+    quotas = torch.floor(avg).long().cpu()
+    frac = (avg.cpu() - quotas.float())
+    target_topk = int(getattr(cfg, "topk", int(avg.sum().round().item())))
+    route_counts_cpu = route_counts.cpu()
+
+    diff = target_topk - int(quotas.sum().item())
+    if diff > 0:
+        order = torch.argsort(frac, descending=True).tolist()
+        while diff > 0:
+            changed = False
+            for idx in order:
+                if diff <= 0:
+                    break
+                if quotas[idx].item() < route_counts_cpu[idx].item():
+                    quotas[idx] += 1
+                    diff -= 1
+                    changed = True
+            if not changed:
+                raise ValueError(
+                    "cannot allocate route-local TopK quotas to requested topk; "
+                    f"quotas={quotas.tolist()} route_counts={route_counts_cpu.tolist()} "
+                    f"target={target_topk}")
+    elif diff < 0:
+        order = torch.argsort(frac, descending=False).tolist()
+        remaining = -diff
+        while remaining > 0:
+            changed = False
+            for idx in order:
+                if remaining <= 0:
+                    break
+                if quotas[idx].item() > 0:
+                    quotas[idx] -= 1
+                    remaining -= 1
+                    changed = True
+            if not changed:
+                raise ValueError(
+                    f"cannot reduce route-local TopK quotas to target {target_topk}")
+
+    route_idx_cpu = route_idx.cpu()
+    model.sae.set_route_topk(route_idx_cpu, quotas)
+    print("[stage 2] learned-route TopK calibrated: "
+          f"batches={batches_seen} avg_active={avg.cpu().tolist()} "
+          f"quotas={quotas.tolist()} route_counts={route_counts_cpu.tolist()} "
+          f"sum={int(quotas.sum().item())}")
+    return route_idx_cpu, quotas
+
+
 def _scheduled_grl_grad_norm_target(cfg, step: int) -> float:
     """Effective z_L speaker-GRL grad-norm target for this training step.
 
@@ -1510,6 +1627,16 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         print("[stage 2] learned routing FROZEN after resume: "
               f"step={start_step} deterministic=True hard_counts={n_l}/{n_p}/{n_u} "
               "routing_optimizer_updates=off")
+        if bool(getattr(cfg, "freeze_route_topk_on_resume", False)):
+            if bool(getattr(model.sae, "route_topk_enabled").item()):
+                quotas = getattr(model.sae, "route_topk_quotas").detach().cpu().tolist()
+                print("[stage 2] learned-route TopK already enabled from checkpoint: "
+                      f"quotas={quotas}")
+            else:
+                _calibrate_route_topk_quotas(model, train_dl, device, cfg, use_bf16)
+                # The calibration intentionally restores sampler state; refresh
+                # the iterator so continuation starts cleanly from that state.
+                train_iter = iter(train_dl)
     segment = SegmentLimit(start_step, int(getattr(cfg, "segment_steps", 0)),
                            float(getattr(cfg, "max_runtime_minutes", 0.0)))
     metrics_path = cfg.checkpoint_dir / "metrics.jsonl"

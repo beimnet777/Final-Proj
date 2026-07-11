@@ -12,7 +12,7 @@
 # Search probes:
 #   - no SID-stats
 #   - trainable probe patience defaults to 10
-#   - learned/freeze runs: PR linear+direct and SID-linear on z_t,z_L,z_P
+#   - learned/freeze runs: PR-linear and SID-linear on z_t,z_L,z_P
 #   - reconstruction baseline: PR-linear, SID-linear, ASR-LSTM on z_t
 #
 # Optional controls:
@@ -20,7 +20,7 @@
 #   SKIP_TRAINING=1       reuse existing checkpoints and only run probes
 #   RUN_PROBES=0          train only
 #   RUN_ASR_FOR_SEARCH=1  also run ASR-LSTM on z_t,z_L,z_P for learned/freeze runs
-#   PR_ARCHES="linear"    only run PR-linear for learned/freeze runs
+#   PR_ARCHES="linear"    PR-linear only; direct is intentionally not the default
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
@@ -41,7 +41,7 @@ ASR_PROBE_WARMUP_STEPS="${ASR_PROBE_WARMUP_STEPS:-500}"
 GRL_TARGET="${GRL_TARGET:-0.00015}"
 FREEZE_DANN_RAMP_STEPS="${FREEZE_DANN_RAMP_STEPS:-3000}"
 FREEZE_STEPS="${FREEZE_STEPS:-4000 5000 6000}"
-PR_ARCHES="${PR_ARCHES:-linear direct}"
+PR_ARCHES="${PR_ARCHES:-linear}"
 
 SKIP_TRAINING="${SKIP_TRAINING:-0}"
 RUN_PROBES="${RUN_PROBES:-1}"
