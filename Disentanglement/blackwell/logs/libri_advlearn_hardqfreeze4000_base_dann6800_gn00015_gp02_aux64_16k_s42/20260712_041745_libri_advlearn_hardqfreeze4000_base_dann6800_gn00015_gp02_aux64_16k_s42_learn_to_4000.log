@@ -1,0 +1,306 @@
+=== Disentanglement  stage=2
+=== device=cuda  bf16=True
+=== K=5120  topk=256  D=1280
+=== steps=16000  α=0.8  β=0.6  grl=1.0  ρ=0.0
+[dis_data] loaded lexicon: 200,000 entries
+[dis_data] loading train-clean-100 …
+[dis_data]  251 speakers
+[dis_data]  train=27539  val=500  test=500  vocab=74  speakers=251
+[train] stage2_from_scratch=True — SAE/routing/heads start from initialization
+[stage 2] frozen=596,973,362  trainable=17,488,522  device=cuda
+[stage 2] speakers=251  vocab=74
+[stage 2] α=0.8  β=0.6  grl=1.0  ρ=0.0  grl_p=0.2  hard_gumbel=True  spear_ln=True  grl_linear_mean=True  grl_grad_norm=0.00015  dann_full_disc=True
+[stage 2] steps=16000  schedule_steps=16000  batch=16  grad_clip=1.0
+[stage 2] best_ckpt selection: per + (1 - sid_acc) + grl_acc + (1 - grl_p_per)  — in-training head proxies, NOT a probe; run diag_probe/ for the authoritative leakage signal.
+[stage 2] AuxK on: aux_k=64  coef=0.03125  dead_thresh=256  renorm_dec=False
+[stage 2] precision requested=auto resolved=bf16
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step      1/16000  recon=0.3685  pr=17.6058  sid=5.5293  grl=5.5352(acc=0.000)  grl_p=17.6120(per=2.064)  aux=0.0000  dead=0.0%  L/P/U=2530/2590/0  actL/P/U=127/129/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4962  lr=2.00e-07
+  step    100/16000  recon=0.3321  pr=18.9577  sid=5.4629  grl=5.4062(acc=0.000)  grl_p=3.5190(per=1.000)  aux=0.0000  dead=0.0%  L/P/U=2529/2591/0  actL/P/U=129/127/0  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4965  lr=2.00e-05
+  step    200/16000  recon=0.3412  pr=11.1182  sid=5.4688  grl=5.5508(acc=0.000)  grl_p=1.0115(per=0.351)  aux=0.0000  dead=0.0%  L/P/U=2605/2515/0  actL/P/U=155/101/0  H=0.693  Hu=0.640  spec<.5=0.05  marg=0.263  lstd=0.4997  lr=4.00e-05
+  step    300/16000  recon=0.3723  pr=3.8058  sid=5.3398  grl=4.3291(acc=0.188)  grl_p=0.8614(per=0.270)  aux=0.0000  dead=0.0%  L/P/U=2794/2326/0  actL/P/U=201/55/0  H=0.692  Hu=0.636  spec<.5=0.06  marg=0.273  lstd=0.5101  lr=6.00e-05
+  step    400/16000  recon=0.2359  pr=2.9441  sid=5.0293  grl=3.1201(acc=0.250)  grl_p=1.0596(per=0.321)  aux=0.0000  dead=0.0%  L/P/U=2808/2312/0  actL/P/U=218/38/0  H=0.692  Hu=0.633  spec<.5=0.07  marg=0.279  lstd=0.5163  lr=8.00e-05
+  [grad_norms @500]
+    recon             |g|=0.04010  ratio=1.000x recon
+    pr_raw            |g|=0.99868  ratio=24.903x recon
+    pr_weighted       |g|=0.79895  ratio=19.923x recon
+    sid_raw           |g|=1.85820  ratio=46.336x recon
+    sid_weighted      |g|=1.11492  ratio=27.802x recon
+    grl               |g|=0.92448  ratio=23.053x recon
+    grl_p             |g|=0.24284  ratio=6.056x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00038   (grl_p/grl = 2.5x  <- pooled-vs-dense dilution)
+    [grad_cos @500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.059  aligned
+      cos(recon_vs_grl          ) = -0.058  conflict
+      cos(recon_vs_grl_p        ) = -0.000
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.004
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.025
+      cos(grl_vs_grl_p          ) = +0.000
+    [mask_grad @500]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00430  mP=0.00430  tilt=+0.00
+      pr               mL=0.05748  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.14283  tilt=-1.00  -> P
+      grl              mL=0.05881  mP=0.00000  tilt=+1.00  -> L
+      grl_p            mL=0.00000  mP=0.00989  tilt=-1.00  -> P
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step    500/16000  recon=0.1846  pr=1.8531  sid=5.0010  grl=4.0931(acc=0.125)  grl_p=0.9094(per=0.236)  aux=0.0000  dead=0.0%  L/P/U=2815/2305/0  actL/P/U=225/31/0  H=0.692  Hu=0.629  spec<.5=0.07  marg=0.289  lstd=0.5272  lr=1.00e-04
+  step    600/16000  recon=0.1575  pr=1.2171  sid=4.8203  grl=1.9676(acc=0.562)  grl_p=0.8696(per=0.273)  aux=0.0000  dead=0.0%  L/P/U=2751/2369/0  actL/P/U=228/28/0  H=0.692  Hu=0.625  spec<.5=0.09  marg=0.299  lstd=0.5390  lr=1.00e-04
+  step    700/16000  recon=0.1431  pr=0.9956  sid=4.2070  grl=2.0889(acc=0.375)  grl_p=0.6666(per=0.180)  aux=0.0000  dead=0.0%  L/P/U=2675/2445/0  actL/P/U=224/32/0  H=0.693  Hu=0.620  spec<.5=0.10  marg=0.310  lstd=0.5519  lr=1.00e-04
+  step    800/16000  recon=0.1339  pr=0.8965  sid=3.6719  grl=2.6358(acc=0.375)  grl_p=0.7538(per=0.187)  aux=0.0000  dead=0.0%  L/P/U=2578/2542/0  actL/P/U=220/36/0  H=0.693  Hu=0.615  spec<.5=0.12  marg=0.321  lstd=0.5662  lr=9.99e-05
+  step    900/16000  recon=0.1288  pr=0.8598  sid=3.3301  grl=3.3002(acc=0.375)  grl_p=0.7438(per=0.238)  aux=0.0000  dead=0.0%  L/P/U=2493/2627/0  actL/P/U=216/40/0  H=0.693  Hu=0.608  spec<.5=0.14  marg=0.334  lstd=0.5841  lr=9.99e-05
+  [grad_norms @1000]
+    recon             |g|=0.04071  ratio=1.000x recon
+    pr_raw            |g|=0.42861  ratio=10.529x recon
+    pr_weighted       |g|=0.34289  ratio=8.423x recon
+    sid_raw           |g|=3.88265  ratio=95.378x recon
+    sid_weighted      |g|=2.32959  ratio=57.227x recon
+    grl               |g|=2.11282  ratio=51.902x recon
+    grl_p             |g|=0.29522  ratio=7.252x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00028   (grl_p/grl = 1.9x  <- pooled-vs-dense dilution)
+    [grad_cos @1000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.006
+      cos(recon_vs_sid          ) = +0.068  aligned
+      cos(recon_vs_grl          ) = -0.048
+      cos(recon_vs_grl_p        ) = -0.007
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.012
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.011
+      cos(grl_vs_grl_p          ) = +0.000
+    [mask_grad @1000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00095  mP=0.00095  tilt=+0.00
+      pr               mL=0.02385  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.26392  tilt=-1.00  -> P
+      grl              mL=0.11873  mP=0.00000  tilt=+1.00  -> L
+      grl_p            mL=0.00000  mP=0.01469  tilt=-1.00  -> P
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   1000/16000  recon=0.1254  pr=0.7479  sid=3.0449  grl=3.3615(acc=0.250)  grl_p=0.6579(per=0.151)  aux=0.0000  dead=0.0%  L/P/U=2419/2701/0  actL/P/U=214/42/0  H=0.693  Hu=0.601  spec<.5=0.16  marg=0.347  lstd=0.6038  lr=9.98e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=1000  recon=0.1253  pr=0.7491  | z_L PR=0.240 SID=0.056  | z_P PR=0.353 SID=0.786
+  ✓ best checkpoint (disent=1.1571  PER=0.240 sid=0.786 grl_acc=0.056 grl_p_per=0.353) → /scratch/bbg25/runs/libri_advlearn_hardqfreeze4000_base_dann6800_gn00015_gp02_aux64_16k_s42/checkpoints/stage2_best.pt
+  step   1100/16000  recon=0.1221  pr=0.7270  sid=1.9433  grl=1.9794(acc=0.438)  grl_p=0.5517(per=0.177)  aux=0.0000  dead=0.0%  L/P/U=2353/2767/0  actL/P/U=210/46/0  H=0.692  Hu=0.594  spec<.5=0.19  marg=0.359  lstd=0.6239  lr=9.97e-05
+  step   1200/16000  recon=0.1214  pr=0.5977  sid=2.2007  grl=3.0646(acc=0.312)  grl_p=0.6272(per=0.170)  aux=0.0000  dead=0.0%  L/P/U=2288/2832/0  actL/P/U=209/47/0  H=0.691  Hu=0.587  spec<.5=0.21  marg=0.371  lstd=0.6444  lr=9.95e-05
+  step   1300/16000  recon=0.1199  pr=0.5942  sid=0.9227  grl=3.3804(acc=0.312)  grl_p=0.5177(per=0.158)  aux=0.0000  dead=0.0%  L/P/U=2248/2872/0  actL/P/U=208/48/0  H=0.691  Hu=0.581  spec<.5=0.22  marg=0.382  lstd=0.6641  lr=9.94e-05
+  step   1400/16000  recon=0.1197  pr=0.6472  sid=1.4301  grl=5.0310(acc=0.312)  grl_p=0.6781(per=0.170)  aux=0.0000  dead=0.0%  L/P/U=2216/2904/0  actL/P/U=209/47/0  H=0.690  Hu=0.575  spec<.5=0.24  marg=0.391  lstd=0.6830  lr=9.93e-05
+  [grad_norms @1500]
+    recon             |g|=0.04630  ratio=1.000x recon
+    pr_raw            |g|=0.41631  ratio=8.992x recon
+    pr_weighted       |g|=0.33305  ratio=7.194x recon
+    sid_raw           |g|=3.86818  ratio=83.551x recon
+    sid_weighted      |g|=2.32091  ratio=50.131x recon
+    grl               |g|=1.73661  ratio=37.510x recon
+    grl_p             |g|=0.41585  ratio=8.982x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00024   (grl_p/grl = 1.6x  <- pooled-vs-dense dilution)
+    [grad_cos @1500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.002
+      cos(recon_vs_sid          ) = +0.052  aligned
+      cos(recon_vs_grl          ) = -0.020
+      cos(recon_vs_grl_p        ) = -0.008
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.005
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.031
+      cos(grl_vs_grl_p          ) = +0.000
+    [mask_grad @1500]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00059  mP=0.00059  tilt=+0.00
+      pr               mL=0.03149  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.24013  tilt=-1.00  -> P
+      grl              mL=0.13369  mP=0.00000  tilt=+1.00  -> L
+      grl_p            mL=0.00000  mP=0.02490  tilt=-1.00  -> P
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   1500/16000  recon=0.1162  pr=0.6440  sid=1.0715  grl=5.0271(acc=0.250)  grl_p=0.5682(per=0.177)  aux=0.0000  dead=0.0%  L/P/U=2194/2926/0  actL/P/U=207/49/0  H=0.689  Hu=0.569  spec<.5=0.26  marg=0.400  lstd=0.7010  lr=9.91e-05
+  step   1600/16000  recon=0.1202  pr=0.6441  sid=0.5524  grl=2.1991(acc=0.438)  grl_p=0.6433(per=0.165)  aux=0.0000  dead=0.0%  L/P/U=2171/2949/0  actL/P/U=207/49/0  H=0.688  Hu=0.564  spec<.5=0.27  marg=0.408  lstd=0.7167  lr=9.89e-05
+  step   1700/16000  recon=0.1176  pr=0.5373  sid=0.6738  grl=3.2644(acc=0.375)  grl_p=0.5421(per=0.157)  aux=0.0000  dead=0.0%  L/P/U=2152/2968/0  actL/P/U=209/47/0  H=0.687  Hu=0.559  spec<.5=0.28  marg=0.415  lstd=0.7320  lr=9.87e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step   1800/16000  recon=0.1174  pr=0.6166  sid=0.5294  grl=4.2417(acc=0.188)  grl_p=0.6192(per=0.168)  aux=0.0000  dead=0.0%  L/P/U=2140/2980/0  actL/P/U=208/48/0  H=0.686  Hu=0.554  spec<.5=0.29  marg=0.421  lstd=0.7463  lr=9.84e-05
+  step   1900/16000  recon=0.1199  pr=0.5416  sid=0.4545  grl=5.2440(acc=0.188)  grl_p=0.5783(per=0.146)  aux=0.0000  dead=0.0%  L/P/U=2123/2997/0  actL/P/U=209/47/0  H=0.686  Hu=0.550  spec<.5=0.30  marg=0.427  lstd=0.7592  lr=9.82e-05
+  [grad_norms @2000]
+    recon             |g|=0.04731  ratio=1.000x recon
+    pr_raw            |g|=0.35324  ratio=7.466x recon
+    pr_weighted       |g|=0.28259  ratio=5.973x recon
+    sid_raw           |g|=2.81137  ratio=59.422x recon
+    sid_weighted      |g|=1.68682  ratio=35.653x recon
+    grl               |g|=2.35660  ratio=49.810x recon
+    grl_p             |g|=0.40886  ratio=8.642x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00020   (grl_p/grl = 1.4x  <- pooled-vs-dense dilution)
+    [grad_cos @2000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.001
+      cos(recon_vs_sid          ) = +0.033
+      cos(recon_vs_grl          ) = -0.027
+      cos(recon_vs_grl_p        ) = -0.008
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.007
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.015
+      cos(grl_vs_grl_p          ) = +0.000
+    [mask_grad @2000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00046  mP=0.00046  tilt=+0.00
+      pr               mL=0.02254  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.18192  tilt=-1.00  -> P
+      grl              mL=0.17950  mP=0.00000  tilt=+1.00  -> L
+      grl_p            mL=0.00000  mP=0.03042  tilt=-1.00  -> P
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   2000/16000  recon=0.1179  pr=0.5844  sid=0.5760  grl=7.8474(acc=0.188)  grl_p=0.6437(per=0.178)  aux=0.0000  dead=0.0%  L/P/U=2111/3009/0  actL/P/U=209/47/0  H=0.685  Hu=0.547  spec<.5=0.31  marg=0.432  lstd=0.7715  lr=9.79e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=2000  recon=0.1193  pr=0.5191  | z_L PR=0.128 SID=0.072  | z_P PR=0.339 SID=0.986
+  ✓ best checkpoint (disent=0.8752  PER=0.128 sid=0.986 grl_acc=0.072 grl_p_per=0.339) → /scratch/bbg25/runs/libri_advlearn_hardqfreeze4000_base_dann6800_gn00015_gp02_aux64_16k_s42/checkpoints/stage2_best.pt
+  step   2100/16000  recon=0.1191  pr=0.5023  sid=0.3424  grl=5.1240(acc=0.000)  grl_p=0.6639(per=0.174)  aux=0.0000  dead=0.0%  L/P/U=2106/3014/0  actL/P/U=211/45/0  H=0.685  Hu=0.543  spec<.5=0.32  marg=0.437  lstd=0.7833  lr=9.77e-05
+  step   2200/16000  recon=0.1182  pr=0.5082  sid=0.2694  grl=4.5945(acc=0.438)  grl_p=0.6072(per=0.171)  aux=0.0000  dead=0.0%  L/P/U=2101/3019/0  actL/P/U=211/45/0  H=0.684  Hu=0.540  spec<.5=0.32  marg=0.441  lstd=0.7943  lr=9.74e-05
+  step   2300/16000  recon=0.1196  pr=0.5038  sid=0.5018  grl=3.4193(acc=0.438)  grl_p=0.5926(per=0.173)  aux=0.0000  dead=0.0%  L/P/U=2099/3021/0  actL/P/U=212/44/0  H=0.684  Hu=0.537  spec<.5=0.33  marg=0.445  lstd=0.8045  lr=9.70e-05
+  step   2400/16000  recon=0.1199  pr=0.4766  sid=0.3441  grl=7.1465(acc=0.000)  grl_p=0.6345(per=0.195)  aux=0.0000  dead=0.0%  L/P/U=2092/3028/0  actL/P/U=214/42/0  H=0.683  Hu=0.534  spec<.5=0.33  marg=0.449  lstd=0.8142  lr=9.67e-05
+  [grad_norms @2500]
+    recon             |g|=0.05419  ratio=1.000x recon
+    pr_raw            |g|=0.31129  ratio=5.744x recon
+    pr_weighted       |g|=0.24903  ratio=4.595x recon
+    sid_raw           |g|=2.69696  ratio=49.767x recon
+    sid_weighted      |g|=1.61818  ratio=29.860x recon
+    grl               |g|=2.27890  ratio=42.053x recon
+    grl_p             |g|=0.37302  ratio=6.883x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00022   (grl_p/grl = 1.5x  <- pooled-vs-dense dilution)
+    [grad_cos @2500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.002
+      cos(recon_vs_sid          ) = +0.038
+      cos(recon_vs_grl          ) = -0.008
+      cos(recon_vs_grl_p        ) = -0.014
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.008
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.001
+      cos(grl_vs_grl_p          ) = +0.000
+    [mask_grad @2500]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00048  mP=0.00048  tilt=+0.00
+      pr               mL=0.02438  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.18295  tilt=-1.00  -> P
+      grl              mL=0.18135  mP=0.00000  tilt=+1.00  -> L
+      grl_p            mL=0.00000  mP=0.02566  tilt=-1.00  -> P
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   2500/16000  recon=0.1212  pr=0.4596  sid=0.2360  grl=5.0305(acc=0.312)  grl_p=0.6227(per=0.178)  aux=0.0000  dead=0.0%  L/P/U=2086/3034/0  actL/P/U=215/41/0  H=0.683  Hu=0.531  spec<.5=0.34  marg=0.452  lstd=0.8236  lr=9.64e-05
+  step   2600/16000  recon=0.1224  pr=0.4886  sid=0.3522  grl=4.3632(acc=0.250)  grl_p=0.6631(per=0.177)  aux=0.0000  dead=0.0%  L/P/U=2078/3042/0  actL/P/U=216/40/0  H=0.683  Hu=0.529  spec<.5=0.35  marg=0.456  lstd=0.8332  lr=9.60e-05
+  step   2700/16000  recon=0.1221  pr=0.4718  sid=0.3022  grl=4.3240(acc=0.375)  grl_p=0.6302(per=0.165)  aux=0.0000  dead=0.0%  L/P/U=2073/3047/0  actL/P/U=217/39/0  H=0.682  Hu=0.526  spec<.5=0.35  marg=0.459  lstd=0.8414  lr=9.56e-05
+  step   2800/16000  recon=0.1209  pr=0.4364  sid=0.2247  grl=4.6069(acc=0.312)  grl_p=0.6544(per=0.229)  aux=0.0000  dead=0.0%  L/P/U=2068/3052/0  actL/P/U=217/39/0  H=0.682  Hu=0.524  spec<.5=0.36  marg=0.462  lstd=0.8496  lr=9.52e-05
+  step   2900/16000  recon=0.1244  pr=0.4785  sid=0.3030  grl=5.6252(acc=0.125)  grl_p=0.6789(per=0.191)  aux=0.0000  dead=0.0%  L/P/U=2066/3054/0  actL/P/U=218/38/0  H=0.682  Hu=0.522  spec<.5=0.36  marg=0.464  lstd=0.8579  lr=9.48e-05
+  [grad_norms @3000]
+    recon             |g|=0.05794  ratio=1.000x recon
+    pr_raw            |g|=0.25458  ratio=4.394x recon
+    pr_weighted       |g|=0.20367  ratio=3.515x recon
+    sid_raw           |g|=3.07237  ratio=53.031x recon
+    sid_weighted      |g|=1.84342  ratio=31.819x recon
+    grl               |g|=2.25103  ratio=38.854x recon
+    grl_p             |g|=0.37376  ratio=6.451x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00024   (grl_p/grl = 1.6x  <- pooled-vs-dense dilution)
+    [grad_cos @3000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.001
+      cos(recon_vs_sid          ) = +0.051  aligned
+      cos(recon_vs_grl          ) = -0.012
+      cos(recon_vs_grl_p        ) = -0.013
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.008
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = -0.003
+      cos(grl_vs_grl_p          ) = +0.000
+    [mask_grad @3000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00051  mP=0.00051  tilt=+0.00
+      pr               mL=0.02145  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.17785  tilt=-1.00  -> P
+      grl              mL=0.20588  mP=0.00000  tilt=+1.00  -> L
+      grl_p            mL=0.00000  mP=0.02990  tilt=-1.00  -> P
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   3000/16000  recon=0.1247  pr=0.3887  sid=0.3615  grl=7.7234(acc=0.125)  grl_p=0.6313(per=0.190)  aux=0.0000  dead=0.0%  L/P/U=2065/3055/0  actL/P/U=221/35/0  H=0.682  Hu=0.520  spec<.5=0.36  marg=0.467  lstd=0.8654  lr=9.43e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=3000  recon=0.1244  pr=0.4402  | z_L PR=0.105 SID=0.106  | z_P PR=0.439 SID=0.992
+  ✓ best checkpoint (disent=0.7807  PER=0.105 sid=0.992 grl_acc=0.106 grl_p_per=0.439) → /scratch/bbg25/runs/libri_advlearn_hardqfreeze4000_base_dann6800_gn00015_gp02_aux64_16k_s42/checkpoints/stage2_best.pt
+  step   3100/16000  recon=0.1237  pr=0.4736  sid=0.4378  grl=5.8783(acc=0.188)  grl_p=0.7375(per=0.242)  aux=0.0000  dead=0.0%  L/P/U=2061/3059/0  actL/P/U=221/35/0  H=0.681  Hu=0.518  spec<.5=0.37  marg=0.470  lstd=0.8727  lr=9.39e-05
+  step   3200/16000  recon=0.1250  pr=0.4000  sid=0.1169  grl=8.6877(acc=0.125)  grl_p=0.6268(per=0.194)  aux=0.0000  dead=0.0%  L/P/U=2054/3066/0  actL/P/U=222/34/0  H=0.681  Hu=0.516  spec<.5=0.37  marg=0.472  lstd=0.8802  lr=9.34e-05
+  step   3300/16000  recon=0.1239  pr=0.3960  sid=0.3669  grl=8.5551(acc=0.125)  grl_p=0.6732(per=0.207)  aux=0.0000  dead=0.0%  L/P/U=2049/3071/0  actL/P/U=226/30/0  H=0.681  Hu=0.514  spec<.5=0.37  marg=0.475  lstd=0.8875  lr=9.29e-05
+  step   3400/16000  recon=0.1278  pr=0.3779  sid=0.2870  grl=4.3615(acc=0.125)  grl_p=0.7756(per=0.226)  aux=0.0000  dead=0.0%  L/P/U=2047/3073/0  actL/P/U=226/30/0  H=0.681  Hu=0.512  spec<.5=0.38  marg=0.477  lstd=0.8945  lr=9.24e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [grad_norms @3500]
+    recon             |g|=0.06843  ratio=1.000x recon
+    pr_raw            |g|=0.27294  ratio=3.988x recon
+    pr_weighted       |g|=0.21835  ratio=3.191x recon
+    sid_raw           |g|=3.08402  ratio=45.066x recon
+    sid_weighted      |g|=1.85041  ratio=27.039x recon
+    grl               |g|=2.32614  ratio=33.991x recon
+    grl_p             |g|=0.46048  ratio=6.729x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00032   (grl_p/grl = 2.1x  <- pooled-vs-dense dilution)
+    [grad_cos @3500]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = +0.005
+      cos(recon_vs_sid          ) = +0.030
+      cos(recon_vs_grl          ) = -0.030
+      cos(recon_vs_grl_p        ) = -0.014
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = -0.010
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.003
+      cos(grl_vs_grl_p          ) = +0.000
+    [mask_grad @3500]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00055  mP=0.00055  tilt=+0.00
+      pr               mL=0.02501  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.16488  tilt=-1.00  -> P
+      grl              mL=0.21933  mP=0.00000  tilt=+1.00  -> L
+      grl_p            mL=0.00000  mP=0.04551  tilt=-1.00  -> P
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   3500/16000  recon=0.1264  pr=0.3823  sid=0.2270  grl=9.1506(acc=0.062)  grl_p=0.6677(per=0.221)  aux=0.0000  dead=0.0%  L/P/U=2048/3072/0  actL/P/U=225/31/0  H=0.681  Hu=0.510  spec<.5=0.38  marg=0.479  lstd=0.9010  lr=9.19e-05
+  step   3600/16000  recon=0.1264  pr=0.4745  sid=0.2520  grl=7.2578(acc=0.062)  grl_p=0.7389(per=0.245)  aux=0.0000  dead=0.0%  L/P/U=2048/3072/0  actL/P/U=226/30/0  H=0.681  Hu=0.508  spec<.5=0.38  marg=0.481  lstd=0.9077  lr=9.14e-05
+  step   3700/16000  recon=0.1314  pr=0.3761  sid=0.2354  grl=6.9195(acc=0.188)  grl_p=0.8824(per=0.293)  aux=0.0000  dead=0.1%  L/P/U=2047/3073/0  actL/P/U=228/28/0  H=0.681  Hu=0.506  spec<.5=0.39  marg=0.484  lstd=0.9142  lr=9.09e-05
+  step   3800/16000  recon=0.1304  pr=0.4603  sid=0.3285  grl=7.8418(acc=0.000)  grl_p=0.9444(per=0.279)  aux=0.0000  dead=0.1%  L/P/U=2049/3071/0  actL/P/U=230/26/0  H=0.681  Hu=0.505  spec<.5=0.39  marg=0.486  lstd=0.9207  lr=9.03e-05
+  step   3900/16000  recon=0.1294  pr=0.3277  sid=0.3719  grl=8.7308(acc=0.062)  grl_p=0.8420(per=0.280)  aux=0.0000  dead=0.1%  L/P/U=2048/3072/0  actL/P/U=231/25/0  H=0.681  Hu=0.503  spec<.5=0.39  marg=0.488  lstd=0.9274  lr=8.97e-05
+  [grad_norms @4000]
+    recon             |g|=0.08240  ratio=1.000x recon
+    pr_raw            |g|=0.49483  ratio=6.005x recon
+    pr_weighted       |g|=0.39586  ratio=4.804x recon
+    sid_raw           |g|=1.42823  ratio=17.333x recon
+    sid_weighted      |g|=0.85694  ratio=10.400x recon
+    grl               |g|=2.28758  ratio=27.762x recon
+    grl_p             |g|=0.67219  ratio=8.158x recon
+    route             |g|=0.00000  ratio=0.000x recon
+    per-frame |dL/dz[t]|:  grl(z_L)=0.00015   grl_p(z_P)=0.00038   (grl_p/grl = 2.6x  <- pooled-vs-dense dilution)
+    [grad_cos @4000]  shared=sae.enc_weight; cos<0 = conflict
+      cos(recon_vs_pr           ) = -0.005
+      cos(recon_vs_sid          ) = +0.057  aligned
+      cos(recon_vs_grl          ) = -0.019
+      cos(recon_vs_grl_p        ) = -0.010
+      cos(pr_vs_sid             ) = +0.000
+      cos(pr_vs_grl             ) = +0.006
+      cos(pr_vs_grl_p           ) = +0.000
+      cos(sid_vs_grl            ) = +0.000
+      cos(sid_vs_grl_p          ) = +0.005
+      cos(grl_vs_grl_p          ) = +0.000
+    [mask_grad @4000]  |dL/dm_L| / |dL/dm_P|  (tilt: +1=all on L, -1=all on P)
+      recon            mL=0.00064  mP=0.00064  tilt=+0.00
+      pr               mL=0.03660  mP=0.00000  tilt=+1.00  -> L
+      sid              mL=0.00000  mP=0.09540  tilt=-1.00  -> P
+      grl              mL=0.19461  mP=0.00000  tilt=+1.00  -> L
+      grl_p            mL=0.00000  mP=0.08727  tilt=-1.00  -> P
+      route            mL=0.00000  mP=0.00000  tilt=+0.00
+  step   4000/16000  recon=0.1313  pr=0.4856  sid=0.1197  grl=9.2549(acc=0.125)  grl_p=1.3709(per=0.377)  aux=0.0000  dead=0.1%  L/P/U=2048/3072/0  actL/P/U=230/26/0  H=0.681  Hu=0.501  spec<.5=0.40  marg=0.490  lstd=0.9338  lr=8.91e-05
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=4000  recon=0.1324  pr=0.3983  | z_L PR=0.094 SID=0.048  | z_P PR=0.700 SID=0.990
+  ✓ best checkpoint (disent=0.4526  PER=0.094 sid=0.990 grl_acc=0.048 grl_p_per=0.700) → /scratch/bbg25/runs/libri_advlearn_hardqfreeze4000_base_dann6800_gn00015_gp02_aux64_16k_s42/checkpoints/stage2_best.pt
+[stage 2] segment complete at step 4000; resume from latest-resume.pt
+
+[done]  best checkpoint → /scratch/bbg25/runs/libri_advlearn_hardqfreeze4000_base_dann6800_gn00015_gp02_aux64_16k_s42/checkpoints/latest-resume.pt
