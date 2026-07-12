@@ -58,6 +58,11 @@ class DISConfig:
     # L/P count from drifting after the membership freeze.
     freeze_route_topk_on_resume: bool = False
     route_topk_calib_batches: int = 20
+    # Continuation intervention for learned-route freeze experiments: reset the
+    # adversarial discriminator heads after restoring a resume checkpoint.  This
+    # tests whether a stale/co-adapted adversary is under-detecting leakage after
+    # the route target stops moving.
+    reset_adversaries_on_resume: bool = False
 
     # ---------------------------------------------------------------- GradNorm (automatic loss balancing)
     # When on, the listed task weights are LEARNED online (Chen et al. 2018): each

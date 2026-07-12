@@ -218,6 +218,15 @@ def _parse_args():
         default=cfg.route_topk_calib_batches,
         help="Number of train batches used to estimate learned route-local active TopK quotas.",
     )
+    p.add_argument(
+        "--reset_adversaries_on_resume",
+        action=argparse.BooleanOptionalAction,
+        default=cfg.reset_adversaries_on_resume,
+        help=("After restoring a stage-2 resume checkpoint, reinitialize the "
+              "adversarial discriminator heads and clear their optimizer state. "
+              "Useful for learned-route freeze tests where the old adversary may "
+              "be stale or co-adapted."),
+    )
 
     # experiment flags
     p.add_argument("--grl_phoneme_weight",  type=float, default=cfg.grl_phoneme_weight)
@@ -486,6 +495,7 @@ def _parse_args():
     cfg.freeze_learned_routing_on_resume = args.freeze_learned_routing_on_resume
     cfg.freeze_route_topk_on_resume = args.freeze_route_topk_on_resume
     cfg.route_topk_calib_batches = args.route_topk_calib_batches
+    cfg.reset_adversaries_on_resume = args.reset_adversaries_on_resume
     cfg.grl_phoneme_weight    = args.grl_phoneme_weight
     cfg.grl_u_weight          = args.grl_u_weight
     cfg.grl_phoneme_u_weight  = args.grl_phoneme_u_weight
@@ -610,6 +620,8 @@ def _parse_args():
         p.error("--route_topk_calib_batches must be positive")
     if cfg.freeze_route_topk_on_resume and not cfg.freeze_learned_routing_on_resume:
         p.error("--freeze_route_topk_on_resume requires --freeze_learned_routing_on_resume")
+    if cfg.reset_adversaries_on_resume and cfg.resume in {"none", ""}:
+        p.error("--reset_adversaries_on_resume requires --resume")
     if cfg.club_full_diagnostics and not cfg.club_enabled:
         p.error("--club_full_diagnostics requires --club_enabled")
     if cfg.club_diagnostics_every <= 0:

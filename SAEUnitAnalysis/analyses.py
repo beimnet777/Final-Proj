@@ -344,20 +344,35 @@ def selectivity_analysis(
     rows: list[dict[str, Any]] = []
     factors = {f.name: f for f in bundle.spec.factors}
     if "phone" in factors:
-        rows += _categorical_scores(cache.indices, cache.values.astype(np.float32), cache.phones,
+        # MFA leaves silence/gaps as "<unaligned>".  Treating that as an
+        # ordinary phone makes silence/timing units look like phone-identity
+        # units, which badly inflates "phone leakage" in route summaries.
+        phones = np.asarray(cache.phones).astype("U32")
+        aligned = np.char.upper(phones) != "<UNALIGNED>"
+        phone_idx = cache.indices[aligned]
+        phone_val = cache.values[aligned].astype(np.float32)
+        phone_labels = phones[aligned]
+        rows += _categorical_scores(phone_idx, phone_val, phone_labels,
                                     cache.K, "phone", "linguistic", min_count=20)
         for prop in ("manner", "place", "phonetic_voicing"):
-            labels = np.asarray([_phone_property(p, prop) for p in cache.phones], dtype="U32")
-            rows += _categorical_scores(cache.indices, cache.values.astype(np.float32), labels,
+            labels = np.asarray([_phone_property(p, prop) for p in phone_labels], dtype="U32")
+            rows += _categorical_scores(phone_idx, phone_val, labels,
                                         cache.K, prop, "linguistic", min_count=20)
-        previous = np.roll(cache.phones, 1)
-        previous[cache.offsets] = cache.phones[cache.offsets]
-        boundary = np.where(cache.phones != previous, "boundary", "inside")
-        transition = np.char.add(np.char.add(previous.astype("U32"), ">"), cache.phones.astype("U32"))
+        starts = np.zeros(len(phones), dtype=bool)
+        starts[cache.offsets] = True
+        previous = np.roll(phones, 1)
+        previous_aligned = np.roll(aligned, 1)
+        previous_aligned[starts] = False
+        aligned_pair = aligned & previous_aligned
+        boundary = np.where(phones[aligned_pair] != previous[aligned_pair], "boundary", "inside")
+        transition = np.char.add(np.char.add(previous[aligned_pair].astype("U32"), ">"),
+                                 phones[aligned_pair].astype("U32"))
         transition[boundary == "inside"] = "<none>"
-        rows += _categorical_scores(cache.indices, cache.values.astype(np.float32), boundary,
+        rows += _categorical_scores(cache.indices[aligned_pair],
+                                    cache.values[aligned_pair].astype(np.float32), boundary,
                                     cache.K, "phone_boundary", "linguistic", min_count=20)
-        rows += _categorical_scores(cache.indices, cache.values.astype(np.float32), transition,
+        rows += _categorical_scores(cache.indices[aligned_pair],
+                                    cache.values[aligned_pair].astype(np.float32), transition,
                                     cache.K, "phone_transition", "linguistic", min_count=20)
     for name in ("f0", "energy", "voicing"):
         if name in factors:
@@ -427,10 +442,10 @@ def selectivity_analysis(
     return scores, profiles, summary
 
 
-_PHONE_LIKE_FACTORS = (
-    "phone", "manner", "place", "phonetic_voicing",
-    "phone_boundary", "phone_transition",
-)
+_PHONE_IDENTITY_FACTORS = ("phone", "manner", "place", "phonetic_voicing")
+_PHONE_TIMING_FACTORS = ("phone_boundary", "phone_transition")
+_PHONE_LIKE_FACTORS = _PHONE_IDENTITY_FACTORS
+_PHONE_SELECTIVITY_MIN_AUPRC_GAIN = 0.02
 _PROSODY_LIKE_FACTORS = ("f0", "energy", "voicing")
 _METADATA_LIKE_FACTORS = ("sex", "gender", "dialect_region", "age")
 
@@ -444,7 +459,7 @@ def _max_existing(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.Series:
 
 def _significant_units(
     scores: pd.DataFrame, factors: tuple[str, ...], *, q_threshold: float,
-    score_threshold: float,
+    score_threshold: float, min_auprc_gain: float = 0.0,
 ) -> set[int]:
     if scores is None or scores.empty:
         return set()
@@ -455,6 +470,11 @@ def _significant_units(
         sub = sub[(sub["q"] <= q_threshold) & (sub["score"].abs() >= 3.0)]
     else:
         sub = sub[sub["score"].abs() >= score_threshold]
+    if min_auprc_gain > 0 and {"auprc", "prevalence"}.issubset(sub.columns):
+        # On millions of frames, z/FDR alone can make tiny practical effects
+        # look important.  For phone identity, require that a unit's active
+        # frames predict the label better than the base-rate classifier.
+        sub = sub[(sub["auprc"] - sub["prevalence"]) >= min_auprc_gain]
     return set(sub["unit"].astype(int).tolist())
 
 
@@ -510,8 +530,11 @@ def disentanglement_tables(
         np.where(units["paralinguistic_score"] > units["linguistic_score"], "paralinguistic", "tie"),
     )
 
-    sig_phone = _significant_units(scores, _PHONE_LIKE_FACTORS, q_threshold=q_threshold,
-                                   score_threshold=score_threshold)
+    sig_phone = _significant_units(
+        scores, _PHONE_LIKE_FACTORS, q_threshold=q_threshold,
+        score_threshold=score_threshold,
+        min_auprc_gain=_PHONE_SELECTIVITY_MIN_AUPRC_GAIN,
+    )
     sig_speaker = _significant_units(scores, ("speaker_id",), q_threshold=q_threshold,
                                      score_threshold=score_threshold)
     sig_prosody = _significant_units(scores, _PROSODY_LIKE_FACTORS, q_threshold=q_threshold,
@@ -521,10 +544,10 @@ def disentanglement_tables(
     sig_metadata = _significant_units(scores, _METADATA_LIKE_FACTORS, q_threshold=q_threshold,
                                       score_threshold=score_threshold)
 
-    units["phone_selective"] = (
-        units["phone_like_score"].ge(score_threshold) |
-        units["unit"].isin(sig_phone)
-    )
+    if scores is not None and not scores.empty:
+        units["phone_selective"] = units["unit"].isin(sig_phone)
+    else:
+        units["phone_selective"] = units["phone_like_score"].ge(score_threshold)
     units["speaker_selective"] = (
         units["speaker_score"].ge(score_threshold) |
         units["unit"].isin(sig_speaker)
@@ -687,6 +710,7 @@ def disentanglement_tables(
     summary = {
         "score_threshold": score_threshold,
         "q_threshold": q_threshold,
+        "phone_selectivity_min_auprc_gain": _PHONE_SELECTIVITY_MIN_AUPRC_GAIN,
         "focus": focus,
         "route_summary": route_summary.to_dict(orient="records"),
         "thesis_summary": thesis.iloc[0].to_dict(),

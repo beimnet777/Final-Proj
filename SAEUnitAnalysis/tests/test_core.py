@@ -277,7 +277,7 @@ class CoreTests(unittest.TestCase):
 
             mfa_corpus = td / "mfa_corpus"
             prepare_corpus(bundle_root, mfa_corpus)
-            self.assertTrue((mfa_corpus / "audio" / "1-2-0000.lab").exists())
+            self.assertTrue((mfa_corpus / "audio" / "1" / "1-2-0000.lab").exists())
             self.assertTrue((mfa_corpus / "mfa_utterance_map.csv").exists())
 
             aligned = td / "aligned"

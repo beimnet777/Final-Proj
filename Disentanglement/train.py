@@ -200,6 +200,52 @@ def _calibrate_route_topk_quotas(model, train_dl, device, cfg, use_bf16) -> tupl
     return route_idx_cpu, quotas
 
 
+def _reset_adversary_heads_after_resume(model, optimizer) -> None:
+    """Reinitialize adversarial discriminator heads after exact resume.
+
+    This is deliberately narrow: it resets only GRL/adversary heads and clears
+    their optimizer moments.  The SAE, encoder, routing partition, PR task head,
+    and SID task head are left untouched.
+    """
+    adversary_names = (
+        "grl_head",
+        "pr_grl_head",
+        "grl_head_u",
+        "pr_grl_head_u",
+        "prosody_grl_head",
+        "prosody_grl_head_u",
+        "emotion_grl_head",
+    )
+
+    def _maybe_reset(module):
+        if hasattr(module, "reset_parameters"):
+            module.reset_parameters()
+
+    reset_names: list[str] = []
+    reset_params: list[torch.nn.Parameter] = []
+    for name in adversary_names:
+        module = getattr(model, name, None)
+        if module is None:
+            continue
+        module.apply(_maybe_reset)
+        reset_names.append(name)
+        reset_params.extend(list(module.parameters()))
+
+    cleared = 0
+    if optimizer is not None:
+        for param in reset_params:
+            if param in optimizer.state:
+                optimizer.state.pop(param, None)
+                cleared += 1
+
+    if reset_names:
+        print("[stage 2] adversary heads RESET after resume: "
+              f"heads={','.join(reset_names)} optimizer_states_cleared={cleared}")
+    else:
+        print("[stage 2] reset_adversaries_on_resume requested, "
+              "but no adversary heads were present")
+
+
 def _scheduled_grl_grad_norm_target(cfg, step: int) -> float:
     """Effective z_L speaker-GRL grad-norm target for this training step.
 
@@ -1637,6 +1683,11 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 # The calibration intentionally restores sampler state; refresh
                 # the iterator so continuation starts cleanly from that state.
                 train_iter = iter(train_dl)
+    if bool(getattr(cfg, "reset_adversaries_on_resume", False)):
+        if start_step <= 0:
+            raise ValueError(
+                "reset_adversaries_on_resume requires a restored stage-2 resume checkpoint")
+        _reset_adversary_heads_after_resume(model, optimizer)
     segment = SegmentLimit(start_step, int(getattr(cfg, "segment_steps", 0)),
                            float(getattr(cfg, "max_runtime_minutes", 0.0)))
     metrics_path = cfg.checkpoint_dir / "metrics.jsonl"
