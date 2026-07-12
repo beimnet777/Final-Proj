@@ -63,6 +63,11 @@ class DISConfig:
     # tests whether a stale/co-adapted adversary is under-detecting leakage after
     # the route target stops moving.
     reset_adversaries_on_resume: bool = False
+    # Narrower alternative to reset_adversaries_on_resume: comma-separated
+    # adversary module names/aliases to reset after resume, e.g. "grl_head" or
+    # "speaker".  Empty = off.  This lets learned-freeze experiments reset only
+    # the z_L speaker adversary without disturbing the z_P phoneme adversary.
+    reset_adversary_heads_on_resume: str = ""
 
     # ---------------------------------------------------------------- GradNorm (automatic loss balancing)
     # When on, the listed task weights are LEARNED online (Chen et al. 2018): each

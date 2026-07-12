@@ -200,14 +200,16 @@ def _calibrate_route_topk_quotas(model, train_dl, device, cfg, use_bf16) -> tupl
     return route_idx_cpu, quotas
 
 
-def _reset_adversary_heads_after_resume(model, optimizer) -> None:
+def _reset_adversary_heads_after_resume(model, optimizer, requested: str = "") -> None:
     """Reinitialize adversarial discriminator heads after exact resume.
 
-    This is deliberately narrow: it resets only GRL/adversary heads and clears
-    their optimizer moments.  The SAE, encoder, routing partition, PR task head,
-    and SID task head are left untouched.
+    By default this resets all GRL/adversary heads for backwards compatibility
+    with --reset_adversaries_on_resume.  If ``requested`` is non-empty, only the
+    requested comma-separated heads/aliases are reset.  In all cases the SAE,
+    encoder, routing partition, PR task head, and SID task head are left
+    untouched.
     """
-    adversary_names = (
+    all_adversary_names = (
         "grl_head",
         "pr_grl_head",
         "grl_head_u",
@@ -216,6 +218,37 @@ def _reset_adversary_heads_after_resume(model, optimizer) -> None:
         "prosody_grl_head_u",
         "emotion_grl_head",
     )
+    aliases = {
+        "speaker": ("grl_head",),
+        "zl_speaker": ("grl_head",),
+        "phoneme": ("pr_grl_head",),
+        "zp_phoneme": ("pr_grl_head",),
+        "u": ("grl_head_u", "pr_grl_head_u"),
+        "prosody": ("prosody_grl_head", "prosody_grl_head_u"),
+        "emotion": ("emotion_grl_head",),
+        "all": all_adversary_names,
+    }
+    if str(requested).strip():
+        expanded: list[str] = []
+        for raw in str(requested).split(","):
+            key = raw.strip()
+            if not key:
+                continue
+            expanded.extend(aliases.get(key, (key,)))
+        unknown = [name for name in expanded
+                   if name not in all_adversary_names and not hasattr(model, name)]
+        if unknown:
+            raise ValueError(
+                "unknown adversary head(s) requested for reset: "
+                f"{unknown}; valid modules={all_adversary_names}; aliases={sorted(aliases)}")
+        # Preserve order while dropping duplicates.
+        seen: set[str] = set()
+        adversary_names = tuple(
+            name for name in expanded
+            if not (name in seen or seen.add(name))
+        )
+    else:
+        adversary_names = all_adversary_names
 
     def _maybe_reset(module):
         if hasattr(module, "reset_parameters"):
@@ -242,8 +275,7 @@ def _reset_adversary_heads_after_resume(model, optimizer) -> None:
         print("[stage 2] adversary heads RESET after resume: "
               f"heads={','.join(reset_names)} optimizer_states_cleared={cleared}")
     else:
-        print("[stage 2] reset_adversaries_on_resume requested, "
-              "but no adversary heads were present")
+        print("[stage 2] adversary-head reset requested, but no matching heads were present")
 
 
 def _scheduled_grl_grad_norm_target(cfg, step: int) -> float:
@@ -1683,11 +1715,12 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 # The calibration intentionally restores sampler state; refresh
                 # the iterator so continuation starts cleanly from that state.
                 train_iter = iter(train_dl)
-    if bool(getattr(cfg, "reset_adversaries_on_resume", False)):
+    reset_requested = str(getattr(cfg, "reset_adversary_heads_on_resume", "")).strip()
+    if bool(getattr(cfg, "reset_adversaries_on_resume", False)) or reset_requested:
         if start_step <= 0:
             raise ValueError(
-                "reset_adversaries_on_resume requires a restored stage-2 resume checkpoint")
-        _reset_adversary_heads_after_resume(model, optimizer)
+                "adversary-head reset on resume requires a restored stage-2 resume checkpoint")
+        _reset_adversary_heads_after_resume(model, optimizer, reset_requested)
     segment = SegmentLimit(start_step, int(getattr(cfg, "segment_steps", 0)),
                            float(getattr(cfg, "max_runtime_minutes", 0.0)))
     metrics_path = cfg.checkpoint_dir / "metrics.jsonl"

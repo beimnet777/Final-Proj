@@ -227,6 +227,15 @@ def _parse_args():
               "Useful for learned-route freeze tests where the old adversary may "
               "be stale or co-adapted."),
     )
+    p.add_argument(
+        "--reset_adversary_heads_on_resume",
+        type=str,
+        default=cfg.reset_adversary_heads_on_resume,
+        help=("Comma-separated adversary modules/aliases to reset after resume "
+              "(e.g. 'grl_head' or 'speaker').  Empty = off.  Unlike "
+              "--reset_adversaries_on_resume, this can reset only the z_L "
+              "speaker adversary while leaving pr_grl_head intact."),
+    )
 
     # experiment flags
     p.add_argument("--grl_phoneme_weight",  type=float, default=cfg.grl_phoneme_weight)
@@ -496,6 +505,7 @@ def _parse_args():
     cfg.freeze_route_topk_on_resume = args.freeze_route_topk_on_resume
     cfg.route_topk_calib_batches = args.route_topk_calib_batches
     cfg.reset_adversaries_on_resume = args.reset_adversaries_on_resume
+    cfg.reset_adversary_heads_on_resume = args.reset_adversary_heads_on_resume
     cfg.grl_phoneme_weight    = args.grl_phoneme_weight
     cfg.grl_u_weight          = args.grl_u_weight
     cfg.grl_phoneme_u_weight  = args.grl_phoneme_u_weight
@@ -620,8 +630,10 @@ def _parse_args():
         p.error("--route_topk_calib_batches must be positive")
     if cfg.freeze_route_topk_on_resume and not cfg.freeze_learned_routing_on_resume:
         p.error("--freeze_route_topk_on_resume requires --freeze_learned_routing_on_resume")
-    if cfg.reset_adversaries_on_resume and cfg.resume in {"none", ""}:
-        p.error("--reset_adversaries_on_resume requires --resume")
+    if ((cfg.reset_adversaries_on_resume
+         or str(cfg.reset_adversary_heads_on_resume).strip())
+            and cfg.resume in {"none", ""}):
+        p.error("--reset_adversaries_on_resume/--reset_adversary_heads_on_resume require --resume")
     if cfg.club_full_diagnostics and not cfg.club_enabled:
         p.error("--club_full_diagnostics requires --club_enabled")
     if cfg.club_diagnostics_every <= 0:
