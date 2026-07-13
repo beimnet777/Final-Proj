@@ -1,0 +1,154 @@
+=== MSP standalone disentanglement ===
+started   : Sat Jun 27 15:00:35 BST 2026
+gpu       : NVIDIA A100-SXM4-80GB
+run_name  : msp_v2
+steps     : 12000
+routing   : hard binary L/P, tau=1.0, init_std=0.5, spec=0.01
+learning  : sae=1e-4 heads=1e-4 disc=1e-3 routing=1e-3 min=1e-6
+disc      : steps=3 grad_clip=1.0
+weights   : pr=0.8 sid=0.6 grl=1.0 grl_p=0.5
+weights   : pros=0.5/0.5 emo=0.5/0.5 inv=1.0
+zL_grl_norm: 0.0005
+=== MSP run 'msp_v2'  pcgrad=True  routing=hard ===
+[dis_data] loaded lexicon: 200,000 entries
+[msp_data] manifest=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/data/msp_subset/manifest.csv
+[msp_data] speakers=700  vocab=74  emotions=('neutral', 'happy', 'sad', 'angry')
+[msp_data]  train        41067  {'neutral': 18380, 'happy': 11373, 'sad': 6128, 'angry': 5186}
+[msp_data]  val           4975  {'neutral': 2282, 'happy': 1402, 'sad': 710, 'angry': 581}
+[msp_data]  test          4975  {'neutral': 2282, 'happy': 1402, 'sad': 710, 'angry': 581}
+[msp_data] preloaded 51017 transcripts from Transcripts.zip
+[msp_data] dropped 33 rows with empty/non-verbal transcript
+[msp_data] dropped 3 rows with empty/non-verbal transcript
+[msp_data] dropped 7 rows with empty/non-verbal transcript
+[msp_data] invariance ON — train yields perturbed pairs (f0×(0.7, 1.5), formant×(0.8, 1.45))
+[msp] training from scratch (SAE/routing/heads from init)
+[msp] speaker adversary: GELUSpeakerGRLHead (GELU projector, per-frame grad norm target=0.0005)
+[msp] emotion class weights [0.44, 0.71, 1.31, 1.55] for ('neutral', 'happy', 'sad', 'angry')
+[msp] steps=12000 batch=16 pcgrad=True (['emotion', 'inv', 'pr', 'prosody', 'recon', 'sid'])  device=cuda bf16=True
+[msp] weights α(pr)=0.8 β(sid)=0.6 grl=1.0 grl_p=0.5 pros=0.5/0.5 emo=0.5/0.5 inv=1.0
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  step      1/12000  recon=0.3769  pr=21.355(per=3.235)  sid=6.564(acc=0.000)  grl=6.562(acc=0.000)  grl_p=21.409(per=2.792)  pros=37.177  prosGRL=35.904  emo=1.368(acc=0.625)  emoGRL=1.392(acc=0.250)  inv=1.2286  dead=0.0%  L/P=2533/2587  actL/P=127/129  H=0.693  Hu=0.641  spec<.5=0.05  marg=0.260  lstd=0.4963  tau=1.000  grlLam=0.00  zLgrlFrame=1.00e-06  lr=2.00e-07
+  [clip @1] main_pre=1.952e+01 scale=5.122e-02  disc_pre_max=2.839e+01 disc_scale_min=3.523e-02
+  [grad_norms @1] weighted SAE |g|: recon=1.59e-01 pr=4.35e+00 sid=5.18e-01 prosody=7.35e+00 emotion=1.88e-01 inv=2.41e-01 grl=5.32e-03 grl_p=1.92e-03 pros_grl=7.21e-03 emo_grl=1.90e-04 route_spec=0.00e+00
+    PCGrad coop raw=8.57e+00 projected=8.58e+00  adv_bundle=9.13e-03  coop_conflicts=6/15 min_cos=-0.09
+    [grad_cos @1] recon_vs_adversaries: grl=-0.00 grl_p=+0.01 pros_grl=+0.00 emo_grl=-0.01 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.00 pr=+0.00 sid=-0.00 prosody=+0.00 emotion=+0.00 inv=-0.00
+  step    100/12000  recon=0.3524  pr=10.167(per=1.000)  sid=6.463(acc=0.000)  grl=6.340(acc=0.000)  grl_p=1.840(per=0.614)  pros=3.167  prosGRL=2.121  emo=1.316(acc=0.375)  emoGRL=1.065(acc=0.500)  inv=1.2273  dead=0.0%  L/P=2540/2580  actL/P=130/126  H=0.693  Hu=0.636  spec<.5=0.06  marg=0.273  lstd=0.5094  tau=1.000  grlLam=0.20  zLgrlFrame=1.00e-04  lr=2.00e-05
+  [clip @100] main_pre=1.682e+01 scale=5.944e-02  disc_pre_max=4.019e+00 disc_scale_min=2.488e-01
+  [grad_norms @100] weighted SAE |g|: recon=9.24e-02 pr=1.09e+01 sid=4.68e-01 prosody=3.47e+00 emotion=3.05e-01 inv=2.21e-01 grl=5.69e-01 grl_p=2.66e-01 pros_grl=6.51e-01 emo_grl=5.50e-01 route_spec=0.00e+00
+    PCGrad coop raw=1.15e+01 projected=1.15e+01  adv_bundle=1.05e+00  coop_conflicts=10/15 min_cos=-0.05
+    [grad_cos @100] recon_vs_adversaries: grl=-0.00 grl_p=-0.01 pros_grl=-0.01 emo_grl=-0.00 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.01 pr=+0.11 sid=-0.00 prosody=-0.02 emotion=-0.01 inv=+0.05
+  step    200/12000  recon=0.3789  pr=3.905(per=1.000)  sid=6.312(acc=0.000)  grl=5.899(acc=0.125)  grl_p=1.724(per=0.614)  pros=2.410  prosGRL=2.052  emo=1.233(acc=0.438)  emoGRL=1.112(acc=0.375)  inv=1.1536  dead=0.0%  L/P=2887/2233  actL/P=166/90  H=0.692  Hu=0.630  spec<.5=0.07  marg=0.286  lstd=0.5242  tau=1.000  grlLam=0.40  zLgrlFrame=2.00e-04  lr=4.00e-05
+  [clip @200] main_pre=7.743e+00 scale=1.292e-01  disc_pre_max=8.572e+00 disc_scale_min=1.167e-01
+  [grad_norms @200] weighted SAE |g|: recon=8.45e-02 pr=7.99e-01 sid=5.29e-01 prosody=3.68e+00 emotion=5.68e-01 inv=2.07e-01 grl=1.07e+00 grl_p=6.92e-01 pros_grl=2.03e+00 emo_grl=1.63e+00 route_spec=0.00e+00
+    PCGrad coop raw=3.88e+00 projected=3.92e+00  adv_bundle=2.88e+00  coop_conflicts=7/15 min_cos=-0.05
+    [grad_cos @200] recon_vs_adversaries: grl=+0.00 grl_p=+0.00 pros_grl=+0.00 emo_grl=+0.00 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=+0.01 pr=+0.02 sid=-0.00 prosody=-0.00 emotion=-0.01 inv=+0.06
+  step    300/12000  recon=0.3214  pr=3.463(per=1.000)  sid=6.162(acc=0.000)  grl=5.514(acc=0.000)  grl_p=1.969(per=0.588)  pros=2.603  prosGRL=2.238  emo=1.337(acc=0.500)  emoGRL=0.915(acc=0.688)  inv=1.0948  dead=0.0%  L/P=2898/2222  actL/P=170/86  H=0.691  Hu=0.627  spec<.5=0.08  marg=0.294  lstd=0.5329  tau=1.000  grlLam=0.60  zLgrlFrame=3.00e-04  lr=6.00e-05
+  [clip @300] main_pre=9.204e+00 scale=1.087e-01  disc_pre_max=8.136e+00 disc_scale_min=1.229e-01
+  [grad_norms @300] weighted SAE |g|: recon=6.03e-02 pr=4.82e-01 sid=5.43e-01 prosody=3.49e+00 emotion=1.46e+00 inv=1.97e-01 grl=1.65e+00 grl_p=1.12e+00 pros_grl=2.59e+00 emo_grl=4.71e+00 route_spec=0.00e+00
+    PCGrad coop raw=3.86e+00 projected=3.92e+00  adv_bundle=5.83e+00  coop_conflicts=9/15 min_cos=-0.04
+    [grad_cos @300] recon_vs_adversaries: grl=+0.00 grl_p=-0.01 pros_grl=-0.00 emo_grl=-0.01 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.01 pr=+0.02 sid=+0.02 prosody=-0.03 emotion=-0.02 inv=+0.02
+  step    400/12000  recon=0.2751  pr=3.121(per=1.000)  sid=6.344(acc=0.062)  grl=5.784(acc=0.250)  grl_p=1.473(per=0.448)  pros=1.979  prosGRL=1.741  emo=1.225(acc=0.375)  emoGRL=1.045(acc=0.438)  inv=1.0907  dead=0.0%  L/P=2923/2197  actL/P=178/78  H=0.691  Hu=0.624  spec<.5=0.09  marg=0.302  lstd=0.5419  tau=1.000  grlLam=0.80  zLgrlFrame=4.00e-04  lr=8.00e-05
+  [clip @400] main_pre=1.257e+01 scale=7.954e-02  disc_pre_max=1.550e+01 disc_scale_min=6.454e-02
+  [grad_norms @400] weighted SAE |g|: recon=5.80e-02 pr=1.07e+00 sid=6.61e-01 prosody=5.81e+00 emotion=1.04e+00 inv=2.13e-01 grl=2.43e+00 grl_p=1.71e+00 pros_grl=4.51e+00 emo_grl=2.74e+00 route_spec=0.00e+00
+    PCGrad coop raw=5.95e+00 projected=6.15e+00  adv_bundle=6.15e+00  coop_conflicts=10/15 min_cos=-0.22
+    [grad_cos @400] recon_vs_adversaries: grl=+0.00 grl_p=-0.01 pros_grl=+0.02 emo_grl=-0.00 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=+0.01 pr=+0.00 sid=+0.02 prosody=-0.04 emotion=+0.02 inv=+0.01
+  step    500/12000  recon=0.2197  pr=2.900(per=1.000)  sid=6.395(acc=0.062)  grl=5.605(acc=0.188)  grl_p=2.015(per=0.564)  pros=2.570  prosGRL=2.559  emo=1.037(acc=0.438)  emoGRL=0.939(acc=0.500)  inv=1.0451  dead=0.0%  L/P=2939/2181  actL/P=184/72  H=0.690  Hu=0.620  spec<.5=0.10  marg=0.310  lstd=0.5523  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=1.00e-04
+  [clip @500] main_pre=1.089e+01 scale=9.179e-02  disc_pre_max=8.687e+00 disc_scale_min=1.151e-01
+  [grad_norms @500] weighted SAE |g|: recon=4.55e-02 pr=7.96e-01 sid=7.46e-01 prosody=5.95e+00 emotion=1.14e+00 inv=2.08e-01 grl=2.63e+00 grl_p=1.81e+00 pros_grl=4.52e+00 emo_grl=3.18e+00 route_spec=0.00e+00
+    PCGrad coop raw=6.24e+00 projected=6.29e+00  adv_bundle=6.45e+00  coop_conflicts=8/15 min_cos=-0.06
+    [grad_cos @500] recon_vs_adversaries: grl=-0.02 grl_p=-0.00 pros_grl=-0.01 emo_grl=+0.00 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.02 pr=+0.04 sid=-0.01 prosody=+0.01 emotion=-0.00 inv=+0.03
+  step    600/12000  recon=0.1817  pr=2.302(per=0.989)  sid=6.334(acc=0.000)  grl=4.942(acc=0.062)  grl_p=1.469(per=0.547)  pros=1.805  prosGRL=2.086  emo=1.212(acc=0.375)  emoGRL=1.417(acc=0.500)  inv=0.9651  dead=0.0%  L/P=2952/2168  actL/P=192/64  H=0.690  Hu=0.615  spec<.5=0.12  marg=0.321  lstd=0.5645  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=1.00e-04
+  [clip @600] main_pre=1.098e+01 scale=9.108e-02  disc_pre_max=9.839e+00 disc_scale_min=1.016e-01
+  [grad_norms @600] weighted SAE |g|: recon=3.97e-02 pr=7.84e-01 sid=6.91e-01 prosody=3.23e+00 emotion=2.19e+00 inv=2.05e-01 grl=2.53e+00 grl_p=1.71e+00 pros_grl=3.56e+00 emo_grl=5.79e+00 route_spec=0.00e+00
+    PCGrad coop raw=3.96e+00 projected=4.17e+00  adv_bundle=7.68e+00  coop_conflicts=5/15 min_cos=-0.17
+    [grad_cos @600] recon_vs_adversaries: grl=-0.04 grl_p=-0.02 pros_grl=-0.03 emo_grl=-0.01 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.04 pr=+0.01 sid=+0.01 prosody=-0.02 emotion=-0.00 inv=-0.01
+  step    700/12000  recon=0.1583  pr=2.043(per=0.940)  sid=6.574(acc=0.000)  grl=5.621(acc=0.125)  grl_p=1.511(per=0.565)  pros=2.561  prosGRL=2.870  emo=0.933(acc=0.438)  emoGRL=0.833(acc=0.625)  inv=0.9020  dead=0.0%  L/P=2967/2153  actL/P=198/58  H=0.690  Hu=0.610  spec<.5=0.13  marg=0.332  lstd=0.5786  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.99e-05
+  [clip @700] main_pre=1.186e+01 scale=8.430e-02  disc_pre_max=8.618e+00 disc_scale_min=1.160e-01
+  [grad_norms @700] weighted SAE |g|: recon=4.03e-02 pr=8.31e-01 sid=9.75e-01 prosody=6.21e+00 emotion=1.89e+00 inv=2.08e-01 grl=2.41e+00 grl_p=1.72e+00 pros_grl=5.64e+00 emo_grl=3.31e+00 route_spec=0.00e+00
+    PCGrad coop raw=6.63e+00 projected=6.65e+00  adv_bundle=7.21e+00  coop_conflicts=6/15 min_cos=-0.11
+    [grad_cos @700] recon_vs_adversaries: grl=-0.05 grl_p=-0.01 pros_grl=-0.06 emo_grl=+0.01 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.06 pr=-0.02 sid=-0.00 prosody=-0.02 emotion=-0.01 inv=+0.00
+  step    800/12000  recon=0.1443  pr=2.565(per=0.908)  sid=6.297(acc=0.062)  grl=5.193(acc=0.188)  grl_p=2.600(per=0.651)  pros=2.359  prosGRL=2.848  emo=0.881(acc=0.312)  emoGRL=1.010(acc=0.750)  inv=0.8099  dead=0.0%  L/P=2975/2145  actL/P=202/54  H=0.690  Hu=0.604  spec<.5=0.15  marg=0.344  lstd=0.5933  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.98e-05
+  [clip @800] main_pre=1.336e+01 scale=7.485e-02  disc_pre_max=1.203e+01 disc_scale_min=8.314e-02
+  [grad_norms @800] weighted SAE |g|: recon=3.82e-02 pr=1.42e+00 sid=7.68e-01 prosody=3.59e+00 emotion=1.95e+00 inv=2.00e-01 grl=2.99e+00 grl_p=2.33e+00 pros_grl=6.24e+00 emo_grl=4.87e+00 route_spec=0.00e+00
+    PCGrad coop raw=4.48e+00 projected=4.59e+00  adv_bundle=8.77e+00  coop_conflicts=8/15 min_cos=-0.05
+    [grad_cos @800] recon_vs_adversaries: grl=-0.10 grl_p=+0.00 pros_grl=-0.01 emo_grl=-0.01 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.04 pr=+0.01 sid=-0.01 prosody=-0.02 emotion=-0.01 inv=+0.01
+  step    900/12000  recon=0.1347  pr=1.719(per=0.849)  sid=6.398(acc=0.000)  grl=5.896(acc=0.000)  grl_p=1.600(per=0.636)  pros=2.070  prosGRL=2.402  emo=1.160(acc=0.250)  emoGRL=0.962(acc=0.688)  inv=0.7807  dead=0.0%  L/P=2984/2136  actL/P=209/47  H=0.690  Hu=0.599  spec<.5=0.17  marg=0.354  lstd=0.6071  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.97e-05
+  [clip @900] main_pre=1.504e+01 scale=6.649e-02  disc_pre_max=1.705e+01 disc_scale_min=5.864e-02
+  [grad_norms @900] weighted SAE |g|: recon=4.16e-02 pr=9.25e-01 sid=8.85e-01 prosody=6.50e+00 emotion=2.33e+00 inv=2.01e-01 grl=2.53e+00 grl_p=1.83e+00 pros_grl=6.18e+00 emo_grl=2.42e+00 route_spec=0.00e+00
+    PCGrad coop raw=6.80e+00 projected=7.22e+00  adv_bundle=7.37e+00  coop_conflicts=8/15 min_cos=-0.12
+    [grad_cos @900] recon_vs_adversaries: grl=-0.04 grl_p=-0.02 pros_grl=-0.02 emo_grl=+0.00 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.04 pr=+0.04 sid=+0.00 prosody=+0.06 emotion=-0.01 inv=+0.01
+  step   1000/12000  recon=0.1308  pr=1.967(per=0.794)  sid=6.072(acc=0.000)  grl=5.473(acc=0.000)  grl_p=1.957(per=0.627)  pros=2.862  prosGRL=3.975  emo=0.926(acc=0.625)  emoGRL=0.810(acc=0.562)  inv=0.6506  dead=0.0%  L/P=2992/2128  actL/P=212/44  H=0.690  Hu=0.594  spec<.5=0.18  marg=0.363  lstd=0.6205  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.95e-05
+  [clip @1000] main_pre=1.673e+01 scale=5.976e-02  disc_pre_max=2.137e+01 disc_scale_min=4.679e-02
+  [grad_norms @1000] weighted SAE |g|: recon=4.82e-02 pr=9.21e-01 sid=8.43e-01 prosody=4.24e+00 emotion=2.00e+00 inv=1.89e-01 grl=2.53e+00 grl_p=2.34e+00 pros_grl=1.03e+01 emo_grl=2.48e+00 route_spec=0.00e+00
+    PCGrad coop raw=4.83e+00 projected=4.96e+00  adv_bundle=1.11e+01  coop_conflicts=6/15 min_cos=-0.08
+    [grad_cos @1000] recon_vs_adversaries: grl=-0.04 grl_p=-0.00 pros_grl=-0.03 emo_grl=+0.00 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.03 pr=-0.01 sid=+0.00 prosody=-0.01 emotion=-0.01 inv=+0.01
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+  [val] step=1000  PER=0.804  SID=0.059  | z_P emo UAR=0.596 acc=0.502  | leak z_L SID=0.069  z_P PR-PER=0.720  z_L emo UAR=0.536
+  ✓ best (disent=3.034) → /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/checkpoints/msp_v2/best.pt
+  step   1100/12000  recon=0.1308  pr=2.041(per=0.784)  sid=6.562(acc=0.062)  grl=6.107(acc=0.062)  grl_p=2.172(per=0.578)  pros=2.216  prosGRL=3.453  emo=0.996(acc=0.562)  emoGRL=0.995(acc=0.375)  inv=0.6024  dead=0.0%  L/P=2993/2127  actL/P=213/43  H=0.690  Hu=0.589  spec<.5=0.20  marg=0.372  lstd=0.6344  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.93e-05
+  [clip @1100] main_pre=1.492e+01 scale=6.702e-02  disc_pre_max=1.823e+01 disc_scale_min=5.485e-02
+  [grad_norms @1100] weighted SAE |g|: recon=4.86e-02 pr=8.28e-01 sid=1.10e+00 prosody=3.40e+00 emotion=2.42e+00 inv=1.78e-01 grl=2.79e+00 grl_p=2.46e+00 pros_grl=8.49e+00 emo_grl=3.71e+00 route_spec=0.00e+00
+    PCGrad coop raw=4.52e+00 projected=4.59e+00  adv_bundle=9.94e+00  coop_conflicts=5/15 min_cos=-0.06
+    [grad_cos @1100] recon_vs_adversaries: grl=-0.04 grl_p=-0.00 pros_grl=-0.01 emo_grl=+0.00 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.02 pr=+0.02 sid=+0.01 prosody=+0.01 emotion=-0.01 inv=+0.02
+  step   1200/12000  recon=0.1264  pr=2.054(per=0.764)  sid=6.221(acc=0.062)  grl=5.844(acc=0.062)  grl_p=2.310(per=0.667)  pros=3.260  prosGRL=4.382  emo=0.809(acc=0.625)  emoGRL=1.153(acc=0.625)  inv=0.5811  dead=0.0%  L/P=2996/2124  actL/P=215/41  H=0.690  Hu=0.585  spec<.5=0.21  marg=0.380  lstd=0.6477  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.91e-05
+  [clip @1200] main_pre=1.901e+01 scale=5.261e-02  disc_pre_max=1.685e+01 disc_scale_min=5.933e-02
+  [grad_norms @1200] weighted SAE |g|: recon=5.45e-02 pr=1.76e+00 sid=9.67e-01 prosody=9.07e+00 emotion=1.69e+00 inv=1.84e-01 grl=2.82e+00 grl_p=3.20e+00 pros_grl=1.05e+01 emo_grl=4.46e+00 route_spec=0.00e+00
+    PCGrad coop raw=9.36e+00 projected=9.55e+00  adv_bundle=1.22e+01  coop_conflicts=7/15 min_cos=-0.08
+    [grad_cos @1200] recon_vs_adversaries: grl=-0.06 grl_p=-0.01 pros_grl=-0.03 emo_grl=+0.00 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.04 pr=+0.05 sid=-0.01 prosody=+0.02 emotion=+0.00 inv=+0.03
+  step   1300/12000  recon=0.1299  pr=2.443(per=0.771)  sid=5.992(acc=0.000)  grl=5.550(acc=0.062)  grl_p=2.933(per=0.716)  pros=3.119  prosGRL=4.049  emo=0.651(acc=0.750)  emoGRL=0.874(acc=0.562)  inv=0.5212  dead=0.0%  L/P=2998/2122  actL/P=216/40  H=0.690  Hu=0.580  spec<.5=0.22  marg=0.387  lstd=0.6609  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.88e-05
+  [clip @1300] main_pre=1.491e+01 scale=6.708e-02  disc_pre_max=8.082e+00 disc_scale_min=1.237e-01
+  [grad_norms @1300] weighted SAE |g|: recon=5.20e-02 pr=3.07e+00 sid=9.04e-01 prosody=5.80e+00 emotion=1.52e+00 inv=1.68e-01 grl=2.35e+00 grl_p=4.82e+00 pros_grl=7.80e+00 emo_grl=4.75e+00 route_spec=0.00e+00
+    PCGrad coop raw=7.12e+00 projected=7.17e+00  adv_bundle=1.05e+01  coop_conflicts=6/15 min_cos=-0.04
+    [grad_cos @1300] recon_vs_adversaries: grl=-0.04 grl_p=-0.02 pros_grl=-0.04 emo_grl=-0.02 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.05 pr=+0.11 sid=-0.02 prosody=-0.00 emotion=-0.01 inv=+0.01
+  step   1400/12000  recon=0.1265  pr=2.312(per=0.798)  sid=6.762(acc=0.000)  grl=6.675(acc=0.062)  grl_p=2.635(per=0.628)  pros=2.537  prosGRL=3.794  emo=0.960(acc=0.688)  emoGRL=1.334(acc=0.438)  inv=0.4349  dead=0.0%  L/P=2998/2122  actL/P=221/35  H=0.690  Hu=0.576  spec<.5=0.24  marg=0.395  lstd=0.6739  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.85e-05
+  [clip @1400] main_pre=1.808e+01 scale=5.530e-02  disc_pre_max=1.395e+01 disc_scale_min=7.168e-02
+  [grad_norms @1400] weighted SAE |g|: recon=6.29e-02 pr=4.96e+00 sid=1.68e+00 prosody=4.37e+00 emotion=2.39e+00 inv=1.51e-01 grl=2.71e+00 grl_p=6.01e+00 pros_grl=9.02e+00 emo_grl=5.31e+00 route_spec=0.00e+00
+    PCGrad coop raw=6.84e+00 projected=7.64e+00  adv_bundle=1.21e+01  coop_conflicts=9/15 min_cos=-0.43
+    [grad_cos @1400] recon_vs_adversaries: grl=-0.00 grl_p=+0.00 pros_grl=-0.03 emo_grl=-0.00 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.02 pr=+0.01 sid=+0.01 prosody=-0.01 emotion=+0.00 inv=+0.01
+  step   1500/12000  recon=0.1301  pr=1.593(per=0.760)  sid=6.328(acc=0.125)  grl=5.602(acc=0.125)  grl_p=1.881(per=0.728)  pros=2.230  prosGRL=3.744  emo=0.835(acc=0.562)  emoGRL=0.709(acc=0.688)  inv=0.4872  dead=0.0%  L/P=2996/2124  actL/P=219/37  H=0.690  Hu=0.571  spec<.5=0.25  marg=0.402  lstd=0.6872  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.82e-05
+  [clip @1500] main_pre=1.853e+01 scale=5.396e-02  disc_pre_max=2.005e+01 disc_scale_min=4.988e-02
+  [grad_norms @1500] weighted SAE |g|: recon=6.44e-02 pr=1.05e+00 sid=1.50e+00 prosody=6.36e+00 emotion=2.81e+00 inv=1.64e-01 grl=2.65e+00 grl_p=3.04e+00 pros_grl=1.09e+01 emo_grl=2.68e+00 route_spec=0.00e+00
+    PCGrad coop raw=7.19e+00 projected=7.71e+00  adv_bundle=1.20e+01  coop_conflicts=7/15 min_cos=-0.18
+    [grad_cos @1500] recon_vs_adversaries: grl=-0.04 grl_p=-0.02 pros_grl=-0.02 emo_grl=-0.01 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.03 pr=+0.03 sid=+0.03 prosody=-0.06 emotion=-0.02 inv=+0.02
+  step   1600/12000  recon=0.1356  pr=2.088(per=0.804)  sid=5.918(acc=0.000)  grl=5.490(acc=0.125)  grl_p=2.484(per=0.837)  pros=1.968  prosGRL=3.111  emo=0.994(acc=0.500)  emoGRL=1.396(acc=0.625)  inv=0.4522  dead=0.0%  L/P=2989/2131  actL/P=221/35  H=0.690  Hu=0.567  spec<.5=0.26  marg=0.410  lstd=0.7009  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.78e-05
+  [clip @1600] main_pre=1.611e+01 scale=6.206e-02  disc_pre_max=1.406e+01 disc_scale_min=7.112e-02
+  [grad_norms @1600] weighted SAE |g|: recon=6.89e-02 pr=1.90e+00 sid=1.09e+00 prosody=6.11e+00 emotion=3.49e+00 inv=1.64e-01 grl=2.39e+00 grl_p=3.68e+00 pros_grl=7.67e+00 emo_grl=6.99e+00 route_spec=0.00e+00
+    PCGrad coop raw=7.00e+00 projected=7.74e+00  adv_bundle=1.12e+01  coop_conflicts=8/15 min_cos=-0.23
+    [grad_cos @1600] recon_vs_adversaries: grl=-0.04 grl_p=-0.01 pros_grl=-0.01 emo_grl=-0.01 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.02 pr=-0.28 sid=-0.03 prosody=+0.13 emotion=-0.01 inv=-0.03
+  step   1700/12000  recon=0.1358  pr=2.039(per=0.703)  sid=6.117(acc=0.062)  grl=5.727(acc=0.062)  grl_p=2.424(per=0.783)  pros=2.262  prosGRL=3.518  emo=0.890(acc=0.562)  emoGRL=1.119(acc=0.375)  inv=0.2967  dead=0.0%  L/P=2988/2132  actL/P=222/34  H=0.689  Hu=0.562  spec<.5=0.27  marg=0.417  lstd=0.7148  tau=1.000  grlLam=1.00  zLgrlFrame=5.00e-04  lr=9.74e-05
+  [clip @1700] main_pre=1.813e+01 scale=5.516e-02  disc_pre_max=1.634e+01 disc_scale_min=6.121e-02
+  [grad_norms @1700] weighted SAE |g|: recon=7.52e-02 pr=2.74e+00 sid=1.07e+00 prosody=8.22e+00 emotion=2.19e+00 inv=1.15e-01 grl=2.89e+00 grl_p=4.23e+00 pros_grl=1.05e+01 emo_grl=3.09e+00 route_spec=0.00e+00
+    PCGrad coop raw=9.46e+00 projected=9.67e+00  adv_bundle=1.26e+01  coop_conflicts=6/15 min_cos=-0.24
+    [grad_cos @1700] recon_vs_adversaries: grl=-0.03 grl_p=-0.02 pros_grl=-0.02 emo_grl=-0.01 route_spec=+0.00
+      cooperative_vs_adv_bundle: recon=-0.03 pr=-0.21 sid=+0.06 prosody=-0.10 emotion=-0.01 inv=+0.09
