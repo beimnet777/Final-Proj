@@ -160,6 +160,8 @@ def _msp_args(config: dict) -> list[str]:
             if not value: args.append("--soft_routing")
         elif key == "invariance":
             if not value: args.append("--no_invariance")
+        elif key == "grl_grad_norm":
+            args.append("--grl_grad_norm" if value else "--no-grl_grad_norm")
         elif isinstance(value, bool):
             if value: args.append(_flag(key))
         elif value is not None:

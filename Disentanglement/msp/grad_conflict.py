@@ -124,6 +124,45 @@ class PCGrad:
             return torch.cat([p.reshape(-1) * 0 for p in self.shared])
         return torch.stack(self._project(grads)).sum(0)
 
+    @staticmethod
+    def vector_diagnostics(
+        named_gradients: Dict[str, torch.Tensor],
+        projected: torch.Tensor,
+        external: torch.Tensor,
+    ) -> dict:
+        """Summarize already accumulated gradients without advancing PCGrad RNG.
+
+        Gradient accumulation requires projection once at the effective-batch
+        boundary.  Keeping diagnostics separate avoids performing a second,
+        differently shuffled projection merely for logging.
+        """
+        vectors = {name: grad.detach().float() for name, grad in named_gradients.items()}
+        raw = (torch.stack(list(vectors.values())).sum(0)
+               if vectors else torch.zeros_like(projected, dtype=torch.float32))
+        ext = external.detach().float()
+
+        def norm(x):
+            return float(x.norm().item())
+
+        def cos(a, b):
+            return float(torch.dot(a, b) / (a.norm() * b.norm()).clamp(min=1e-12))
+
+        names = list(vectors)
+        cosines = {
+            f"{a}|{b}": cos(vectors[a], vectors[b])
+            for i, a in enumerate(names) for b in names[i + 1:]
+        }
+        norms = {name: norm(grad) for name, grad in vectors.items()}
+        norms["external_bundle"] = norm(ext)
+        return {
+            "norms": norms,
+            "raw_coop_norm": norm(raw),
+            "projected_coop_norm": norm(projected.detach().float()),
+            "external_norm": norm(ext),
+            "coop_cosines": cosines,
+            "coop_conflicts": sum(value < 0.0 for value in cosines.values()),
+        }
+
     def state_dict(self) -> dict:
         return {"rng_state": self.rng.getstate()}
 

@@ -24,6 +24,7 @@ from losses import recon_loss, ctc_pr_loss, sid_ce_loss, route_loss, routing_spe
 from .data import make_msp_dataloaders, EMOTION_NAMES
 from .grad_conflict import PCGrad, named_gradient_diagnostics
 from .heads import GELUSpeakerGRLHead
+from .checkpoints import load_sae_initialization
 from . import utils as U
 from training_runtime import (
     SegmentLimit, append_metrics, atomic_torch_save, checkpoint_payload,
@@ -56,6 +57,23 @@ def _gumbel_tau(step: int, total: int, tau_start: float, tau_end: float) -> floa
 
 
 # ---------------------------------------------------------------- schedule
+def _dann_lambda(step: int, total: int, ramp_steps: int = 0) -> float:
+    """Canonical DANN sigmoid ramp: 0 at start → 1 by ramp_steps/end.
+
+    If ramp_steps > 0, lambda reaches 1.0 at that step and remains saturated.
+    If ramp_steps == 0, it ramps over the whole training schedule.
+    """
+    ramp_steps = int(ramp_steps)
+    if ramp_steps > 0:
+        if step >= ramp_steps:
+            return 1.0
+        denom = max(1, ramp_steps)
+    else:
+        denom = max(1, total)
+    p = max(0.0, min(1.0, step / denom))
+    return 2.0 / (1.0 + math.exp(-10.0 * p)) - 1.0
+
+
 def _make_lr(cfg):
     base, warm, total, lo = cfg.lr, cfg.warmup_steps, cfg.stage2_steps, cfg.lr_min
     def lr_at(step):
@@ -82,6 +100,8 @@ def evaluate(model, dl, device, amp_dtype, n_emotion) -> Dict[str, float]:
     grlp_num = grlp_den = 0                 # z_P phoneme leakage (adversary)
     conf_P = torch.zeros(n_emotion, n_emotion)   # z_P emotion (task)
     conf_L = torch.zeros(n_emotion, n_emotion)   # z_L emotion (adversary leakage)
+    saw_emotion_grl = False
+    pros_sum = prosgrl_sum = pros_n = prosgrl_n = 0
     for b in dl:
         audios = b["audios"].to(device); alen = b["audio_lengths"].to(device)
         tgt = b["targets"].to(device); tlen = b["target_lengths"].to(device)
@@ -97,10 +117,21 @@ def evaluate(model, dl, device, amp_dtype, n_emotion) -> Dict[str, float]:
         if "pr_grl_logits" in out:
             n, d = U.ctc_errors(out["pr_grl_logits"].float(), tgt, olen, tlen)
             grlp_num += n; grlp_den += d
+        if "prosody_pred" in out:
+            p_f0, p_v, p_e = U.prosody_targets_fast(audios, alen, olen)
+            batch_n = int(audios.shape[0])
+            pros_sum += float(U.prosody_train_loss(
+                out["prosody_pred"], p_f0, p_v, p_e, olen)) * batch_n
+            pros_n += batch_n
+            if "prosody_grl_pred" in out:
+                prosgrl_sum += float(U.prosody_train_loss(
+                    out["prosody_grl_pred"], p_f0, p_v, p_e, olen)) * batch_n
+                prosgrl_n += batch_n
         ep = out["emotion_logits"].argmax(-1)
         for tlab, plab in zip(emo.tolist(), ep.tolist()):
             conf_P[tlab, plab] += 1
         if "emotion_grl_logits" in out:
+            saw_emotion_grl = True
             el = out["emotion_grl_logits"].argmax(-1)
             for tlab, plab in zip(emo.tolist(), el.tolist()):
                 conf_L[tlab, plab] += 1
@@ -112,7 +143,9 @@ def evaluate(model, dl, device, amp_dtype, n_emotion) -> Dict[str, float]:
         "zP_pr_per":  grlp_num / max(grlp_den, 1),
         "zP_emo_uar": U.uar_from_confusion(conf_P),
         "zP_emo_acc": float(conf_P.diag().sum() / conf_P.sum().clamp(min=1)),
-        "zL_emo_uar": U.uar_from_confusion(conf_L),
+        "zL_emo_uar": (U.uar_from_confusion(conf_L) if saw_emotion_grl else float("nan")),
+        "zP_prosody_loss": pros_sum / pros_n if pros_n else float("nan"),
+        "zL_prosody_loss": prosgrl_sum / prosgrl_n if prosgrl_n else float("nan"),
     }
     return m
 
@@ -125,14 +158,15 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
 
     loaders = make_msp_dataloaders(cfg)
     tokenizer, train_dl, val_dl, test_dl = loaders[0], loaders[1], loaders[2], loaders[3]
+    test_unseen_dl = loaders[4] if len(loaders) > 4 else None
     n_emotion = cfg.emotion_num_classes
 
     model = build_dis_model(cfg).to(device)
     if stage1_ckpt:
-        sd = torch.load(stage1_ckpt, map_location="cpu")
-        sd = sd.get("model", sd)
-        miss, unexp = model.load_state_dict(sd, strict=False)
-        print(f"[msp] loaded stage1 SAE from {stage1_ckpt} (missing={len(miss)} unexpected={len(unexp)})")
+        audit = load_sae_initialization(model, stage1_ckpt)
+        print(f"[msp] loaded {len(audit['loaded'])} SAE tensors from {stage1_ckpt} "
+              f"(format={audit['source_format']} step={audit['source_step']} "
+              f"shape_mismatch={len(audit['mismatched'])})")
     else:
         print("[msp] training from scratch (SAE/routing/heads from init)")
     # Speaker adversary → GELU (isolation: overrides model.grl_head without
@@ -154,9 +188,11 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     rout_params  = [p for p in model.routing.parameters() if p.requires_grad]
     head_params  = (list(model.pr_head.parameters()) + list(model.sid_head.parameters())
                     + list(model.prosody_head.parameters()) + list(model.emotion_head.parameters()))
-    disc_params  = (list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters())
-                    + list(model.prosody_grl_head.parameters())
-                    + list(model.emotion_grl_head.parameters()))
+    disc_params = list(model.grl_head.parameters()) + list(model.pr_grl_head.parameters())
+    for optional_head in ("prosody_grl_head", "emotion_grl_head"):
+        head = getattr(model, optional_head, None)
+        if head is not None:
+            disc_params += list(head.parameters())
     optimizer = torch.optim.AdamW([
         {"params": sae_params,  "lr": cfg.lr},
         {"params": rout_params, "lr": cfg.lr_routing},
@@ -236,7 +272,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         grad_diag = None
         lr_now = lr_at(next_step)
         optimizer.param_groups[0]["lr"] = lr_now          # SAE follows the cosine
-        ramp = min(1.0, next_step / max(1, cfg.warmup_steps))
+        ramp = _dann_lambda(next_step, cfg.stage2_steps,
+                            int(getattr(cfg, "dann_ramp_steps", cfg.warmup_steps)))
         model.routing.tau = _gumbel_tau(next_step, cfg.stage2_steps,
                                         cfg.gumbel_tau_start, cfg.gumbel_tau_end)
 
@@ -268,8 +305,11 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             # adversaries (kept out of PCGrad — their conflict is the mechanism)
             l_grl     = U.speaker_adv_loss(out["grl_logits"], spk, olen)
             l_grl_p   = ctc_pr_loss(out["pr_grl_logits"], tgt, olen, tlen)
-            l_prosgrl = U.prosody_train_loss(out["prosody_grl_pred"], p_f0, p_v, p_e, olen)
-            l_emogrl  = F.cross_entropy(out["emotion_grl_logits"], emo, weight=emo_w)
+            l_prosgrl = (U.prosody_train_loss(
+                out["prosody_grl_pred"], p_f0, p_v, p_e, olen)
+                if "prosody_grl_pred" in out else l_recon.new_zeros(()))
+            l_emogrl = (F.cross_entropy(out["emotion_grl_logits"], emo, weight=emo_w)
+                        if "emotion_grl_logits" in out else l_recon.new_zeros(()))
             l_route   = route_loss(out["routing_logits"])
             l_spec    = routing_spec_loss(out["routing_logits"])
 
@@ -356,7 +396,11 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         if scaler.is_enabled():
             scaler.unscale_(optimizer)
         if pcgrad is not None:
-            pcgrad.write_(pcgrad.project_vectors(task_grad_sums) + extra_grad_sum)
+            projected_coop = pcgrad.project_vectors(task_grad_sums)
+            if log_now:
+                grad_diag = pcgrad.vector_diagnostics(
+                    task_grad_sums, projected_coop, extra_grad_sum)
+            pcgrad.write_(projected_coop + extra_grad_sum)
         main_pre_clip = float(nn.utils.clip_grad_norm_(all_params, cfg.grad_clip))
         main_clip_scale = min(1.0, cfg.grad_clip / max(main_pre_clip, 1e-12))
         if scaler.is_enabled():
@@ -374,16 +418,31 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         # ---- discriminator catch-up: track the moving encoder (no reversal) ----
         disc_pre_clip = 0.0
         disc_clip_scale = 1.0
-        if cfg.n_disc_steps > 1:
+        adversaries_on = any(weight > 0 for weight in (
+            cfg.grl_weight, cfg.grl_phoneme_weight,
+            cfg.grl_prosody_weight, cfg.grl_emotion_weight))
+        if cfg.n_disc_steps > 1 and adversaries_on:
             for _ in range(cfg.n_disc_steps - 1):
                 optimizer.zero_grad(set_to_none=True)
                 for (zL_d, zP_d, lens_d, spk_d, tgt_d, tlen_d,
                      pf0_d, pv_d, pe_d, emo_d) in disc_micro_batches:
                     with _autocast(amp_dtype):
-                        ld = (U.speaker_adv_loss(model.grl_head(zL_d, lens_d, 0.0), spk_d, lens_d)
-                              + ctc_pr_loss(model.pr_grl_head(zP_d, 0.0), tgt_d, lens_d, tlen_d)
-                              + U.prosody_train_loss(model.prosody_grl_head(zL_d, 0.0), pf0_d, pv_d, pe_d, lens_d)
-                              + F.cross_entropy(model.emotion_grl_head(zL_d, lens_d, 0.0), emo_d, weight=emo_w))
+                        terms = []
+                        if cfg.grl_weight > 0:
+                            terms.append(U.speaker_adv_loss(
+                                model.grl_head(zL_d, lens_d, 0.0), spk_d, lens_d))
+                        if cfg.grl_phoneme_weight > 0:
+                            terms.append(ctc_pr_loss(
+                                model.pr_grl_head(zP_d, 0.0), tgt_d, lens_d, tlen_d))
+                        if cfg.grl_prosody_weight > 0:
+                            terms.append(U.prosody_train_loss(
+                                model.prosody_grl_head(zL_d, 0.0),
+                                pf0_d, pv_d, pe_d, lens_d))
+                        if cfg.grl_emotion_weight > 0:
+                            terms.append(F.cross_entropy(
+                                model.emotion_grl_head(zL_d, lens_d, 0.0),
+                                emo_d, weight=emo_w))
+                        ld = sum(terms) if terms else zL_d.sum() * 0.0
                     if scaler.is_enabled(): scaler.scale(ld / accumulation).backward()
                     else: (ld / accumulation).backward()
                 if scaler.is_enabled(): scaler.unscale_(optimizer)
@@ -405,7 +464,10 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 sc, st = U.speaker_correct(out["sid_logits"], spk, olen)
                 gc, gt = U.speaker_correct(out["grl_logits"], spk, olen)
                 ec, et = U.class_correct(out["emotion_logits"], emo)
-                lc, lt = U.class_correct(out["emotion_grl_logits"], emo)
+                if "emotion_grl_logits" in out:
+                    lc, lt = U.class_correct(out["emotion_grl_logits"], emo)
+                else:
+                    lc = lt = 0
                 pr_n, pr_d = U.ctc_errors(out["pr_logits"].float(), tgt, olen, tlen)
                 gp_n, gp_d = U.ctc_errors(out["pr_grl_logits"].float(), tgt, olen, tlen)
 
@@ -483,7 +545,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                     sae_min_pair, sae_min_cos = "n/a", float("nan")
                 print("  SAE gradients (weighted, before clipping)", flush=True)
                 print(f"    cooperative: {_norm_row(grad_diag['norms'], coop_order)}", flush=True)
-                print(f"    adversarial: {_norm_row(grad_diag['norms'], adv_order)}", flush=True)
+                print(f"    adversarial: {_norm_row(grad_diag['norms'], ('external_bundle',))}",
+                      flush=True)
                 print(f"    PCGrad: raw={grad_diag['raw_coop_norm']:.2e}"
                       f"  projected={grad_diag['projected_coop_norm']:.2e}"
                       f"  adversary_bundle={grad_diag['external_norm']:.2e}", flush=True)
@@ -543,8 +606,16 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         # ---- eval + checkpoint ----
         if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
             vm = evaluate(model, val_dl, device, amp_dtype, n_emotion)
-            score = (vm["per"] + (1 - vm["sid_acc"]) + vm["zL_sid_acc"]
-                     + (1 - vm["zP_pr_per"]) + (1 - vm["zP_emo_uar"]) + vm["zL_emo_uar"])
+            # Select using only heads that this preset actually trains. Composite
+            # scores from different ablations therefore must not be compared
+            # directly; fresh frozen probes provide that comparison.
+            score = vm["per"] + (1 - vm["sid_acc"]) + (1 - vm["zP_emo_uar"])
+            if cfg.grl_weight > 0:
+                score += vm["zL_sid_acc"]
+            if cfg.grl_phoneme_weight > 0:
+                score += 1 - vm["zP_pr_per"]
+            if cfg.grl_emotion_weight > 0 and math.isfinite(vm["zL_emo_uar"]):
+                score += vm["zL_emo_uar"]
             print(f"\n[val step={step:05d}]", flush=True)
             print("  factor      kept representation       leakage representation", flush=True)
             print(f"  phoneme     z_L PER={vm['per']:.3f}"
@@ -553,6 +624,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                   f"              z_L acc={vm['zL_sid_acc']:.3f}", flush=True)
             print(f"  emotion     z_P UAR={vm['zP_emo_uar']:.3f} acc={vm['zP_emo_acc']:.3f}"
                   f"    z_L UAR={vm['zL_emo_uar']:.3f}", flush=True)
+            print(f"  prosody     z_P loss={vm['zP_prosody_loss']:.3f}"
+                  f"           z_L loss={vm['zL_prosody_loss']:.3f}", flush=True)
             print(f"  checkpoint score={score:.3f}", flush=True)
             append_metrics(metrics_path, {"step": step, "split": "val", **vm, "score": score})
             save_runtime(f"step{step}.pt", kind="inference", val=vm)
@@ -570,6 +643,27 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             return ckpt_dir / "latest-resume.pt"
 
     save_runtime("latest-resume.pt")
-    save_runtime("final.pt", kind="inference")
+    final_path = save_runtime("final.pt", kind="inference")
+
+    # The final training checkpoint is the primary reported artifact.  ``best.pt``
+    # is retained as a validation diagnostic only: the composite proxy score mixes
+    # heterogeneous jointly-trained heads and is not reliable enough to decide
+    # which weights are allowed to see the held-out test set.
+    tm = evaluate(model, test_dl, device, amp_dtype, n_emotion)
+    append_metrics(metrics_path, {"step": step, "split": "test", **tm})
+    final_payload = torch.load(final_path, map_location="cpu", weights_only=False)
+    final_payload.setdefault("auxiliary", {})["test"] = tm
+    if test_unseen_dl is not None:
+        tum = evaluate(model, test_unseen_dl, device, amp_dtype, n_emotion)
+        append_metrics(metrics_path, {"step": step, "split": "test_unseen", **tum})
+        final_payload["auxiliary"]["test_unseen"] = tum
+    atomic_torch_save(final_payload, final_path)
+    mirror_file(final_path, mirror_dir)
+    if metrics_path.exists():
+        mirror_file(metrics_path, mirror_dir)
+    print(f"[test] final.pt: z_L PER={tm['per']:.3f} "
+          f"z_P SID={tm['sid_acc']:.3f} z_L SID={tm['zL_sid_acc']:.3f} "
+          f"z_P emo UAR={tm['zP_emo_uar']:.3f} z_L emo UAR={tm['zL_emo_uar']:.3f}",
+          flush=True)
     print(f"[msp] done. best disent={best:.3f}  ckpts in {ckpt_dir}")
-    return ckpt_dir / "best.pt"
+    return final_path

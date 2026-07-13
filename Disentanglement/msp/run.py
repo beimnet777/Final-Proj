@@ -25,6 +25,8 @@ def main() -> None:
     # schedule / scale
     p.add_argument("--steps", type=int, default=d.steps)
     p.add_argument("--warmup_steps", type=int, default=d.warmup_steps)
+    p.add_argument("--dann_ramp_steps", type=int, default=d.dann_ramp_steps,
+                   help="sigmoid DANN/GRL ramp length; reaches 1.0 by this step")
     p.add_argument("--batch_size", type=int, default=d.batch_size)
     p.add_argument("--eval_batch", type=int, default=d.eval_batch)
     p.add_argument("--num_workers", type=int, default=d.num_workers)
@@ -47,7 +49,8 @@ def main() -> None:
     # gradient-conflict
     p.add_argument("--no_pcgrad", action="store_true", help="disable PCGrad surgery")
     p.add_argument("--pcgrad_tasks", default=d.pcgrad_tasks)
-    p.add_argument("--grl_grad_norm", action="store_true",
+    p.add_argument("--grl_grad_norm", action=argparse.BooleanOptionalAction,
+                   default=d.grl_grad_norm,
                    help="normalize the z_L speaker-GRL gradient per frame")
     p.add_argument("--grl_grad_norm_target", type=float, default=d.grl_grad_norm_target)
     # task weights
@@ -82,7 +85,8 @@ def main() -> None:
 
     m = MSPConfig(
         manifest=a.manifest, audio_root=a.audio_root, transcripts=a.transcripts,
-        steps=a.steps, warmup_steps=a.warmup_steps, batch_size=a.batch_size,
+        steps=a.steps, warmup_steps=a.warmup_steps, dann_ramp_steps=a.dann_ramp_steps,
+        batch_size=a.batch_size,
         eval_batch=a.eval_batch, num_workers=a.num_workers, seed=a.seed,
         hard_routing=not a.soft_routing,
         lr=a.lr, lr_min=a.lr_min, lr_heads=a.lr_heads, lr_disc=a.lr_disc,
@@ -123,6 +127,7 @@ def main() -> None:
     if a.smoke:
         cfg.stage2_steps = 3
         cfg.warmup_steps = 1
+        cfg.dann_ramp_steps = 1
         cfg.ckpt_every = 3
         cfg.log_every = 1
     print(f"=== MSP run '{a.run_name}'  pcgrad={cfg.pcgrad}  routing={'hard' if m.hard_routing else 'soft'} ===")

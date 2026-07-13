@@ -5,7 +5,7 @@ applies MSP-appropriate defaults here, in this folder — the legacy config.py i
 left untouched.  Differences from the old Libri+IEMOCAP setup, all motivated by the
 failure analysis:
   * one dataset: emotion trains EVERY batch (no IEMOCAP-every-8, no _cap_loss).
-  * full-strength anti-emotion GRL on z_L (was 0.2 and ramped — too weak).
+  * full-strength anti-emotion GRL on z_L after a DANN sigmoid ramp.
   * class-weighted emotion CE + UAR reporting (neutral-heavy corpus).
   * optional PCGrad over the cooperative tasks to defuse gradient conflict on the
     shared SAE trunk (adversaries are left alone — their conflict is the point).
@@ -32,28 +32,33 @@ class MSPConfig:
     # gradient-conflict handling on the shared SAE trunk
     pcgrad:        bool = True
     # cooperative tasks PCGrad de-conflicts (adversaries excluded on purpose)
-    pcgrad_tasks:  str  = "recon,pr,sid,prosody,emotion,inv"
+    pcgrad_tasks:  str  = "recon,pr,sid,prosody,emotion"
 
     # Optional per-frame normalization of the reversed speaker gradient entering
     # z_L. Experiments enable it and select its target in their Slurm script.
-    grl_grad_norm:        bool  = False
-    grl_grad_norm_target: float = 1.0
+    grl_grad_norm:        bool  = True
+    grl_grad_norm_target: float = 0.0002
 
     # task weights (full-strength emotion + its GRL — the key fix)
     alpha: float = 0.8                    # PR / CTC
     beta:  float = 0.6                    # SID
     grl_weight:          float = 1.0      # anti-speaker on z_L
-    grl_phoneme_weight:  float = 0.5      # anti-phoneme on z_P
+    grl_phoneme_weight:  float = 0.15     # anti-phoneme on z_P
     prosody_weight:      float = 0.5
     grl_prosody_weight:  float = 0.5      # anti-prosody on z_L
     emotion_weight:      float = 0.5
     grl_emotion_weight:  float = 0.5      # anti-emotion on z_L  (was 0.2 + ramp)
-    # MSP has 700 real speakers + a GELU speaker-GRL, so perturbation-invariance is
-    # now a stabiliser, not the main speaker-stripper — was 4.0 (Libri-tuned).
-    inv_weight:          float = 1.0
+    # Optional perturbation-invariance on z_L. Disabled by default for the initial
+    # MSP search so the labeled factors remain cleanly interpretable.
+    inv_weight:          float = 0.0
 
     steps:        int = 12000
     warmup_steps: int = 500
+    # DANN/GRL sigmoid ramp.  Reaches 1.0 by this step and then stays there.
+    # Keep separate from lr warmup so MSP can sweep adversary onset without
+    # changing the optimizer schedule.  Default preserves the original 500-step
+    # adversary warmup, but with the canonical DANN sigmoid shape.
+    dann_ramp_steps: int = 500
     batch_size:   int = 16
     eval_batch:   int = 32
     num_workers:  int = 8
@@ -97,7 +102,7 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.prosody = True
     c.emotion = True
     c.emotion_num_classes = 4
-    c.invariance = True
+    c.invariance = m.inv_weight > 0
     c.alpha, c.beta = m.alpha, m.beta
     c.grl_weight = m.grl_weight
     c.grl_phoneme_weight = m.grl_phoneme_weight
@@ -116,6 +121,7 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.lr_routing = m.lr_routing
     c.grad_clip = m.grad_clip
     c.warmup_steps = m.warmup_steps
+    c.dann_ramp_steps = m.dann_ramp_steps
     c.stage2_steps = m.steps
     c.stage2_schedule_steps = m.steps
     c.batch_size = m.batch_size

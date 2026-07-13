@@ -14,7 +14,7 @@ Batch contract (a dict, since this is multi-task):
     target_lengths  (B,)
     speaker_ids     (B,)          closed-set index 0..num_speakers-1  (-1 = unseen)
     emotion         (B,)          0=neutral 1=happy 2=sad 3=angry  (IEMOCAP order)
-    avd             (B, 3)        arousal, valence, dominance (1..7)  [optional head]
+    avd             (B, 3)        arousal, valence, dominance (1..7), metadata only
     pert_audios     (B, T)        speaker-perturbed copy — TRAIN only, invariance on
 
 Splits (from data/msp_subset/manifest.csv): train / val / test are the SAME

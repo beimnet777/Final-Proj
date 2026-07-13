@@ -4,15 +4,16 @@ from __future__ import annotations
 from copy import deepcopy
 
 MSP_BASELINE = {
-    "steps": 12000, "warmup_steps": 500, "alpha": 0.8, "beta": 0.6,
+    "steps": 12000, "warmup_steps": 500, "dann_ramp_steps": 500,
+    "alpha": 0.8, "beta": 0.6,
     "grl_weight": 1.0, "grl_phoneme_weight": 0.15,
     "prosody_weight": 0.5, "grl_prosody_weight": 0.5,
-    "emotion_weight": 0.5, "grl_emotion_weight": 0.5, "inv_weight": 1.0,
+    "emotion_weight": 0.5, "grl_emotion_weight": 0.5, "inv_weight": 0.0,
     "lr": 1e-4, "lr_min": 1e-6, "lr_heads": 1e-4, "lr_disc": 1e-3,
     "lr_routing": 1e-3, "n_disc_steps": 3, "routing_init_std": 0.5,
     "routing_spec_weight": 0.01, "routing_tau": 1.0, "pcgrad": True,
     "hard_routing": True, "grl_grad_norm": True,
-    "grl_grad_norm_target": 0.0005,
+    "grl_grad_norm_target": 0.0002,
 }
 
 LIBRI_COMMON = {
