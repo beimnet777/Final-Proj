@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
 #SBATCH --job-name=libri_final_probe
-#SBATCH --array=0-7%1
+#SBATCH --array=0-7%4
 #SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/blackwell/logs/%x_%A_%a.out
 #SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/blackwell/logs/%x_%A_%a.err
 
@@ -24,13 +24,13 @@
 #   6) learned quota-freeze 16k: z_t,z_L,z_P ASR
 #   7) learned quota-freeze 16k: z_t,z_L,z_P SID stats
 #
-# Submit all sequentially:
+# Submit all, four running at a time:
 #   sbatch Disentanglement/blackwell/slurm/final_probe_matrix.sh
 #
 # Submit one task:
 #   sbatch --array=4 Disentanglement/blackwell/slurm/final_probe_matrix.sh
 #
-# Run two at a time if the queue/GPU budget allows:
+# Override parallelism at submit time if needed:
 #   sbatch --array=0-7%2 Disentanglement/blackwell/slurm/final_probe_matrix.sh
 
 set -euo pipefail
