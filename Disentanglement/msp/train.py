@@ -90,6 +90,115 @@ def _set_seed(seed):
     torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
 
 
+def _calibrate_route_topk_quotas(model, train_dl, device, cfg, amp_dtype) -> tuple[torch.Tensor, torch.Tensor]:
+    """Estimate route-local active budgets after freezing learned routing.
+
+    We do not impose a preset L/P active split.  Instead we measure, under the
+    learned route assignment and the ordinary global TopK, how many selected
+    units land in each route.  Those averages are rounded to integer quotas that
+    sum to ``cfg.topk`` and then stored in the SAE, stabilizing the post-freeze
+    active split.
+    """
+    if getattr(model.routing, "dynamic", False):
+        raise ValueError("route-local TopK calibration supports static learned routing only")
+
+    n_routes = int(getattr(cfg, "n_routes", 2))
+    max_batches = max(1, int(getattr(cfg, "route_topk_calib_batches", 20)))
+    was_training = model.training
+    route_topk_was_enabled = bool(getattr(model.sae, "route_topk_enabled").item())
+    if route_topk_was_enabled:
+        model.sae.clear_route_topk()
+    model.eval()
+
+    sampler_state = None
+    if hasattr(train_dl, "sampler") and hasattr(train_dl.sampler, "state_dict"):
+        sampler_state = train_dl.sampler.state_dict()
+
+    route_idx = model.routing.logits.detach().argmax(dim=-1).to(device)
+    route_counts = torch.stack([(route_idx == r).sum() for r in range(n_routes)]).long()
+    active_counts = torch.zeros(n_routes, device=device)
+    frame_count = torch.zeros((), device=device)
+    batches_seen = 0
+    data_iter = iter(train_dl)
+    for _ in range(max_batches):
+        try:
+            batch = next(data_iter)
+        except StopIteration:
+            data_iter = iter(train_dl)
+            batch = next(data_iter)
+        audios = batch["audios"].to(device)
+        audio_lengths = batch["audio_lengths"].to(device)
+        with _autocast(amp_dtype):
+            out = model(audios, audio_lengths, stage=2, grl_lambda=0.0,
+                        grl_p_lambda=0.0, grl_prosody_lambda=0.0,
+                        grl_emotion_lambda=0.0, emit_emotion=False)
+        z_active = (out["z_t"] != 0).float()
+        _, T_ = z_active.shape[:2]
+        fmask = (torch.arange(T_, device=device).unsqueeze(0)
+                 < out["out_lengths"].unsqueeze(1)).float()
+        valid_frames = fmask.sum()
+        if valid_frames.item() <= 0:
+            continue
+        for r in range(n_routes):
+            active_counts[r] += (
+                (z_active * (route_idx == r).float()).sum(-1) * fmask
+            ).sum()
+        frame_count += valid_frames
+        batches_seen += 1
+
+    if sampler_state is not None and hasattr(train_dl.sampler, "load_state_dict"):
+        train_dl.sampler.load_state_dict(sampler_state)
+    model.train(was_training)
+
+    if frame_count.item() <= 0 or batches_seen == 0:
+        raise ValueError("route-local TopK calibration saw no valid frames")
+
+    avg = active_counts / frame_count
+    quotas = torch.floor(avg).long().cpu()
+    frac = avg.cpu() - quotas.float()
+    target_topk = int(getattr(cfg, "topk", int(avg.sum().round().item())))
+    route_counts_cpu = route_counts.cpu()
+
+    diff = target_topk - int(quotas.sum().item())
+    if diff > 0:
+        order = torch.argsort(frac, descending=True).tolist()
+        while diff > 0:
+            changed = False
+            for idx in order:
+                if diff <= 0:
+                    break
+                if quotas[idx].item() < route_counts_cpu[idx].item():
+                    quotas[idx] += 1
+                    diff -= 1
+                    changed = True
+            if not changed:
+                raise ValueError(
+                    "cannot allocate route-local TopK quotas to requested topk; "
+                    f"quotas={quotas.tolist()} route_counts={route_counts_cpu.tolist()} "
+                    f"target={target_topk}")
+    elif diff < 0:
+        order = torch.argsort(frac, descending=False).tolist()
+        remaining = -diff
+        while remaining > 0:
+            changed = False
+            for idx in order:
+                if remaining <= 0:
+                    break
+                if quotas[idx].item() > 0:
+                    quotas[idx] -= 1
+                    remaining -= 1
+                    changed = True
+            if not changed:
+                raise ValueError(f"cannot reduce route-local TopK quotas to target {target_topk}")
+
+    model.sae.set_route_topk(route_idx.cpu(), quotas)
+    print("[msp] learned-route TopK calibrated: "
+          f"batches={batches_seen} avg_active={[round(float(x), 2) for x in avg.cpu()]} "
+          f"quotas={quotas.tolist()} route_counts={route_counts_cpu.tolist()} "
+          f"sum={int(quotas.sum().item())}", flush=True)
+    return route_idx.cpu(), quotas
+
+
 # ---------------------------------------------------------------- evaluation
 @torch.no_grad()
 def evaluate(model, dl, device, amp_dtype, n_emotion) -> Dict[str, float]:
@@ -213,7 +322,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     print(f"[msp] steps={cfg.stage2_steps} microbatch={cfg.batch_size} "
           f"accumulation={accumulation} effective_batch={effective_batch} pcgrad={cfg.pcgrad} "
           f"({sorted(coop_names)})  device={device} amp={amp_dtype}")
-    print(f"[msp] weights α(pr)={cfg.alpha} β(sid)={cfg.beta} grl={cfg.grl_weight} "
+    print(f"[msp] weights recon={getattr(cfg, 'recon_weight', 1.0)} "
+          f"α(pr)={cfg.alpha} β(sid)={cfg.beta} grl={cfg.grl_weight} "
           f"grl_p={cfg.grl_phoneme_weight} pros={cfg.prosody_weight}/{cfg.grl_prosody_weight} "
           f"emo={cfg.emotion_weight}/{cfg.grl_emotion_weight} inv={cfg.inv_weight}")
 
@@ -221,11 +331,13 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     step = 0
     resume_value = str(getattr(cfg, "resume", "none"))
     resume_path = ckpt_dir / "latest-resume.pt" if resume_value == "auto" else Path(resume_value)
+    restored_from_resume = False
     if resume_value not in {"none", ""} and resume_path.exists():
         saved = torch.load(resume_path, map_location=device, weights_only=False)
         validate_resume(saved, dataset_hash=str(getattr(cfg, "dataset_fingerprint", "")),
                         preset=str(getattr(cfg, "experiment_preset", "")), cfg=cfg)
         step, best = restore_training_state(saved, model=model, optimizer=optimizer, scaler=scaler)
+        restored_from_resume = True
         if pcgrad is not None:
             pcgrad.load_state_dict(saved.get("auxiliary", {}).get("pcgrad", {}))
         sampler_state = saved.get("auxiliary", {}).get("train_sampler")
@@ -234,6 +346,24 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         print(f"[msp] exact resume from {resume_path}: step={step} best={best:.4f}")
     elif resume_value not in {"none", "", "auto"}:
         raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
+
+    if bool(getattr(cfg, "freeze_learned_routing_on_resume", False)):
+        if not restored_from_resume:
+            raise ValueError("freeze_learned_routing_on_resume requires a restored resume checkpoint")
+        if getattr(model.routing, "dynamic", False):
+            raise ValueError("learned-route freeze currently supports static routing only")
+        model.routing.freeze_learned_routing()
+        n_L, n_P, n_U = model.routing.hard_counts
+        print("[msp] learned routing FROZEN after resume: "
+              f"counts L/P/U={n_L}/{n_P}/{n_U}", flush=True)
+        if bool(getattr(cfg, "freeze_route_topk_on_resume", False)):
+            if bool(getattr(model.sae, "route_topk_enabled").item()):
+                quotas = getattr(model.sae, "route_topk_quotas").detach().cpu().tolist()
+                print(f"[msp] learned-route TopK already enabled from checkpoint: quotas={quotas}",
+                      flush=True)
+            else:
+                _calibrate_route_topk_quotas(model, train_dl, device, cfg, amp_dtype)
+
     segment = SegmentLimit(step, int(getattr(cfg, "segment_steps", 0)),
                            float(getattr(cfg, "max_runtime_minutes", 0.0)))
     metrics_path = ckpt_dir / "metrics.jsonl"
@@ -269,7 +399,10 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         next_step = step + 1
         boundary = micro_index == accumulation
         log_now = boundary and (next_step % cfg.log_every == 0 or next_step == 1)
+        grad_every = max(1, int(getattr(cfg, "grad_log_every", cfg.log_every)))
+        grad_now = boundary and (next_step % grad_every == 0 or next_step == 1)
         grad_diag = None
+        adv_sae_grad_norms = None
         lr_now = lr_at(next_step)
         optimizer.param_groups[0]["lr"] = lr_now          # SAE follows the cosine
         ramp = _dann_lambda(next_step, cfg.stage2_steps,
@@ -314,7 +447,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             l_spec    = routing_spec_loss(out["routing_logits"])
 
         coop = {
-            "recon":   1.0 * l_recon,
+            "recon":   float(getattr(cfg, "recon_weight", 1.0)) * l_recon,
             "pr":      cfg.alpha * l_pr,
             "sid":     cfg.beta * l_sid,
             "prosody": cfg.prosody_weight * l_pros,
@@ -337,7 +470,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         adversary_losses = None
         active_freq_for_router = None
         active_p_soft_after = None
-        if log_now:
+        if grad_now:
             adversary_losses = {
                 "grl": cfg.grl_weight * l_grl,
                 "grl_p": cfg.grl_phoneme_weight * l_grl_p,
@@ -377,6 +510,11 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             shared_extra = adv + sum(unmanaged) if unmanaged else adv
             current = {name: pcgrad.flat_grad(loss).detach() / accumulation
                        for name, loss in managed.items()}
+            if grad_now and adversary_losses is not None:
+                adv_sae_grad_norms = {
+                    name: float((pcgrad.flat_grad(loss).detach() / accumulation).float().norm().item())
+                    for name, loss in adversary_losses.items()
+                }
             if task_grad_sums is None:
                 task_grad_sums = {name: grad.clone() for name, grad in current.items()}
                 extra_grad_sum = pcgrad.flat_grad(shared_extra).detach() / accumulation
@@ -397,7 +535,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             scaler.unscale_(optimizer)
         if pcgrad is not None:
             projected_coop = pcgrad.project_vectors(task_grad_sums)
-            if log_now:
+            if grad_now:
                 grad_diag = pcgrad.vector_diagnostics(
                     task_grad_sums, projected_coop, extra_grad_sum)
             pcgrad.write_(projected_coop + extra_grad_sum)
@@ -407,7 +545,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             scaler.step(optimizer); scaler.update()
         else:
             optimizer.step()
-        if log_now and active_freq_for_router is not None and not model.routing.dynamic:
+        if grad_now and active_freq_for_router is not None and not model.routing.dynamic:
             with torch.no_grad():
                 route_p_after = torch.softmax(model.routing.logits, dim=-1)[:, 1]
                 active_p_soft_after = float(
@@ -459,7 +597,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         disc_micro_batches = []
 
         # ---- logging ----
-        if log_now:
+        if log_now or grad_now:
             with torch.no_grad():
                 sc, st = U.speaker_correct(out["sid_logits"], spk, olen)
                 gc, gt = U.speaker_correct(out["grl_logits"], spk, olen)
@@ -495,49 +633,39 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 zL_grl_frame = (cfg.grl_grad_norm_target * ramp
                                 if cfg.grl_grad_norm else float("nan"))
 
-            print(f"\n[train step={step:05d}/{cfg.stage2_steps}]  lr_sae={lr_now:.2e}  "
-                  f"grl_lambda={ramp:.2f}  zL_grl_frame={zL_grl_frame:.2e}", flush=True)
-            print("  factor      kept task                         adversary", flush=True)
-            print(f"  phoneme     loss={l_pr.item():7.3f} PER={pr_n/max(pr_d,1):.3f}"
-                  f"        loss={l_grl_p.item():7.3f} PER={gp_n/max(gp_d,1):.3f}", flush=True)
-            print(f"  speaker     loss={l_sid.item():7.3f} acc={sc/max(st,1):.3f}"
-                  f"        loss={l_grl.item():7.3f} acc={gc/max(gt,1):.3f}", flush=True)
-            print(f"  prosody     loss={l_pros.item():7.3f}"
-                  f"                  loss={l_prosgrl.item():7.3f}", flush=True)
-            print(f"  emotion     loss={l_emo.item():7.3f} acc={ec/max(et,1):.3f}"
-                  f"        loss={l_emogrl.item():7.3f} acc={lc/max(lt,1):.3f}", flush=True)
-            print(f"  shared      recon={l_recon.item():.4f}  invariance={float(l_inv):.4f}", flush=True)
-
             active_total = max(act_L + act_P, 1e-12)
-            print("  routing", flush=True)
-            print(f"    assigned L/P={n_L}/{n_P}"
-                  f"    active L/P={act_L:.0f}/{act_P:.0f}"
-                  f"    active_P={100*act_P/active_total:.1f}%    dead={100*dead_frac:.1f}%", flush=True)
-            print(f"    H_balance={route_diag['balance_entropy']:.3f}"
-                  f"    H_unit={route_diag['unit_entropy']:.3f}"
-                  f"    specialized={route_diag['specialized_frac_h_lt_0_5']:.2f}"
-                  f"    margin={route_diag['top1_top2_margin']:.3f}"
-                  f"    logit_std={route_diag['logit_std']:.4f}"
-                  f"    tau={model.routing.tau:.3f}", flush=True)
-            print("  clipping (pre-norm -> multiplier)", flush=True)
-            print(f"    main={main_pre_clip:.3e} -> {main_clip_scale:.3e}"
-                  f"    discriminator_max={disc_pre_clip:.3e} -> {disc_clip_scale:.3e}", flush=True)
-            append_metrics(metrics_path, {
-                "step": step, "split": "train", "lr": lr_now,
-                "recon": float(l_recon), "pr": float(l_pr), "sid": float(l_sid),
-                "grl": float(l_grl), "grl_p": float(l_grl_p),
-                "prosody": float(l_pros), "prosody_grl": float(l_prosgrl),
-                "emotion": float(l_emo), "emotion_grl": float(l_emogrl),
-                "invariance": float(l_inv), "route_tau": float(model.routing.tau),
-                "active_L": act_L, "active_P": act_P, "dead_fraction": dead_frac,
-            })
+            print(f"\n[train {step:05d}/{cfg.stage2_steps}] "
+                  f"lr={lr_now:.2e} dann={ramp:.2f} zL_frame={zL_grl_frame:.2e} "
+                  f"recon={l_recon.item():.4f} dead={100*dead_frac:.1f}% "
+                  f"active L/P={act_L:.0f}/{act_P:.0f} ({100*act_P/active_total:.1f}% P) "
+                  f"assigned L/P={n_L}/{n_P}", flush=True)
+            print(f"  content: z_L PER={pr_n/max(pr_d,1):.3f} | z_P adv PER={gp_n/max(gp_d,1):.3f}    "
+                  f"speaker: z_P acc={sc/max(st,1):.3f} | z_L adv acc={gc/max(gt,1):.3f}", flush=True)
+            print(f"  affect:  z_P emo acc={ec/max(et,1):.3f} | z_L emo-adv acc={lc/max(lt,1):.3f}    "
+                  f"pros loss P/Ladv={l_pros.item():.3f}/{l_prosgrl.item():.3f}", flush=True)
+            print(f"  route: Hbal={route_diag['balance_entropy']:.3f} "
+                  f"Hunit={route_diag['unit_entropy']:.3f} "
+                  f"spec={route_diag['specialized_frac_h_lt_0_5']:.2f} "
+                  f"margin={route_diag['top1_top2_margin']:.3f} tau={model.routing.tau:.3f}    "
+                  f"clip main={main_pre_clip:.2e}->{main_clip_scale:.2e} "
+                  f"disc={disc_pre_clip:.2e}->{disc_clip_scale:.2e}", flush=True)
+            if log_now:
+                append_metrics(metrics_path, {
+                    "step": step, "split": "train", "lr": lr_now,
+                    "recon": float(l_recon), "pr": float(l_pr), "sid": float(l_sid),
+                    "grl": float(l_grl), "grl_p": float(l_grl_p),
+                    "prosody": float(l_pros), "prosody_grl": float(l_prosgrl),
+                    "emotion": float(l_emo), "emotion_grl": float(l_emogrl),
+                    "invariance": float(l_inv), "route_tau": float(model.routing.tau),
+                    "active_L": act_L, "active_P": act_P, "dead_fraction": dead_frac,
+                })
 
             def _norm_row(norms, names):
                 return "  ".join(f"{name}={norms.get(name, 0.0):.2e}" for name in names)
 
             coop_order = ("recon", "pr", "sid", "prosody", "emotion", "inv")
             adv_order = ("grl", "grl_p", "pros_grl", "emo_grl", "route_spec")
-            if grad_diag is not None:
+            if grad_now and grad_diag is not None:
                 coop_cos = grad_diag["coop_cosines"]
                 if coop_cos:
                     sae_min_pair, sae_min_cos = min(coop_cos.items(), key=lambda item: item[1])
@@ -547,13 +675,16 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 print(f"    cooperative: {_norm_row(grad_diag['norms'], coop_order)}", flush=True)
                 print(f"    adversarial: {_norm_row(grad_diag['norms'], ('external_bundle',))}",
                       flush=True)
+                if adv_sae_grad_norms is not None:
+                    print(f"    adversarial factors: {_norm_row(adv_sae_grad_norms, adv_order)}",
+                          flush=True)
                 print(f"    PCGrad: raw={grad_diag['raw_coop_norm']:.2e}"
                       f"  projected={grad_diag['projected_coop_norm']:.2e}"
                       f"  adversary_bundle={grad_diag['external_norm']:.2e}", flush=True)
                 print(f"    cooperative conflicts={grad_diag['coop_conflicts']}/{len(coop_cos)}"
                       f"  strongest={sae_min_pair}:{sae_min_cos:+.2f}", flush=True)
 
-            if router_grad_diag is not None:
+            if grad_now and router_grad_diag is not None:
                 def _grad_cos(a, b):
                     av = router_grad_diag["vectors"][a].detach().float()
                     bv = router_grad_diag["vectors"][b].detach().float()

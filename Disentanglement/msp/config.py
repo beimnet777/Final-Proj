@@ -40,6 +40,7 @@ class MSPConfig:
     grl_grad_norm_target: float = 0.0002
 
     # task weights (full-strength emotion + its GRL — the key fix)
+    recon_weight: float = 1.0
     alpha: float = 0.8                    # PR / CTC
     beta:  float = 0.6                    # SID
     grl_weight:          float = 1.0      # anti-speaker on z_L
@@ -68,7 +69,7 @@ class MSPConfig:
     # Optimizer and routing controls. The production Slurm script passes every
     # one explicitly so its submitted command is the experiment source of truth.
     lr:                  float = 1e-4
-    lr_min:              float = 1e-6
+    lr_min:              float = 1e-5
     lr_heads:            float = 1e-4
     lr_disc:             float = 1e-3
     lr_routing:          float = 1e-3
@@ -78,7 +79,19 @@ class MSPConfig:
     routing_spec_weight: float = 0.01
     routing_tau:         float = 1.0
     log_every:           int   = 100
+    # Detailed gradient diagnostics are useful, but printing them every train
+    # log makes the MSP logs hard to read. Keep the compact trace frequent and
+    # the gradient trace sparser.
+    grad_log_every:      int   = 1000
     ckpt_every:          int   = 1000
+
+    # Learned-routing continuation controls. These mirror the Libri
+    # learned→freeze experiments: run a learn segment, exact-resume, freeze the
+    # learned static route assignment, optionally calibrate route-local TopK
+    # quotas from the learned active split, then continue training.
+    freeze_learned_routing_on_resume: bool = False
+    freeze_route_topk_on_resume:      bool = False
+    route_topk_calib_batches:         int  = 20
 
 
 def to_dis_cfg(m: MSPConfig) -> DISConfig:
@@ -103,6 +116,7 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.emotion = True
     c.emotion_num_classes = 4
     c.invariance = m.inv_weight > 0
+    c.recon_weight = m.recon_weight
     c.alpha, c.beta = m.alpha, m.beta
     c.grl_weight = m.grl_weight
     c.grl_phoneme_weight = m.grl_phoneme_weight
@@ -129,7 +143,11 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.num_workers = m.num_workers
     c.seed = m.seed
     c.log_every = m.log_every
+    c.grad_log_every = m.grad_log_every
     c.ckpt_every = m.ckpt_every
+    c.freeze_learned_routing_on_resume = m.freeze_learned_routing_on_resume
+    c.freeze_route_topk_on_resume = m.freeze_route_topk_on_resume
+    c.route_topk_calib_batches = m.route_topk_calib_batches
     # ---- MSP data paths (read by msp.data.make_msp_dataloaders) ----
     c.msp_manifest = m.manifest
     c.msp_audio_root = m.audio_root

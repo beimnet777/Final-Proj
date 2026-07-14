@@ -45,7 +45,17 @@ def main() -> None:
     p.add_argument("--routing_spec_weight", type=float, default=d.routing_spec_weight)
     p.add_argument("--routing_tau", type=float, default=d.routing_tau)
     p.add_argument("--log_every", type=int, default=d.log_every)
+    p.add_argument("--grad_log_every", type=int, default=d.grad_log_every,
+                   help="print detailed gradient diagnostics every N steps")
     p.add_argument("--ckpt_every", type=int, default=d.ckpt_every)
+    p.add_argument("--freeze_learned_routing_on_resume", action="store_true",
+                   default=d.freeze_learned_routing_on_resume,
+                   help="after exact resume, freeze the learned static routing logits")
+    p.add_argument("--freeze_route_topk_on_resume", action="store_true",
+                   default=d.freeze_route_topk_on_resume,
+                   help="after learned-route freeze, calibrate/enforce route-local TopK quotas")
+    p.add_argument("--route_topk_calib_batches", type=int,
+                   default=d.route_topk_calib_batches)
     # gradient-conflict
     p.add_argument("--no_pcgrad", action="store_true", help="disable PCGrad surgery")
     p.add_argument("--pcgrad_tasks", default=d.pcgrad_tasks)
@@ -54,6 +64,7 @@ def main() -> None:
                    help="normalize the z_L speaker-GRL gradient per frame")
     p.add_argument("--grl_grad_norm_target", type=float, default=d.grl_grad_norm_target)
     # task weights
+    p.add_argument("--recon_weight", type=float, default=d.recon_weight)
     p.add_argument("--alpha", type=float, default=d.alpha)
     p.add_argument("--beta", type=float, default=d.beta)
     p.add_argument("--grl_weight", type=float, default=d.grl_weight)
@@ -93,10 +104,15 @@ def main() -> None:
         lr_routing=a.lr_routing, n_disc_steps=a.n_disc_steps,
         grad_clip=a.grad_clip, routing_init_std=a.routing_init_std,
         routing_spec_weight=a.routing_spec_weight, routing_tau=a.routing_tau,
-        log_every=a.log_every, ckpt_every=a.ckpt_every,
+        log_every=a.log_every, grad_log_every=a.grad_log_every,
+        ckpt_every=a.ckpt_every,
+        freeze_learned_routing_on_resume=a.freeze_learned_routing_on_resume,
+        freeze_route_topk_on_resume=a.freeze_route_topk_on_resume,
+        route_topk_calib_batches=a.route_topk_calib_batches,
         pcgrad=not a.no_pcgrad, pcgrad_tasks=a.pcgrad_tasks,
         grl_grad_norm=a.grl_grad_norm,
         grl_grad_norm_target=a.grl_grad_norm_target,
+        recon_weight=a.recon_weight,
         alpha=a.alpha, beta=a.beta, grl_weight=a.grl_weight,
         grl_phoneme_weight=a.grl_phoneme_weight, prosody_weight=a.prosody_weight,
         grl_prosody_weight=a.grl_prosody_weight, emotion_weight=a.emotion_weight,
@@ -130,6 +146,11 @@ def main() -> None:
         cfg.dann_ramp_steps = 1
         cfg.ckpt_every = 3
         cfg.log_every = 1
+        cfg.grad_log_every = 1
+    if cfg.freeze_route_topk_on_resume and not cfg.freeze_learned_routing_on_resume:
+        p.error("--freeze_route_topk_on_resume requires --freeze_learned_routing_on_resume")
+    if cfg.route_topk_calib_batches <= 0:
+        p.error("--route_topk_calib_batches must be positive")
     print(f"=== MSP run '{a.run_name}'  pcgrad={cfg.pcgrad}  routing={'hard' if m.hard_routing else 'soft'} ===")
     train.run(cfg, stage1_ckpt=a.stage1_ckpt)
 
