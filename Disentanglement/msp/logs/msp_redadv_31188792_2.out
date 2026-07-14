@@ -513,3 +513,30 @@ logs       : compact_every=500 grad_every=1000
   emotion     z_P UAR=0.638 acc=0.613    z_L UAR=0.605
   prosody     z_P loss=1.689           z_L loss=3.339
   checkpoint score=2.707
+
+[train 09500/12000] lr=2.01e-05 dann=1.00 zL_frame=2.00e-04 recon=0.1446 dead=5.7% active L/P=215/41 (16.0% P) assigned L/P=1956/3164
+  content: z_L PER=0.337 | z_P adv PER=0.827    speaker: z_P acc=0.312 | z_L adv acc=0.562
+  affect:  z_P emo acc=0.625 | z_L emo-adv acc=0.688    pros loss P/Ladv=1.621/3.225
+  route: Hbal=0.675 Hunit=0.476 spec=0.48 margin=0.548 tau=0.162    clip main=3.02e+01->3.31e-02 disc=8.20e+00->1.22e-01
+
+[train 10000/12000] lr=1.66e-05 dann=1.00 zL_frame=2.00e-04 recon=0.1485 dead=6.0% active L/P=215/41 (16.0% P) assigned L/P=1956/3164
+  content: z_L PER=0.378 | z_P adv PER=0.803    speaker: z_P acc=0.375 | z_L adv acc=0.562
+  affect:  z_P emo acc=0.625 | z_L emo-adv acc=0.562    pros loss P/Ladv=2.235/4.225
+  route: Hbal=0.675 Hunit=0.476 spec=0.48 margin=0.548 tau=0.147    clip main=2.95e+01->3.39e-02 disc=8.35e+00->1.20e-01
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=7.18e-02  pr=3.25e+00  sid=6.06e+00  prosody=7.73e+00  emotion=2.61e+01  inv=0.00e+00
+    adversarial: external_bundle=6.84e+00
+    adversarial factors: grl=1.08e+00  grl_p=5.14e+00  pros_grl=3.29e+00  emo_grl=1.56e+00  route_spec=0.00e+00
+    PCGrad: raw=2.99e+01  projected=3.03e+01  adversary_bundle=6.84e+00
+    cooperative conflicts=5/10  strongest=sid|prosody:-0.07
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.267958 -> 0.267958  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
