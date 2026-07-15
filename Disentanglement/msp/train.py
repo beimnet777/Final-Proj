@@ -23,7 +23,7 @@ from losses import recon_loss, ctc_pr_loss, sid_ce_loss, route_loss, routing_spe
 
 from .data import make_msp_dataloaders, EMOTION_NAMES
 from .grad_conflict import PCGrad, named_gradient_diagnostics
-from .heads import GELUSpeakerGRLHead
+from .heads import GELUEmotionGRLHead, GELUSpeakerGRLHead
 from .checkpoints import load_sae_initialization
 from . import utils as U
 from training_runtime import (
@@ -284,6 +284,14 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     grl_norm = (f"per-frame grad norm target={cfg.grl_grad_norm_target:g}"
                 if cfg.grl_grad_norm else "plain gradient reversal")
     print(f"[msp] speaker adversary: GELUSpeakerGRLHead (GELU projector, {grl_norm})")
+    if hasattr(model, "emotion_grl_head"):
+        model.emotion_grl_head = GELUEmotionGRLHead(cfg).to(device)
+        emo_grl_norm = (
+            f"per-frame grad norm target={cfg.grl_emotion_grad_norm_target:g}"
+            if getattr(cfg, "grl_emotion_grad_norm", False)
+            else "plain gradient reversal"
+        )
+        print(f"[msp] emotion adversary: GELUEmotionGRLHead (mean+std, {emo_grl_norm})")
     model.train()
 
     # ---- emotion class weights from the train manifest (neutral-heavy) ----
@@ -326,6 +334,11 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
           f"α(pr)={cfg.alpha} β(sid)={cfg.beta} grl={cfg.grl_weight} "
           f"grl_p={cfg.grl_phoneme_weight} pros={cfg.prosody_weight}/{cfg.grl_prosody_weight} "
           f"emo={cfg.emotion_weight}/{cfg.grl_emotion_weight} inv={cfg.inv_weight}")
+    spk_frame = (float(cfg.grl_grad_norm_target)
+                 if getattr(cfg, "grl_grad_norm", False) else float("nan"))
+    emo_frame = (float(getattr(cfg, "grl_emotion_grad_norm_target", float("nan")))
+                 if getattr(cfg, "grl_emotion_grad_norm", False) else float("nan"))
+    print(f"[msp] per-frame GRL targets: speaker={spk_frame:.2e} emotion={emo_frame:.2e}")
 
     best = float("inf")
     step = 0
@@ -632,10 +645,14 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 dead_frac = n_dead / cfg.K
                 zL_grl_frame = (cfg.grl_grad_norm_target * ramp
                                 if cfg.grl_grad_norm else float("nan"))
+                zL_emo_frame = (float(getattr(cfg, "grl_emotion_grad_norm_target", 0.0)) * ramp
+                                if getattr(cfg, "grl_emotion_grad_norm", False)
+                                else float("nan"))
 
             active_total = max(act_L + act_P, 1e-12)
             print(f"\n[train {step:05d}/{cfg.stage2_steps}] "
-                  f"lr={lr_now:.2e} dann={ramp:.2f} zL_frame={zL_grl_frame:.2e} "
+                  f"lr={lr_now:.2e} dann={ramp:.2f} "
+                  f"zL_frame={zL_grl_frame:.2e} emo_frame={zL_emo_frame:.2e} "
                   f"recon={l_recon.item():.4f} dead={100*dead_frac:.1f}% "
                   f"active L/P={act_L:.0f}/{act_P:.0f} ({100*act_P/active_total:.1f}% P) "
                   f"assigned L/P={n_L}/{n_P}", flush=True)
@@ -658,6 +675,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                     "emotion": float(l_emo), "emotion_grl": float(l_emogrl),
                     "invariance": float(l_inv), "route_tau": float(model.routing.tau),
                     "active_L": act_L, "active_P": act_P, "dead_fraction": dead_frac,
+                    "speaker_grl_frame": float(zL_grl_frame),
+                    "emotion_grl_frame": float(zL_emo_frame),
                 })
 
             def _norm_row(norms, names):

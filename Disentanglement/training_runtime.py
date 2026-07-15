@@ -312,6 +312,7 @@ def validate_resume(checkpoint: Mapping[str, Any], *, dataset_hash: str,
                 "grl_linear_stats", "grl_linear_mean", "grl_stats_pool", "grl_robust_sid",
                 "grl_robust_activation", "grl_attention_pool", "grl_dense_context",
                 "grl_frame_level", "club_enabled", "club_grad_norm", "club_grad_norm_target",
+                "grl_emotion_grad_norm", "grl_emotion_grad_norm_target",
                 "adversarial_task_grad_cap"):
         if key in old and key in now and old[key] != now[key]:
             raise ValueError(f"resume configuration mismatch for {key}: {old[key]!r} != {now[key]!r}")

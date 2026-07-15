@@ -38,6 +38,11 @@ class MSPConfig:
     # z_L. Experiments enable it and select its target in their Slurm script.
     grl_grad_norm:        bool  = True
     grl_grad_norm_target: float = 0.0002
+    # Optional per-frame normalization of the reversed emotion gradient entering
+    # z_L.  Off by default so old MSP runs keep the same objective unless a
+    # script explicitly enables it.
+    grl_emotion_grad_norm:        bool  = False
+    grl_emotion_grad_norm_target: float = 0.0002
 
     # task weights (full-strength emotion + its GRL — the key fix)
     recon_weight: float = 1.0
@@ -157,4 +162,6 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.pcgrad_tasks = tuple(t.strip() for t in m.pcgrad_tasks.split(",") if t.strip())
     c.grl_grad_norm = m.grl_grad_norm
     c.grl_grad_norm_target = m.grl_grad_norm_target
+    c.grl_emotion_grad_norm = m.grl_emotion_grad_norm
+    c.grl_emotion_grad_norm_target = m.grl_emotion_grad_norm_target
     return c

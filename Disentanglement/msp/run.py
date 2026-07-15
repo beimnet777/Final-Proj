@@ -63,6 +63,11 @@ def main() -> None:
                    default=d.grl_grad_norm,
                    help="normalize the z_L speaker-GRL gradient per frame")
     p.add_argument("--grl_grad_norm_target", type=float, default=d.grl_grad_norm_target)
+    p.add_argument("--grl_emotion_grad_norm", action=argparse.BooleanOptionalAction,
+                   default=d.grl_emotion_grad_norm,
+                   help="normalize the z_L emotion-GRL gradient per frame")
+    p.add_argument("--grl_emotion_grad_norm_target", type=float,
+                   default=d.grl_emotion_grad_norm_target)
     # task weights
     p.add_argument("--recon_weight", type=float, default=d.recon_weight)
     p.add_argument("--alpha", type=float, default=d.alpha)
@@ -112,6 +117,8 @@ def main() -> None:
         pcgrad=not a.no_pcgrad, pcgrad_tasks=a.pcgrad_tasks,
         grl_grad_norm=a.grl_grad_norm,
         grl_grad_norm_target=a.grl_grad_norm_target,
+        grl_emotion_grad_norm=a.grl_emotion_grad_norm,
+        grl_emotion_grad_norm_target=a.grl_emotion_grad_norm_target,
         recon_weight=a.recon_weight,
         alpha=a.alpha, beta=a.beta, grl_weight=a.grl_weight,
         grl_phoneme_weight=a.grl_phoneme_weight, prosody_weight=a.prosody_weight,
