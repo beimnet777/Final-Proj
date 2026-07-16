@@ -37,6 +37,7 @@ PLOT_CAPTIONS = {
     "route_classifier_free_geometry": "Classifier-free full-space cosine geometry with controlled pairs. Phone pairs cross speakers and utterances; speaker pairs cross transcript/content and utterances. Bars show same-label minus different-label cosine similarity with cluster-bootstrap 95% intervals.",
     "route_phone_probe_confusion": "A true held-out classification confusion matrix. Rows are actual phones and columns are frozen-probe predictions. The expected result is a strong L diagonal and a diffuse P matrix.",
     "route_speaker_probe_confusion": "A true held-out classification confusion matrix. Rows are actual speakers and columns are frozen-probe predictions. The expected result is a diffuse L matrix and a strong P diagonal.",
+    "phone_unit_alignment_ranked": "All 39 unique phone–unit assignments, grouped by phonetic family. Filled circles show held-out test specificity: P(unit in Top-K | target phone) minus the largest P(unit in Top-K | any other phone). Diamonds show the train+validation selection margin; connecting lines expose generalization shifts. This is an activity-specificity margin, not correlation.",
     "phone_selected_unit_confusion": "DEPRECATED diagnostic: this is raw P(unit active | phone), not a classifier confusion matrix. Broadly active units and related phones can create bright off-diagonals; use the held-out route-probe matrices for the main claim.",
     "route_phone_representation_embedding": "Centered PCA of the same held-out test frames and phone labels in L and P. Labels are selected route-neutrally on the probe-training partition; evaluation points are untouched.",
     "route_speaker_representation_embedding": "Centered PCA of the same held-out test utterances and speakers in L and P. The two panels use identical observations.",
@@ -51,6 +52,7 @@ PLOT_TITLES = {
     "route_classifier_free_geometry": "Classifier-Free Geometry: Phone–Speaker Crossover",
     "route_phone_probe_confusion": "Held-Out Phone Probe Confusion",
     "route_speaker_probe_confusion": "Held-Out Speaker Probe Confusion",
+    "phone_unit_alignment_ranked": "39-Phone SAE Unit Alignment Atlas",
     "phone_selected_unit_confusion": "Deprecated: Raw 39-Phone Unit-Coverage Map",
     "route_phone_representation_umap": "Supplementary UMAP: Held-Out Phone Vectors",
     "route_speaker_representation_umap": "Supplementary UMAP: Held-Out Speaker Vectors",
@@ -391,6 +393,105 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
                     ax.axis("off")
                 fig.suptitle(f"Held-out frozen linear-probe {target_label} predictions", y=1.02, fontsize=13)
             _plot(path, draw, figsize=(13.4, 6.0)); made.append(path.with_suffix(".png"))
+    selected_phone_units = tables.get("selected_phone_units")
+    if selected_phone_units is not None and len(selected_phone_units):
+        required = {"phone", "unit", "route", "selection_margin", "evaluation_margin"}
+        if required.issubset(selected_phone_units.columns):
+            atlas = selected_phone_units.copy()
+            if "phone_family" not in atlas.columns:
+                atlas["phone_family"] = "other"
+            family_order = [
+                "vowel", "stop", "fricative", "affricate",
+                "nasal", "liquid", "glide", "other",
+            ]
+            atlas["phone_family"] = pd.Categorical(
+                atlas["phone_family"].fillna("other").astype(str),
+                categories=family_order, ordered=True,
+            )
+            atlas = atlas.sort_values(["phone_family", "phone"]).reset_index(drop=True)
+            labels = []
+            previous_family = None
+            for _, row in atlas.iterrows():
+                family = str(row["phone_family"])
+                label = f"{row['phone']} · u{int(row['unit'])} · {row['route']}"
+                if family != previous_family:
+                    label = f"{family.upper()}  |  {label}"
+                labels.append(label)
+                previous_family = family
+            atlas["unit_label"] = labels
+            _save_plot_data(output, "phone_unit_alignment_ranked", atlas.copy())
+            path = output / "plots" / "phone_unit_alignment_ranked"
+            def draw(fig):
+                from matplotlib.lines import Line2D
+                ax = fig.subplots()
+                y = np.arange(len(atlas), dtype=float)
+                selection = atlas["selection_margin"].to_numpy(dtype=float)
+                evaluation = atlas["evaluation_margin"].to_numpy(dtype=float)
+                colors = [ROUTE_COLORS.get(route, "#667085") for route in atlas["route"]]
+                # Alternating family bands keep all 39 rows legible without
+                # turning the view back into a dense matrix.
+                grouped = atlas.groupby("phone_family", observed=True, sort=False)
+                for family_index, (_, group) in enumerate(grouped):
+                    start, stop = int(group.index.min()), int(group.index.max())
+                    if family_index % 2 == 0:
+                        ax.axhspan(start - .5, stop + .5, color="#eef3f8", alpha=.55, zorder=0)
+                    if start > 0:
+                        ax.axhline(start - .5, color="#b8c2d1", lw=.8, zorder=1)
+                for yi, start, stop, color in zip(y, selection, evaluation, colors):
+                    ax.plot([start, stop], [yi, yi], color=color, lw=2.1, alpha=.58, zorder=2)
+                ax.scatter(
+                    selection, y, marker="D", s=30, facecolor="white",
+                    edgecolor="#17233c", linewidth=1.25, zorder=4,
+                )
+                ax.scatter(
+                    evaluation, y, marker="o", s=44, c=colors,
+                    edgecolor="white", linewidth=.65, zorder=5,
+                )
+                ax.axvline(0, color="#475467", lw=1.0)
+                span = max(
+                    float(np.nanmax(np.abs(atlas[["selection_margin", "evaluation_margin"]].to_numpy()))),
+                    .01,
+                )
+                for yi, value in zip(y, evaluation):
+                    ax.text(
+                        value + (.012 * span if value >= 0 else -.012 * span),
+                        yi, f"{value:+.3f}", va="center",
+                        ha="left" if value >= 0 else "right", fontsize=7.2,
+                    )
+                ax.set(
+                    yticks=y, yticklabels=atlas["unit_label"],
+                    xlabel="phone specificity margin",
+                    ylabel="target phone · selected unit · route",
+                    title=f"All {len(atlas)} unique phone–unit assignments · held-out specificity",
+                )
+                ax.invert_yaxis()
+                ax.tick_params(axis="y", labelsize=7.6)
+                route_handles = [
+                    Line2D(
+                        [0], [0], marker="o", color="none",
+                        markerfacecolor=ROUTE_COLORS[route], markeredgecolor="white",
+                        markersize=7, label=f"{route} route",
+                    )
+                    for route in ("L", "P") if route in set(atlas["route"].astype(str))
+                ]
+                metric_handles = [
+                    Line2D(
+                        [0], [0], marker="o", color="#667085",
+                        markerfacecolor="#667085", markersize=6, lw=0,
+                        label="held-out test",
+                    ),
+                    Line2D(
+                        [0], [0], marker="D", color="#17233c",
+                        markerfacecolor="white", markersize=5.5, lw=0,
+                        label="train+validation selection",
+                    ),
+                ]
+                ax.legend(
+                    handles=metric_handles + route_handles,
+                    loc="lower right", ncol=2, frameon=False,
+                )
+            height = max(10.5, .275 * len(atlas) + 2.0)
+            _plot(path, draw, figsize=(11.2, height)); made.append(path.with_suffix(".png"))
     phone_confusion = tables.get("phone_unit_confusion")
     if phone_confusion is not None and len(phone_confusion):
         value_cols = [

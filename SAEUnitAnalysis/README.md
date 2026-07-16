@@ -117,7 +117,12 @@ the next methodological layer.
 
 The selected phone-unit matrix assigns unique units on train+validation by
 maximizing `P(active|target phone) - max_other P(active|other phone)`, keeps
-only positive margins, and displays their activity on held-out test frames.
+only positive selection margins, and evaluates the same assignments on held-out
+test frames. The primary atlas shows all 39 assignments grouped by phonetic
+family: filled circles are held-out test specificity margins, diamonds are the
+original train+validation margins, and connecting lines show generalization
+shifts. This value is an activity-specificity margin, not correlation. The
+complete 39-phone raw coverage heatmap is retained as a deprecated diagnostic.
 
 Route-vector figures use centered PCA. L and P display the same held-out
 observations and labels. Labels are selected on the probe-training partition

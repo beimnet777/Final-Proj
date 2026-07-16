@@ -405,6 +405,9 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(len(selected), 2)
             self.assertEqual(selected["unit"].nunique(), 2)
             self.assertTrue(selected["evaluation_diagonal_is_max"].all())
+            self.assertIn("phone_family", selected.columns)
+            self.assertTrue((selected["evaluation_margin"] == 1.0).all())
+            self.assertTrue((selected["evaluation_max_other_probability"] == 0.0).all())
             self.assertTrue((selected["selection_margin"] > 0).all())
             self.assertEqual(summary["evaluation_diagonal_max_fraction"], 1.0)
             for _, row in matrix.iterrows():

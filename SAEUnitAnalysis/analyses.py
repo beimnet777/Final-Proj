@@ -964,8 +964,11 @@ def phone_unit_confusion(
             continue
         eval_values = evaluation_prob[pi, unit]
         eval_col = evaluation_prob[:, unit]
+        eval_other = np.delete(eval_col, pi)
+        eval_max_other = float(eval_other.max()) if len(eval_other) else 0.0
         selected_rows.append({
             "phone": phone_order[pi],
+            "phone_family": _phone_property(phone_order[pi], "manner"),
             "unit": int(unit),
             "route_id": int(cache.route[unit]),
             "route": ROUTE_NAMES.get(int(cache.route[unit]), str(int(cache.route[unit]))),
@@ -973,6 +976,8 @@ def phone_unit_confusion(
             "selection_max_other_probability": float(other_max[pi, unit]),
             "selection_margin": selection_margin,
             "evaluation_target_probability": float(eval_values),
+            "evaluation_max_other_probability": eval_max_other,
+            "evaluation_margin": float(eval_values - eval_max_other),
             "evaluation_max_probability": float(eval_col.max()),
             "evaluation_brightest_phone": phone_order[int(eval_col.argmax())],
             "evaluation_diagonal_is_max": bool(eval_values >= eval_col.max() - 1e-12),
@@ -1029,6 +1034,8 @@ def phone_unit_confusion(
         "min_phone_frames": int(min_phone_frames),
         "unique_unit_rows": bool(selected["unit"].nunique() == len(selected)),
         "positive_selection_margin_rows": int((selected["selection_margin"] > 0).sum()),
+        "positive_evaluation_margin_rows": int((selected["evaluation_margin"] > 0).sum()),
+        "median_evaluation_margin": float(selected["evaluation_margin"].median()),
         "evaluation_diagonal_max_rows": int(selected["evaluation_diagonal_is_max"].sum()),
         "evaluation_diagonal_max_fraction": float(selected["evaluation_diagonal_is_max"].mean()),
         "selection_splits": selection_summary,
