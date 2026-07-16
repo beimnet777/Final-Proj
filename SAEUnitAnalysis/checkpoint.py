@@ -29,7 +29,7 @@ def _unwrap(payload: Any) -> tuple[dict[str, Any], str, dict[str, Any]]:
     if isinstance(payload.get("config"), dict):
         metadata = {**payload["config"], **metadata}
     if isinstance(payload.get("model"), dict):
-        return payload["model"], "msp:model", metadata
+        return payload["model"], "checkpoint:model", metadata
     if isinstance(payload.get("model_state"), dict):
         return payload["model_state"], "legacy:model_state", metadata
     if payload and all(torch.is_tensor(v) for v in payload.values()):
@@ -178,8 +178,11 @@ def load_checkpoint(path: str | Path) -> ResolvedModel:
                 config["topk"] = sum(block_topk)
 
     # The MSP trainer has a stable extraction contract even though old files did
-    # not serialize it.
-    if source_format == "msp:model":
+    # not serialize it. A generic ``model`` key alone is not enough to identify
+    # MSP; legacy Libri checkpoints can use the same container field.
+    checkpoint_is_msp = "msp" in str(checkpoint).lower() or str(config.get("dataset", "")).lower().startswith("msp")
+    if source_format == "checkpoint:model" and checkpoint_is_msp:
+        source_format = "msp:model"
         config.setdefault("topk", 256)
         config.setdefault("spear_layernorm", True)
         config.setdefault("hard_gumbel_routing", True)
@@ -209,6 +212,14 @@ def route_information(resolved: ResolvedModel) -> tuple[np.ndarray, np.ndarray]:
     """Return dominant route and route probability per SAE unit."""
     state, cfg = resolved.state, resolved.config
     K = int(cfg["K"])
+    enabled = state.get("sae.route_topk_enabled")
+    frozen_idx = state.get("sae.route_topk_idx")
+    if enabled is not None and frozen_idx is not None and bool(torch.as_tensor(enabled).item()):
+        route = torch.as_tensor(frozen_idx).detach().cpu().numpy().astype(np.int16)
+        if len(route) != K:
+            raise AnalysisError(f"Stored route_topk_idx has {len(route)} entries, expected K={K}.")
+        probs = np.ones(K, dtype=np.float32)
+        return route, probs
     if "block_idx" in state:
         route = state["block_idx"].detach().cpu().numpy().astype(np.int16)
         probs = np.ones(K, dtype=np.float32)

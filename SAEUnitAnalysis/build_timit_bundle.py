@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import random
 import shutil
 from pathlib import Path
 
@@ -67,6 +68,8 @@ def build_bundle(
     sample_rate: int = 16000,
     copy_audio: bool = False,
     max_utterances: int = 0,
+    validation_fraction: float = 0.10,
+    seed: int = 42,
 ) -> None:
     timit_root = _find_timit_root(timit_root)
     output = output.resolve()
@@ -142,6 +145,20 @@ def build_bundle(
                     }
                 )
 
+    # Reserve speaker-disjoint validation speakers from the official TRAIN set.
+    # Never alias validation to the official TEST set.
+    train_speakers = sorted({row["speaker_id"] for row in utterance_rows if row["split"] == "train"})
+    validation_speakers: set[str] = set()
+    if len(train_speakers) >= 2 and validation_fraction > 0:
+        n_validation = min(
+            len(train_speakers) - 1,
+            max(1, int(round(len(train_speakers) * float(validation_fraction)))),
+        )
+        validation_speakers = set(random.Random(seed).sample(train_speakers, n_validation))
+        for row in utterance_rows:
+            if row["split"] == "train" and row["speaker_id"] in validation_speakers:
+                row["split"] = "val"
+
     with (output / "utterances.csv").open("w", newline="") as f:
         writer = csv.DictWriter(
             f,
@@ -170,7 +187,7 @@ def build_bundle(
         "sample_rate": sample_rate,
         "manifest": "utterances.csv",
         "alignments": "alignments.csv",
-        "splits": {"train": "train", "validation": "test", "test": "test"},
+        "splits": {"train": "train", "validation": "val", "test": "test"},
         "factors": [
             {
                 "name": "phone",
@@ -185,34 +202,6 @@ def build_bundle(
                 "level": "utterance",
                 "type": "categorical",
                 "source": "speaker_id",
-            },
-            {
-                "name": "sex",
-                "family": "paralinguistic",
-                "level": "utterance",
-                "type": "categorical",
-                "source": "sex",
-            },
-            {
-                "name": "dialect_region",
-                "family": "paralinguistic",
-                "level": "utterance",
-                "type": "categorical",
-                "source": "dialect_region",
-            },
-            {
-                "name": "energy",
-                "family": "paralinguistic",
-                "level": "frame",
-                "type": "continuous",
-                "source": "computed:energy",
-            },
-            {
-                "name": "voicing",
-                "family": "paralinguistic",
-                "level": "frame",
-                "type": "continuous",
-                "source": "computed:voicing",
             },
         ],
     }
@@ -240,6 +229,8 @@ def main() -> None:
         type=int,
         help="Optional debugging limit. 0 means all utterances.",
     )
+    parser.add_argument("--validation-fraction", default=0.10, type=float)
+    parser.add_argument("--seed", default=42, type=int)
     args = parser.parse_args()
     build_bundle(
         args.timit_root,
@@ -247,6 +238,8 @@ def main() -> None:
         sample_rate=args.sample_rate,
         copy_audio=args.copy_audio,
         max_utterances=args.max_utterances,
+        validation_fraction=args.validation_fraction,
+        seed=args.seed,
     )
 
 

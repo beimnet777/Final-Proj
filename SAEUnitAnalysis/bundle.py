@@ -13,18 +13,6 @@ from .utils import AnalysisError, read_structured, write_json
 STANDARD_FACTORS = {
     "phone": FactorSpec("phone", "linguistic", "frame", "categorical", "alignment"),
     "speaker_id": FactorSpec("speaker_id", "paralinguistic", "utterance", "categorical", "speaker_id"),
-    "sex": FactorSpec("sex", "paralinguistic", "utterance", "categorical", "sex"),
-    "gender": FactorSpec("gender", "paralinguistic", "utterance", "categorical", "gender"),
-    "dialect_region": FactorSpec("dialect_region", "paralinguistic", "utterance", "categorical", "dialect_region"),
-    "age": FactorSpec("age", "paralinguistic", "utterance", "continuous", "age"),
-    "emotion": FactorSpec("emotion", "paralinguistic", "utterance", "categorical", "emotion"),
-    "arousal": FactorSpec("arousal", "paralinguistic", "utterance", "continuous", "arousal"),
-    "valence": FactorSpec("valence", "paralinguistic", "utterance", "continuous", "valence"),
-    "dominance": FactorSpec("dominance", "paralinguistic", "utterance", "continuous", "dominance"),
-    "f0": FactorSpec("f0", "paralinguistic", "frame", "continuous", "computed:f0"),
-    "energy": FactorSpec("energy", "paralinguistic", "frame", "continuous", "computed:energy"),
-    "voicing": FactorSpec("voicing", "paralinguistic", "frame", "continuous", "computed:voicing"),
-    "speaking_rate": FactorSpec("speaking_rate", "paralinguistic", "utterance", "continuous", "computed:speaking_rate"),
 }
 
 
@@ -84,7 +72,10 @@ class AnalysisBundle:
                     source=str(f.get("source", f["name"])),
                 ))
             return out
-        # Automatic standard core; unavailable columns are removed after loading.
+        # Automatic standard core: the dissertation-facing Libri analysis is
+        # intentionally phone-vs-speaker, not a broad metadata/prosody sweep.
+        # Extra factors can still be declared explicitly in dataset.yaml and
+        # enabled with --factor-scope broad.
         return list(STANDARD_FACTORS.values())
 
     def _validate(self) -> None:
@@ -105,12 +96,29 @@ class AnalysisBundle:
             if miss:
                 raise AnalysisError(f"Alignments are missing columns: {sorted(miss)}")
             self.alignments["utterance_id"] = self.alignments["utterance_id"].astype(str)
+            self.alignments["start_sec"] = pd.to_numeric(self.alignments["start_sec"], errors="coerce")
+            self.alignments["end_sec"] = pd.to_numeric(self.alignments["end_sec"], errors="coerce")
+            if self.alignments[["start_sec", "end_sec"]].isna().any().any():
+                raise AnalysisError("Alignment start_sec/end_sec values must be finite numbers.")
+            if (self.alignments["start_sec"] < 0).any():
+                raise AnalysisError("Alignment start_sec values must be non-negative.")
+            phone_text = self.alignments["phone"].fillna("").astype(str).str.strip()
+            if phone_text.eq("").any():
+                raise AnalysisError("Alignment phone labels must be non-empty.")
+            self.alignments["phone"] = phone_text
             known = set(self.utterances["utterance_id"])
             unknown = set(self.alignments["utterance_id"]) - known
             if unknown:
                 raise AnalysisError(f"Alignments reference {len(unknown)} unknown utterances.")
             if (self.alignments["end_sec"] <= self.alignments["start_sec"]).any():
                 raise AnalysisError("Every alignment must have end_sec > start_sec.")
+            if self.alignments.duplicated(["utterance_id", "start_sec", "end_sec", "phone"]).any():
+                raise AnalysisError("Alignment rows must not contain exact duplicates.")
+            for utterance_id, group in self.alignments.groupby("utterance_id", sort=False):
+                ordered = group.sort_values(["start_sec", "end_sec"])
+                previous_end = ordered["end_sec"].shift(1)
+                if (ordered["start_sec"] < previous_end - 1e-5).fillna(False).any():
+                    raise AnalysisError(f"Phone alignments overlap for utterance {utterance_id}.")
 
         available = []
         for f in self.spec.factors:

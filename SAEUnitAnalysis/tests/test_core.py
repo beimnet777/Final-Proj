@@ -7,6 +7,7 @@ import unittest
 import wave
 import sys
 import types
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,17 +17,30 @@ import torch
 import torch.nn as nn
 
 from SAEUnitAnalysis.analyses import (
+    _categorical_dense_scores,
+    _centroid_holdout_metrics,
+    _controlled_pair_indices,
+    _embed_umap,
+    _holdout_metrics_and_confusion,
+    _load_umap,
+    _paired_cosines,
     clustering_analysis,
     disentanglement_tables,
     geometry_analysis,
     health_analysis,
+    phone_unit_confusion,
+    phone_speaker_unit_scores,
     selectivity_analysis,
 )
+from SAEUnitAnalysis.causal import _bootstrap_mode_summary
 from SAEUnitAnalysis.bundle import AnalysisBundle
 from SAEUnitAnalysis.build_librispeech_bundle import build_bundle as build_librispeech_bundle
 from SAEUnitAnalysis.build_timit_bundle import build_bundle
 from SAEUnitAnalysis.checkpoint import load_checkpoint, route_information, unresolved_critical
-from SAEUnitAnalysis.extraction import FeatureCache
+from SAEUnitAnalysis.extraction import (
+    FeatureCache, _block_spec, _encode_sparse, _quick_sample,
+    _speaker_balanced_sample, parse_split_limits,
+)
 from SAEUnitAnalysis.import_mfa_alignments import import_alignments, parse_textgrid
 from SAEUnitAnalysis.pipeline import run_analysis
 from SAEUnitAnalysis.prepare_librispeech_mfa_corpus import prepare_corpus
@@ -121,8 +135,21 @@ class CoreTests(unittest.TestCase):
             state=_state(K,4); resolved=ResolvedModel(Path("x"),state,{"K":K,"D":4},"raw",{"unit_routes":True})
             out=Path(td)/"out";(out/"tables").mkdir(parents=True)
             health,_=health_analysis(cache,resolved,out); self.assertEqual((~health.dead).sum(),4)
-            scores,profiles,_=selectivity_analysis(cache,b,out)
+            scores,profiles,_=selectivity_analysis(cache,b,out,score_splits="test")
             self.assertTrue(len(scores)>0); self.assertEqual(len(profiles),K)
+            self.assertLessEqual(set(scores["factor"]), {"phone", "speaker_id"})
+            self.assertIn("active_auroc_signed", scores.columns)
+            unit_scores, score_summary = phone_speaker_unit_scores(cache, health, profiles, scores, out)
+            self.assertIn("PhoneScore", unit_scores.columns)
+            self.assertIn("SpeakerScore", unit_scores.columns)
+            self.assertIn("D", unit_scores.columns)
+            self.assertIn("M", unit_scores.columns)
+            self.assertIn("category", unit_scores.columns)
+            self.assertTrue((out/"tables"/"unit_phone_speaker_scores.csv").exists())
+            self.assertIn("phone_score_formula", score_summary)
+            broad_scores, _, broad_summary = selectivity_analysis(cache, b, out, factor_scope="broad", score_splits="test")
+            self.assertEqual(broad_summary["factor_scope"], "broad")
+            self.assertIn("energy", set(broad_scores["factor"]))
             clustered,summary=clustering_analysis(cache,profiles,out); self.assertIn("route_nmi",summary)
             geometry, geometry_summary = geometry_analysis(cache, resolved, health, out)
             self.assertIn("mean_nearest_cosine", geometry_summary)
@@ -130,6 +157,52 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(len(geometry), K * min(5, K - 1))
             cache.save(); loaded=FeatureCache.load(cache.path)
             np.testing.assert_array_equal(loaded.indices,cache.indices)
+
+    def test_phone_speaker_scores_do_not_label_zero_evidence_units(self):
+        with tempfile.TemporaryDirectory() as td:
+            out=Path(td)/"out"; (out/"tables").mkdir(parents=True)
+            K=3
+            cache=FeatureCache(Path(td)/"x.npz",np.array(["u0"]),np.array([0]),np.array([1]),
+                               np.zeros((1,1),dtype=np.int32),np.zeros((1,1),dtype=np.float16),
+                               np.array(["AA"],dtype="U8"),np.zeros(1),np.zeros(1),np.zeros(1),
+                               np.ones((1,K)),np.ones((1,8)),np.ones((2,4)),
+                               np.array([0,1]),np.array([0,0,1]),np.ones(K),K,4)
+            health=pd.DataFrame({
+                "unit": [0,1,2],
+                "frame_frequency": [0.0,0.1,0.1],
+                "utterance_frequency": [0.0,1.0,1.0],
+                "observed_active": [False,True,True],
+                "unobserved": [True,False,False],
+                "train_like_dead": [False,False,False],
+                "dead": [False,False,False],
+                "mean_abs_contribution": [0.0,0.1,0.1],
+            })
+            profiles=pd.DataFrame({"unit": [0,1,2]})
+            scores=pd.DataFrame([
+                {"unit": 1, "factor": "phone", "level": "AA", "active_auroc": 0.9,
+                 "active_auroc_signed": 0.8, "active_auroc_positive": 0.8,
+                 "score": 0.8, "prevalence": 0.5, "q": 0.9},
+                {"unit": 2, "factor": "speaker_id", "level": "s0", "active_auroc": 0.85,
+                 "active_auroc_signed": 0.7, "active_auroc_positive": 0.7,
+                 "amplitude_r_signed": 0.6, "amplitude_r_positive": 0.6,
+                 "score": 0.6, "prevalence": 0.5, "q": 0.9},
+            ])
+            unit_scores, summary = phone_speaker_unit_scores(cache, health, profiles, scores, out)
+            self.assertEqual(unit_scores.loc[unit_scores.unit == 0, "category"].iloc[0], "other")
+            self.assertEqual(summary["phone_positive_units"], 1)
+            self.assertEqual(summary["speaker_positive_units"], 1)
+
+    def test_speaker_amplitude_metric_does_not_saturate_when_all_utts_fire(self):
+        active = np.ones((6, 1), dtype=bool)
+        values = np.asarray([[3.0], [2.8], [3.2], [0.2], [0.1], [0.3]])
+        labels = np.asarray(["a", "a", "a", "b", "b", "b"])
+        rows = _categorical_dense_scores(
+            active, values, labels, "speaker_id", "paralinguistic", min_count=3,
+        )
+        a = next(row for row in rows if row["level"] == "a")
+        self.assertEqual(a["active_auroc_positive"], 0.0)
+        self.assertGreater(a["amplitude_r_positive"], 0.9)
+        self.assertEqual(a["metric"], "utterance_mean_activation")
 
     def test_route_probabilities_and_unresolved_legacy_config(self):
         with tempfile.TemporaryDirectory() as td:
@@ -163,20 +236,218 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(r.config["topk_blocks"], [3, 1, 0])
             self.assertEqual(unresolved_critical(r), [])
 
+    def test_extraction_honors_learned_route_quotas_and_global_fixed_topk(self):
+        K = D = 6
+        sae = SimpleNamespace(
+            b_pre=torch.zeros(D),
+            enc_weight=torch.eye(K),
+        )
+        model = SimpleNamespace(sae=sae)
+        h = torch.tensor([[[9.0, 8.0, 7.0, 1.0, 0.0, -1.0]]])
+        state = {
+            "sae.route_topk_enabled": torch.tensor(True),
+            "sae.route_topk_idx": torch.tensor([0, 0, 0, 1, 1, 1]),
+            "sae.route_topk_quotas": torch.tensor([2, 1, 0]),
+        }
+        resolved = ResolvedModel(
+            Path("x"), state, {"K": K, "D": D, "topk": 3}, "raw", {},
+        )
+        indices, _ = _encode_sparse(h, model, resolved)
+        chosen = indices[0, 0].tolist()
+        self.assertEqual(sum(i < 3 for i in chosen), 2)
+        self.assertEqual(sum(i >= 3 for i in chosen), 1)
+
+        fixed_global = ResolvedModel(
+            Path("x"), {"block_idx": torch.tensor([0, 0, 0, 1, 1, 1])},
+            {
+                "K": K, "D": D, "topk": 3, "fixed_blocks": True,
+                "per_block_topk": False, "block_topk": [2, 1, 0],
+            },
+            "raw", {},
+        )
+        self.assertIsNone(_block_spec(fixed_global))
+
+    def test_quick_sampling_is_speaker_balanced(self):
+        rows = []
+        for speaker in range(12):
+            for utterance in range(4):
+                rows.append({
+                    "speaker_id": f"s{speaker:02d}",
+                    "utterance_id": f"s{speaker:02d}-u{utterance}",
+                })
+        sampled = _quick_sample(pd.DataFrame(rows), n=24, seed=42)
+        counts = sampled["speaker_id"].value_counts()
+        self.assertEqual(len(sampled), 24)
+        self.assertEqual(len(counts), 8)
+        self.assertTrue((counts == 3).all())
+
+    def test_large_split_cap_is_deterministic_and_speaker_balanced(self):
+        rows = pd.DataFrame([
+            {"utterance_id": f"s{speaker}-{utterance}", "speaker_id": f"s{speaker}"}
+            for speaker in range(10) for utterance in range(20)
+        ])
+        first = _speaker_balanced_sample(rows, n=50, seed=42)
+        second = _speaker_balanced_sample(rows, n=50, seed=42)
+        self.assertEqual(first["utterance_id"].tolist(), second["utterance_id"].tolist())
+        counts = first["speaker_id"].value_counts()
+        self.assertEqual(len(first), 50)
+        self.assertEqual(len(counts), 10)
+        self.assertLessEqual(int(counts.max() - counts.min()), 1)
+        self.assertEqual(
+            parse_split_limits("train=3000,val=1000,test=1000"),
+            {"train": 3000, "validation": 1000, "test": 1000},
+        )
+
+    def test_route_separation_reports_frozen_linear_probe(self):
+        labels = np.asarray(["a"] * 10 + ["b"] * 10)
+        x = np.zeros((20, 4), dtype=np.float32)
+        x[:10, 0] = 1.0
+        x[10:, 1] = 1.0
+        metrics = _centroid_holdout_metrics(x, labels, seed=42)
+        self.assertEqual(metrics["linear_probe_balanced_accuracy"], 1.0)
+        self.assertEqual(metrics["balanced_accuracy"], 1.0)
+        _, confusion = _holdout_metrics_and_confusion(x, labels, seed=42)
+        diagonal = confusion[confusion.true_label == confusion.predicted_label]
+        self.assertEqual(len(diagonal), 2)
+        self.assertTrue((diagonal.row_fraction == 1.0).all())
+        np.testing.assert_allclose(
+            confusion.groupby("true_label").row_fraction.sum().to_numpy(), 1.0,
+        )
+
+    def test_classifier_free_pairs_control_nuisance_and_recover_geometry(self):
+        labels = np.asarray(["a", "a", "b", "b"])
+        nuisance = np.asarray(["s1", "s2", "s1", "s2"])
+        clusters = np.asarray(["u0", "u1", "u2", "u3"])
+        anchors, same, different = _controlled_pair_indices(
+            labels, nuisance, clusters, seed=42,
+        )
+        self.assertEqual(len(anchors), 4)
+        self.assertTrue(np.all(labels[anchors] == labels[same]))
+        self.assertTrue(np.all(labels[anchors] != labels[different]))
+        self.assertTrue(np.all(nuisance[anchors] != nuisance[same]))
+        self.assertTrue(np.all(nuisance[anchors] != nuisance[different]))
+        self.assertTrue(np.all(clusters[anchors] != clusters[same]))
+        self.assertTrue(np.all(clusters[anchors] != clusters[different]))
+        x = np.asarray([
+            [1.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 1.0],
+        ], dtype=np.float32)
+        same_cosine, different_cosine = _paired_cosines(
+            x, anchors, same, different,
+        )
+        np.testing.assert_allclose(same_cosine, 1.0)
+        np.testing.assert_allclose(different_cosine, 0.0)
+
+    def test_umap_is_finite_and_seed_reproducible(self):
+        rng = np.random.default_rng(42)
+        x = rng.normal(size=(18, 5)).astype(np.float32)
+        first = _embed_umap(x, seed=7, n_neighbors=5)
+        second = _embed_umap(x, seed=7, n_neighbors=5)
+        self.assertEqual(first.shape, (18, 2))
+        self.assertTrue(np.isfinite(first).all())
+        np.testing.assert_allclose(first, second, atol=1e-6)
+
+    def test_swap_summary_keeps_modes_and_bootstrap_intervals(self):
+        rows = []
+        for mode_index, mode in enumerate((
+            "baseline", "P_from_donor", "L_from_donor",
+            "random_route_P_from_donor",
+        )):
+            for pair in range(8):
+                rows.append({
+                    "mode": mode,
+                    "pair": pair,
+                    "phone_recipient_accuracy": .9 - .1 * mode_index + .01 * pair,
+                    "donor_speaker_match": float(mode == "P_from_donor"),
+                    "recipient_speaker_match": float(mode == "baseline"),
+                    "donor_speaker_probability": .1 + .2 * mode_index,
+                    "recipient_speaker_probability": .8 - .2 * mode_index,
+                    "reconstruction_shift_mse": .01 * mode_index,
+                })
+        summary = _bootstrap_mode_summary(
+            pd.DataFrame(rows), seed=42, repetitions=100,
+        )
+        self.assertEqual(
+            summary["mode"].tolist(),
+            ["baseline", "P_from_donor", "L_from_donor", "random_route_P_from_donor"],
+        )
+        self.assertTrue((summary["pairs"] == 8).all())
+        self.assertTrue(
+            (summary["phone_recipient_accuracy_ci95_low"]
+             <= summary["phone_recipient_accuracy"]).all()
+        )
+        self.assertTrue(
+            (summary["phone_recipient_accuracy"]
+             <= summary["phone_recipient_accuracy_ci95_high"]).all()
+        )
+
+    def test_phone_confusion_selects_positive_unique_diagonal_units(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = _bundle(Path(td) / "bundle", ("train", "val", "test"))
+            bundle = AnalysisBundle(root)
+            K = 4
+            phones = np.asarray(["AA", "AA", "T", "T"] * 3, dtype="U8")
+            indices = np.asarray([[0], [0], [1], [1]] * 3, dtype=np.int32)
+            cache = FeatureCache(
+                Path(td) / "x.npz",
+                np.asarray(["u0", "u1", "u2"]),
+                np.asarray([0, 4, 8]), np.asarray([4, 4, 4]),
+                indices, np.ones_like(indices, dtype=np.float16), phones,
+                np.zeros(12), np.zeros(12), np.zeros(12),
+                np.ones((3, K)), np.ones((3, 8)), np.ones((3, 4)),
+                np.asarray([0, 4, 8]), np.asarray([0, 0, 1, 1]),
+                np.ones(K), K, 4,
+            )
+            out = Path(td) / "out"; (out / "tables").mkdir(parents=True)
+            matrix, selected, summary = phone_unit_confusion(
+                cache, bundle, out, min_phone_frames=1,
+                selection_splits="train,validation", evaluation_splits="test",
+            )
+            self.assertEqual(len(selected), 2)
+            self.assertEqual(selected["unit"].nunique(), 2)
+            self.assertTrue(selected["evaluation_diagonal_is_max"].all())
+            self.assertTrue((selected["selection_margin"] > 0).all())
+            self.assertEqual(summary["evaluation_diagonal_max_fraction"], 1.0)
+            for _, row in matrix.iterrows():
+                self.assertEqual(float(row[row.selected_phone]), 1.0)
+
     def test_fake_spear_cli_vertical_slice(self):
         with tempfile.TemporaryDirectory() as td:
             td=Path(td); root=_bundle(td/"bundle")
             cp=td/"model.pt"; torch.save({"model":_state(),"analysis_config":{"topk":2,"spear_layernorm":False}},cp)
             fake_transformers = types.ModuleType("transformers")
             fake_transformers.AutoModel = FakeAutoModel
+            # patch.dict restores the entire module registry on exit. Import
+            # UMAP first so its lazily loaded NumPy/Numba extensions are not
+            # removed and then loaded a second time later in this process.
+            _load_umap()
             with patch.dict(sys.modules, {"transformers": fake_transformers}):
                 result=run_analysis(
                     cp, root, "health,atlas,selectivity,clustering,similarity,geometry",
-                    output_dir=td/"result", device="cpu", profile="quick")
+                    output_dir=td/"result", device="cpu", profile="quick",
+                    score_splits="test")
             self.assertTrue(result.artifacts["report"].exists())
             self.assertTrue((td/"result"/"tables"/"units.csv").exists())
+            self.assertTrue((td/"result"/"tables"/"unit_phone_speaker_scores.csv").exists())
             self.assertTrue((td/"result"/"tables"/"decoder_neighbors.csv").exists())
             self.assertTrue((td/"result"/"report"/"index.html").exists())
+            self.assertFalse((td/"result"/"report"/"assets"/"spectrograms").exists())
+            self.assertFalse((td/"result"/"report"/"assets"/"traces").exists())
+            unit_pages = list((td/"result"/"report"/"units").glob("*.html"))
+            self.assertFalse(unit_pages)
+            quick_html = (td/"result"/"report"/"index.html").read_text()
+            self.assertIn("Unit table", quick_html)
+            self.assertIn("Quick smoke test", quick_html)
+            self.assertIn("only units observed", quick_html)
+            with patch.dict(sys.modules, {"transformers": fake_transformers}):
+                rich=run_analysis(
+                    cp, root, "health,atlas",
+                    output_dir=td/"rich_result", device="cpu", profile="quick",
+                    atlas_assets="traces")
+            self.assertTrue(rich.artifacts["report"].exists())
+            rich_pages = list((td/"rich_result"/"report"/"units").glob("*.html"))
+            self.assertTrue(rich_pages)
+            self.assertNotIn("<audio", rich_pages[0].read_text())
+            self.assertTrue((td/"rich_result"/"report"/"assets"/"traces").exists())
 
     def test_timit_style_metadata_counts_as_l_route_leakage(self):
         with tempfile.TemporaryDirectory() as td:
@@ -221,6 +492,35 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(int(leaky.iloc[0].unit), 0)
             self.assertIn("metadata_paralinguistic_selective_fraction", route_summary.columns)
 
+    def test_categorical_headlines_use_effect_size_not_frame_q(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "out"
+            (out / "tables").mkdir(parents=True)
+            profiles = pd.DataFrame([
+                {"unit": 0, "route": "L", "route_id": 0,
+                 "linguistic_score": 0.0, "paralinguistic_score": 0.2,
+                 "SpeakerScore": 0.2},
+                {"unit": 1, "route": "L", "route_id": 0,
+                 "linguistic_score": 0.0, "paralinguistic_score": 0.01,
+                 "SpeakerScore": 0.01},
+            ])
+            scores = pd.DataFrame([
+                {"unit": 0, "factor": "speaker_id", "family": "paralinguistic",
+                 "score": 0.2, "q": 1.0, "active_auroc_positive": 0.2},
+                {"unit": 1, "factor": "speaker_id", "family": "paralinguistic",
+                 "score": 100.0, "q": 0.0, "active_auroc_positive": 0.01},
+            ])
+            units, _, _, summary = disentanglement_tables(
+                None, profiles, scores, out, focus="speaker_content",
+            )
+            selected = units.set_index("unit")["speaker_selective"].to_dict()
+            self.assertTrue(bool(selected[0]))
+            self.assertFalse(bool(selected[1]))
+            self.assertEqual(
+                summary["categorical_selection"],
+                "positive_phone_auroc_or_utterance_amplitude_r",
+            )
+
     def test_build_timit_bundle(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "TIMIT"
@@ -238,7 +538,7 @@ class CoreTests(unittest.TestCase):
             self.assertTrue((out / "dataset.yaml").exists())
             self.assertTrue((out / "audio" / "TRAIN" / "DR1" / "FCJF0" / "SA1.WAV").exists())
             self.assertIn("phone", {factor.name for factor in bundle.spec.factors})
-            self.assertIn("sex", {factor.name for factor in bundle.spec.factors})
+            self.assertNotIn("sex", {factor.name for factor in bundle.spec.factors})
 
     def test_build_librispeech_bundle_without_phone_alignments(self):
         with tempfile.TemporaryDirectory() as td:

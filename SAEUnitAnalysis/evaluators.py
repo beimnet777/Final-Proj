@@ -9,7 +9,8 @@ import numpy as np
 from .analyses import cache_metadata, frame_to_utterance
 from .bundle import AnalysisBundle
 from .extraction import FeatureCache
-from .utils import AnalysisError, write_json
+from .types import ResolvedModel
+from .utils import AnalysisError, fingerprint, write_json
 
 
 @dataclass
@@ -21,6 +22,7 @@ class EvaluatorSuite:
     phone_classes: np.ndarray
     speaker_classes: np.ndarray
     emotion_classes: np.ndarray
+    evaluation_utterance_ids: np.ndarray
 
 
 def _imports():
@@ -38,10 +40,15 @@ def _imports():
 
 
 def train_evaluators(
-    cache: FeatureCache, bundle: AnalysisBundle, cache_dir: Path, seed: int = 42,
+    cache: FeatureCache, bundle: AnalysisBundle, cache_dir: Path,
+    resolved: ResolvedModel, seed: int = 42,
 ) -> EvaluatorSuite:
     Ridge, SGDClassifier, LabelEncoder, StandardScaler, make_pipeline, joblib = _imports()
-    path = cache_dir / "independent-evaluators.joblib"
+    evaluator_key = fingerprint(
+        [cache.path],
+        {"seed": int(seed), "schema": 3, "kind": "independent_sae_reconstruction_evaluators"},
+    )
+    path = cache_dir / f"independent-evaluators-{evaluator_key}.joblib"
     if path.exists():
         return joblib.load(path)
 
@@ -51,7 +58,11 @@ def train_evaluators(
     sample_frames = cache.h_sample_frames
     sample_utt = frame_to_utterance(cache, sample_frames)
     train_frames = split[sample_utt] == train_name
-    h_frame = cache.h_sample.astype(np.float32)
+    decoder_weight = resolved.state["sae.dec_weight"].detach().float().cpu().numpy()
+    decoder_bias = resolved.state["sae.b_pre"].detach().float().cpu().numpy()
+    # Fit in the same feature domain used by the interventions. Only unswapped
+    # baseline reconstructions are used; swapped examples never enter fitting.
+    h_frame = cache.dense(sample_frames) @ decoder_weight.T + decoder_bias
 
     phone_model = None
     phone_classes = np.asarray([], dtype="U1")
@@ -70,18 +81,39 @@ def train_evaluators(
     speaker_model = emotion_model = None
     speaker_classes = emotion_classes = np.asarray([], dtype="U1")
     train_utt = split == train_name
-    h_stats = cache.h_stats.astype(np.float32)
+    # The reconstructed utterance mean is exact from the cached mean latent and
+    # avoids decoding every frame merely to fit the speaker measurement probe.
+    h_stats = cache.pooled_z.astype(np.float32) @ decoder_weight.T + decoder_bias
+    evaluation_utterance_ids = np.asarray([], dtype=cache.utterance_ids.dtype)
     if "speaker_id" in metadata:
         y = metadata["speaker_id"].astype(str).to_numpy()
-        valid_u = train_utt & (y != "nan")
-        if valid_u.sum() >= 10 and len(np.unique(y[valid_u])) >= 2:
-            le = LabelEncoder().fit(y[valid_u]); speaker_classes = le.classes_
+        # LibriSpeech train/dev/test speakers are disjoint. Build the independent
+        # measurement probe on a stratified portion of test utterances and reserve
+        # different utterances from the same test speakers for interventions.
+        test_name = str(bundle.spec.split_map.get("test", "test"))
+        test_utt = np.flatnonzero((split == test_name) & (y != "nan"))
+        rng = np.random.default_rng(seed)
+        speaker_fit: list[int] = []
+        speaker_eval: list[int] = []
+        for speaker in sorted(np.unique(y[test_utt]).tolist()):
+            ids = test_utt[y[test_utt] == speaker]
+            ids = ids[rng.permutation(len(ids))]
+            if len(ids) < 2:
+                continue
+            n_eval = max(1, int(round(0.25 * len(ids))))
+            n_eval = min(n_eval, len(ids) - 1)
+            speaker_eval.extend(ids[:n_eval].tolist())
+            speaker_fit.extend(ids[n_eval:].tolist())
+        valid_ids = np.asarray(speaker_fit, dtype=int)
+        if len(valid_ids) >= 10 and len(np.unique(y[valid_ids])) >= 2:
+            le = LabelEncoder().fit(y[valid_ids]); speaker_classes = le.classes_
             speaker_model = make_pipeline(
                 StandardScaler(),
                 SGDClassifier(loss="log_loss", alpha=1e-4, max_iter=1500, tol=1e-3,
                               class_weight="balanced", random_state=seed),
             )
-            speaker_model.fit(h_stats[valid_u], le.transform(y[valid_u]))
+            speaker_model.fit(h_stats[valid_ids], le.transform(y[valid_ids]))
+            evaluation_utterance_ids = cache.utterance_ids[np.asarray(speaker_eval, dtype=int)]
     if "emotion" in metadata:
         y = metadata["emotion"].astype(str).to_numpy()
         valid_u = train_utt & (y != "nan")
@@ -100,13 +132,22 @@ def train_evaluators(
         prosody_model = make_pipeline(StandardScaler(), Ridge(alpha=1.0))
         prosody_model.fit(h_frame[train_frames], y_pros[train_frames])
 
-    suite = EvaluatorSuite(phone_model, speaker_model, emotion_model, prosody_model,
-                           phone_classes, speaker_classes, emotion_classes)
+    suite = EvaluatorSuite(
+        phone_model, speaker_model, emotion_model, prosody_model,
+        phone_classes, speaker_classes, emotion_classes,
+        evaluation_utterance_ids,
+    )
     joblib.dump(suite, path)
     write_json(cache_dir / "independent-evaluators.json", {
         "phone_classes": phone_classes.tolist(), "speaker_classes": speaker_classes.tolist(),
         "emotion_classes": emotion_classes.tolist(), "prosody": prosody_model is not None,
-        "training_source": "original frozen SPEAR features",
+        "training_source": "unswapped baseline SAE reconstructions",
+        "intervention_examples_used_for_training": False,
+        "speaker_statistic": "mean reconstructed SPEAR feature",
+        "speaker_protocol": "test-speaker stratified utterance holdout",
+        "evaluation_utterance_ids": evaluation_utterance_ids.tolist(),
+        "cache": str(cache.path),
+        "seed": int(seed),
     })
     return suite
 
@@ -153,4 +194,3 @@ def evaluate_utterances(suite: EvaluatorSuite, h_stats: np.ndarray,
             out["emotion_accuracy"] = float(np.mean(pred == emotion[known].astype(str)))
             out["emotion_uar"] = macro_recall(emotion[known].astype(str), pred)
     return out
-

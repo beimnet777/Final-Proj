@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,9 @@ from .bundle import AnalysisBundle
 from .checkpoint import build_model, route_information, unresolved_critical
 from .types import ResolvedModel
 from .utils import AnalysisError, fingerprint, write_json
+
+
+CACHE_SCHEMA_VERSION = 3
 
 
 @dataclass
@@ -121,6 +125,11 @@ def _block_spec(resolved: ResolvedModel) -> list[tuple[np.ndarray, int]] | None:
     state, cfg = resolved.state, resolved.config
     if "block_idx" not in state:
         return None
+    # Fixed membership does not necessarily imply fixed active allocation.
+    # Experiments trained with --no-per_block_topk must retain their global
+    # Top-K competition during analysis.
+    if cfg.get("per_block_topk") is False:
+        return None
     block_idx = state["block_idx"].detach().cpu().numpy()
     budgets = cfg.get("block_topk") or cfg.get("topk_blocks")
     if budgets is None:
@@ -135,10 +144,38 @@ def _block_spec(resolved: ResolvedModel) -> list[tuple[np.ndarray, int]] | None:
     return result
 
 
+def _route_quota_spec(resolved: ResolvedModel) -> list[tuple[np.ndarray, int]] | None:
+    """Recover the learned route-local Top-K contract stored by quota freeze."""
+    state = resolved.state
+    enabled = state.get("sae.route_topk_enabled")
+    route_idx = state.get("sae.route_topk_idx")
+    quotas = state.get("sae.route_topk_quotas")
+    if enabled is None or route_idx is None or quotas is None:
+        return None
+    if not bool(torch.as_tensor(enabled).item()):
+        return None
+    route_idx_np = torch.as_tensor(route_idx).detach().cpu().numpy().astype(np.int16)
+    quotas_np = torch.as_tensor(quotas).detach().cpu().numpy().astype(int)
+    result: list[tuple[np.ndarray, int]] = []
+    for route, budget in enumerate(quotas_np.tolist()):
+        members = np.flatnonzero(route_idx_np == route)
+        if int(budget) > len(members):
+            raise AnalysisError(
+                f"Stored route-local Top-K quota {budget} exceeds route {route} "
+                f"membership {len(members)}."
+            )
+        if len(members) and int(budget) > 0:
+            result.append((members, int(budget)))
+    return result or None
+
+
 def _encode_sparse(h: torch.Tensor, model, resolved: ResolvedModel) -> tuple[torch.Tensor, torch.Tensor]:
     centred = h - model.sae.b_pre
     pre = F.linear(centred, model.sae.enc_weight)
-    spec = _block_spec(resolved)
+    # Learned quota-freeze buffers take precedence. They are the representation
+    # actually used after route freezing and must not silently degrade to global
+    # Top-K during post-hoc analysis.
+    spec = _route_quota_spec(resolved) or _block_spec(resolved)
     if spec:
         all_idx, all_val = [], []
         for members, k in spec:
@@ -152,12 +189,120 @@ def _encode_sparse(h: torch.Tensor, model, resolved: ResolvedModel) -> tuple[tor
     return indices, values
 
 
+def _quick_sample(part: pd.DataFrame, *, n: int = 24, seed: int = 42) -> pd.DataFrame:
+    """Deterministic speaker-balanced smoke subset.
+
+    LibriSpeech manifests are speaker-sorted, so ``head(24)`` produces a
+    one-speaker subset and confounds speaker identity with split. Prefer eight
+    speakers with three utterances each when the data supports it.
+    """
+    if len(part) <= n:
+        return part.copy()
+    rng = np.random.default_rng(seed)
+    if "speaker_id" not in part.columns:
+        chosen = np.sort(rng.choice(len(part), size=n, replace=False))
+        return part.iloc[chosen].copy()
+
+    groups = []
+    for speaker, group in part.groupby(part["speaker_id"].astype(str), sort=True):
+        if len(group) >= 3:
+            groups.append((str(speaker), group))
+    if not groups:
+        chosen = np.sort(rng.choice(len(part), size=n, replace=False))
+        return part.iloc[chosen].copy()
+
+    order = rng.permutation(len(groups))
+    rows = []
+    target_speakers = min(8, len(groups), max(1, n // 3))
+    for gi in order[:target_speakers]:
+        group = groups[int(gi)]
+        frame = group[1]
+        take = min(3, len(frame))
+        local = np.sort(rng.choice(len(frame), size=take, replace=False))
+        rows.append(frame.iloc[local])
+    sampled = pd.concat(rows, axis=0) if rows else part.iloc[0:0]
+    if len(sampled) < n:
+        remaining = part.drop(index=sampled.index, errors="ignore")
+        take = min(n - len(sampled), len(remaining))
+        if take:
+            local = np.sort(rng.choice(len(remaining), size=take, replace=False))
+            sampled = pd.concat([sampled, remaining.iloc[local]], axis=0)
+    return sampled.iloc[:n].sort_values(["speaker_id", "utterance_id"]).copy()
+
+
+def _speaker_balanced_sample(part: pd.DataFrame, *, n: int, seed: int) -> pd.DataFrame:
+    """Deterministically cap a split without inheriting manifest speaker order."""
+    n = max(0, int(n))
+    if n >= len(part):
+        return part.copy()
+    if n == 0:
+        return part.iloc[0:0].copy()
+    rng = np.random.default_rng(seed)
+    if "speaker_id" not in part.columns:
+        chosen = np.sort(rng.choice(len(part), size=n, replace=False))
+        return part.iloc[chosen].copy()
+
+    queues: list[list[Any]] = []
+    for _, group in part.groupby(part["speaker_id"].astype(str), sort=True):
+        indices = group.index.to_numpy(copy=True)
+        indices = indices[rng.permutation(len(indices))]
+        queues.append(indices.tolist())
+    order = rng.permutation(len(queues)).tolist()
+    chosen_indices: list[Any] = []
+    cursor = 0
+    while len(chosen_indices) < n and order:
+        queue_id = int(order[cursor % len(order)])
+        if queues[queue_id]:
+            chosen_indices.append(queues[queue_id].pop())
+        cursor += 1
+        if cursor % len(order) == 0:
+            order = [i for i in order if queues[int(i)]]
+            if order:
+                order = rng.permutation(order).tolist()
+            cursor = 0
+    sampled = part.loc[chosen_indices]
+    return sampled.sort_values(["speaker_id", "utterance_id"]).copy()
+
+
+def parse_split_limits(spec: str | dict[str, int] | None) -> dict[str, int]:
+    if spec is None or spec == "":
+        return {}
+    if isinstance(spec, dict):
+        raw = spec
+    else:
+        raw = {}
+        for token in str(spec).split(","):
+            if not token.strip() or "=" not in token:
+                raise AnalysisError(
+                    "--split-limits must look like train=3000,validation=1000,test=1000."
+                )
+            key, value = token.split("=", 1)
+            try:
+                raw[key.strip()] = int(value.strip())
+            except ValueError as exc:
+                raise AnalysisError(f"Invalid split limit: {token!r}.") from exc
+    aliases = {"train": "train", "validation": "validation", "val": "validation", "test": "test"}
+    parsed: dict[str, int] = {}
+    for key, value in raw.items():
+        logical = aliases.get(str(key).strip().lower())
+        if logical is None:
+            raise AnalysisError(f"Unknown split in --split-limits: {key!r}.")
+        if int(value) < 0:
+            raise AnalysisError("Split limits must be non-negative.")
+        parsed[logical] = int(value)
+    return parsed
+
+
 def _candidate_specs(resolved: ResolvedModel) -> list[dict[str, Any]]:
     cfg, K = resolved.config, int(resolved.config["K"])
     topks = [int(cfg["topk"])] if "topk" in cfg else [k for k in (64, 128, 256) if k <= K]
     lns = [bool(cfg["spear_layernorm"])] if "spear_layernorm" in cfg else [False, True]
     candidates = [{"topk": k, "spear_layernorm": ln} for k in topks for ln in lns]
-    if resolved.config.get("fixed_blocks") and not (cfg.get("block_topk") or cfg.get("topk_blocks")):
+    if (
+        resolved.config.get("fixed_blocks")
+        and cfg.get("per_block_topk") is not False
+        and not (cfg.get("block_topk") or cfg.get("topk_blocks"))
+    ):
         presets = {
             5120: [[160, 64, 32], [160, 96, 0]],
             16384: [[40, 16, 8], [80, 32, 16]],
@@ -172,8 +317,12 @@ def _candidate_specs(resolved: ResolvedModel) -> list[dict[str, Any]]:
 @torch.no_grad()
 def calibrate(resolved: ResolvedModel, bundle: AnalysisBundle, device: str) -> Any:
     missing = unresolved_critical(resolved)
-    needs_blocks = resolved.config.get("fixed_blocks") and not (
+    needs_blocks = (
+        resolved.config.get("fixed_blocks")
+        and resolved.config.get("per_block_topk") is not False
+        and not (
         resolved.config.get("block_topk") or resolved.config.get("topk_blocks")
+        )
     )
     model = build_model(resolved, device)
     if not missing and not needs_blocks:
@@ -274,24 +423,46 @@ def extract(
     cache_dir: Path,
     device: str,
     profile: str = "full",
+    seed: int = 42,
+    split_limits: dict[str, int] | None = None,
+    compute_acoustics: bool = True,
 ) -> FeatureCache:
+    split_limits = parse_split_limits(split_limits)
     key = fingerprint(
         [resolved.checkpoint, bundle.spec.manifest_path] + ([bundle.spec.alignments_path] if bundle.spec.alignments_path else []),
-        {"config": resolved.config, "profile": profile},
+        {
+            "cache_schema_version": CACHE_SCHEMA_VERSION,
+            "config": resolved.config,
+            "profile": profile,
+            "seed": int(seed) if profile == "quick" else None,
+            "split_limits": split_limits,
+            "compute_acoustics": bool(compute_acoustics),
+        },
     )
     path = cache_dir / f"features-{key}.npz"
     if path.exists():
         return FeatureCache.load(path)
 
     selected = []
+    selected_counts: dict[str, int] = {}
     for logical in ("train", "validation", "test"):
         part = bundle.split(logical)
         if profile == "quick":
-            part = part.head(24)
+            split_seed = int(seed) + {"train": 0, "validation": 1, "test": 2}[logical]
+            part = _quick_sample(part, n=24, seed=split_seed)
+        elif logical in split_limits:
+            split_seed = int(seed) + {"train": 0, "validation": 1, "test": 2}[logical]
+            part = _speaker_balanced_sample(part, n=split_limits[logical], seed=split_seed)
+        selected_counts[logical] = int(len(part))
         selected.append(part)
     rows = pd.concat(selected, ignore_index=True)
     if rows.empty:
         raise AnalysisError("No train/validation/test utterances were selected from the bundle.")
+    print(
+        f"[SAEUnitAnalysis] extracting {len(rows)} utterances on {device} "
+        f"(splits={selected_counts}, acoustics={bool(compute_acoustics)})",
+        flush=True,
+    )
 
     model.to(device).eval()
     batch_size = 1 if profile == "quick" else int(bundle.spec.raw.get("batch_size", 4))
@@ -304,7 +475,8 @@ def extract(
     offsets, lens, ids = [], [], []
     pooled, h_stats, h_sample, h_sample_frames = [], [], [], []
     cursor = 0
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
+    extraction_started = time.monotonic()
 
     for start in range(0, len(rows), batch_size):
         batch_rows = rows.iloc[start:start+batch_size]
@@ -315,13 +487,23 @@ def extract(
         idx, values = _encode_sparse(h, model, resolved)
         for local, (_, row) in enumerate(batch_rows.iterrows()):
             n = int(out_lengths[local])
-            ii = idx[local, :n].detach().cpu().numpy().astype(np.int32)
+            index_dtype = (
+                np.uint16
+                if int(resolved.config["K"]) <= np.iinfo(np.uint16).max
+                else np.uint32
+            )
+            ii = idx[local, :n].detach().cpu().numpy().astype(index_dtype)
             vv = values[local, :n].detach().float().cpu().numpy().astype(np.float16)
             hh = h[local, :n].detach().float().cpu().numpy()
             uid = str(row["utterance_id"])
             duration = len(waves[local]) / bundle.spec.sample_rate
             phone = _phone_frames(bundle, uid, n, duration)
-            f0, energy, voicing = _acoustics(waves[local], bundle.spec.sample_rate, n)
+            if compute_acoustics:
+                f0, energy, voicing = _acoustics(waves[local], bundle.spec.sample_rate, n)
+            else:
+                f0 = np.zeros(n, dtype=np.float32)
+                energy = np.zeros(n, dtype=np.float32)
+                voicing = np.zeros(n, dtype=np.float32)
 
             offsets.append(cursor); lens.append(n); ids.append(uid); cursor += n
             all_idx.append(ii); all_val.append(vv); all_phone.append(phone)
@@ -336,6 +518,16 @@ def extract(
             chosen = np.sort(rng.choice(n, size=take, replace=False)) if take else np.zeros(0, dtype=int)
             h_sample.append(hh[chosen].astype(np.float16))
             h_sample_frames.append(np.asarray(offsets[-1]) + chosen)
+        completed = min(start + len(batch_rows), len(rows))
+        if completed == len(rows) or completed % 100 < len(batch_rows):
+            elapsed = max(time.monotonic() - extraction_started, 1e-6)
+            rate = completed / elapsed
+            eta_minutes = (len(rows) - completed) / max(rate, 1e-9) / 60.0
+            print(
+                f"[SAEUnitAnalysis] extracted {completed}/{len(rows)} "
+                f"({rate:.2f} utt/s, ETA {eta_minutes:.1f} min)",
+                flush=True,
+            )
 
     route, probability = route_information(resolved)
     cache = FeatureCache(
@@ -351,10 +543,21 @@ def extract(
         route=route, route_probability=probability,
         K=int(resolved.config["K"]), D=int(resolved.config["D"]),
     )
+    print(
+        f"[SAEUnitAnalysis] writing feature cache: {cache.n_frames} frames, "
+        f"indices={cache.indices.dtype}",
+        flush=True,
+    )
     cache.save()
     write_json(path.with_suffix(".json"), {
         "checkpoint": str(resolved.checkpoint), "utterances": len(ids),
         "frames": cache.n_frames, "K": cache.K, "D": cache.D,
         "profile": profile, "config": resolved.config,
+        "cache_schema_version": CACHE_SCHEMA_VERSION,
+        "seed": int(seed),
+        "split_limits": split_limits,
+        "selected_splits": selected_counts,
+        "index_dtype": str(cache.indices.dtype),
+        "compute_acoustics": bool(compute_acoustics),
     })
     return cache

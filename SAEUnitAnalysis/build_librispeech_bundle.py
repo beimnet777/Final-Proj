@@ -166,34 +166,6 @@ def build_bundle(
                 "type": "categorical",
                 "source": "speaker_id",
             },
-            {
-                "name": "chapter_id",
-                "family": "metadata",
-                "level": "utterance",
-                "type": "categorical",
-                "source": "chapter_id",
-            },
-            {
-                "name": "energy",
-                "family": "paralinguistic",
-                "level": "frame",
-                "type": "continuous",
-                "source": "computed:energy",
-            },
-            {
-                "name": "voicing",
-                "family": "paralinguistic",
-                "level": "frame",
-                "type": "continuous",
-                "source": "computed:voicing",
-            },
-            {
-                "name": "speaking_rate",
-                "family": "paralinguistic",
-                "level": "utterance",
-                "type": "continuous",
-                "source": "computed:speaking_rate",
-            },
         ],
     }
     (output / "dataset.yaml").write_text(json.dumps(dataset, indent=2) + "\n")
