@@ -15,8 +15,9 @@
 # Final two Libri learned-qfreeze follow-ups.
 #
 # Task 0: post-freeze phone cleanup only
-#   Reuse the existing healthy gp=0.2 / DANN=6.8k / freeze=4k base checkpoint.
-#   Freeze learned routes + quota from that checkpoint, then change ONLY:
+#   Train/reuse a gp=0.2 / DANN=6.8k base checkpoint to the 4k freeze point
+#   inside this HPC runs directory. Freeze learned routes + quota from that
+#   checkpoint, then change ONLY:
 #       grl_phoneme_weight: 0.2 -> 0.3
 #   Keep speaker GRL norm target at gn=0.0002 post-freeze.
 #   Probes: ASR LSTM, PR linear, SID linear, SID stats on z_t,z_L,z_P.
@@ -37,6 +38,13 @@
 # Dry-run:
 #   SLURM_ARRAY_TASK_ID=0 DRY_RUN=1 bash Disentanglement/blackwell/slurm/qfreeze_final_two_20k.sh
 #   SLURM_ARRAY_TASK_ID=1 DRY_RUN=1 bash Disentanglement/blackwell/slurm/qfreeze_final_two_20k.sh
+#
+# Git artifact policy for this script:
+#   - logs are auto-added/committed/pushed at the end of each array task
+#   - checkpoints are also auto-added here because this run explicitly requests
+#     checkpoint tracking
+#   - git save is best-effort and locked, so a git/network failure will not mark
+#     the completed experiment as failed
 
 set -euo pipefail
 
@@ -63,6 +71,9 @@ NUM_WORKERS="${NUM_WORKERS:-8}"
 SEED="${SEED:-42}"
 DRY_RUN="${DRY_RUN:-0}"
 TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
+AUTO_GIT="${AUTO_GIT:-1}"
+AUTO_GIT_PUSH="${AUTO_GIT_PUSH:-1}"
+TRACK_CHECKPOINTS="${TRACK_CHECKPOINTS:-1}"
 
 FREEZE_STEP="${FREEZE_STEP:-4000}"
 TOTAL_STEPS="${TOTAL_STEPS:-20000}"
@@ -104,6 +115,159 @@ run_or_print() {
   "$@"
 }
 
+git_paths=()
+
+stage_if_exists() {
+  local p="$1"
+  [[ -n "${p}" && -e "${p}" ]] || return 0
+  case "${p}" in
+    "${REPO_ROOT}"/*)
+      git_paths+=("${p#${REPO_ROOT}/}")
+      ;;
+    *)
+      echo "[git] skip non-repo artifact: ${p}"
+      ;;
+  esac
+}
+
+stage_slurm_logs() {
+  local job_name="${SLURM_JOB_NAME:-libri_qf_final2}"
+  local array_job_id="${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID:-}}"
+  local array_task_id="${SLURM_ARRAY_TASK_ID:-${TASK_ID:-0}}"
+  if [[ -n "${array_job_id}" ]]; then
+    stage_if_exists "${DIS_DIR}/blackwell/logs/${job_name}_${array_job_id}_${array_task_id}.out"
+    stage_if_exists "${DIS_DIR}/blackwell/logs/${job_name}_${array_job_id}_${array_task_id}.err"
+  fi
+}
+
+stage_checkpoint_subset() {
+  local ckpt_dir="$1"
+  local final_step="$2"
+  [[ -d "${ckpt_dir}" ]] || return 0
+  stage_if_exists "${ckpt_dir}/metrics.jsonl"
+  stage_if_exists "${ckpt_dir}/final.pt"
+  stage_if_exists "${ckpt_dir}/stage2_best.pt"
+  stage_if_exists "${ckpt_dir}/latest-resume.pt"
+  stage_if_exists "${ckpt_dir}/stage2_step${final_step}.pt"
+}
+
+copy_checkpoint_subset() {
+  local src_dir="$1"
+  local dst_dir="$2"
+  local final_step="$3"
+  [[ -d "${src_dir}" ]] || return 0
+  mkdir -p "${dst_dir}"
+  local f
+  for f in \
+    "metrics.jsonl" \
+    "final.pt" \
+    "stage2_best.pt" \
+    "latest-resume.pt" \
+    "stage2_step${final_step}.pt"
+  do
+    if [[ -f "${src_dir}/${f}" ]]; then
+      cp -p "${src_dir}/${f}" "${dst_dir}/${f}"
+    fi
+  done
+}
+
+archive_tracked_checkpoints() {
+  [[ "${TRACK_CHECKPOINTS}" == "1" ]] || return 0
+  copy_checkpoint_subset \
+    "${run_dir:-}/checkpoints" \
+    "${REPO_ROOT}/checkpoints/blackwell/${run_name:-unknown}" \
+    "${TOTAL_STEPS}"
+  if [[ -n "${base_run:-}" ]]; then
+    copy_checkpoint_subset \
+      "${base_dir:-}/checkpoints" \
+      "${REPO_ROOT}/checkpoints/blackwell/${base_run}" \
+      "${FREEZE_STEP}"
+  fi
+}
+
+auto_git_save() {
+  local status_label="${1:-complete}"
+  [[ "${DRY_RUN}" == "1" ]] && return 0
+  [[ "${AUTO_GIT}" == "1" ]] || return 0
+  git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    echo "[git] not a git worktree, skipping artifact save"
+    return 0
+  }
+
+  local lock_dir="${REPO_ROOT}/.git/qfreeze_final_two_20k.lock"
+  local waited=0
+  while ! mkdir "${lock_dir}" 2>/dev/null; do
+    waited=$((waited + 5))
+    if [[ "${waited}" -gt 900 ]]; then
+      echo "[git] timed out waiting for git lock, skipping artifact save"
+      return 0
+    fi
+    sleep 5
+  done
+
+  (
+    trap 'rmdir "'"${lock_dir}"'" 2>/dev/null || true' EXIT
+    git_paths=()
+    archive_tracked_checkpoints
+
+    stage_if_exists "${DIS_DIR}/blackwell/slurm/qfreeze_final_two_20k.sh"
+    stage_slurm_logs
+    stage_if_exists "${json_root:-}"
+    stage_if_exists "${run_dir:-}/trainer_logs"
+    stage_if_exists "${base_dir:-}/trainer_logs"
+
+    if [[ "${TRACK_CHECKPOINTS}" == "1" ]]; then
+      stage_checkpoint_subset "${REPO_ROOT}/checkpoints/blackwell/${run_name:-unknown}" "${TOTAL_STEPS}"
+      if [[ -n "${base_dir:-}" ]]; then
+        stage_checkpoint_subset "${REPO_ROOT}/checkpoints/blackwell/${base_run:-unknown}" "${FREEZE_STEP}"
+      fi
+    else
+      stage_if_exists "${run_dir:-}/checkpoints/metrics.jsonl"
+      stage_if_exists "${base_dir:-}/checkpoints/metrics.jsonl"
+    fi
+
+    if [[ "${#git_paths[@]}" -eq 0 ]]; then
+      echo "[git] no artifacts found to stage"
+      return 0
+    fi
+
+    echo "[git] staging ${#git_paths[@]} artifact paths"
+    git -C "${REPO_ROOT}" add -f -- "${git_paths[@]}" || {
+      echo "[git] add failed; skipping commit/push"
+      return 0
+    }
+
+    if git -C "${REPO_ROOT}" diff --cached --quiet -- "${git_paths[@]}"; then
+      echo "[git] no staged changes for ${run_name:-unknown}"
+      return 0
+    fi
+
+    local msg="Add qfreeze final2 ${status_label} artifacts: task ${TASK_ID} ${run_name:-unknown}"
+    git -C "${REPO_ROOT}" commit -m "${msg}" || {
+      echo "[git] commit failed; artifacts remain staged"
+      return 0
+    }
+
+    if [[ "${AUTO_GIT_PUSH}" == "1" ]]; then
+      git -C "${REPO_ROOT}" push || {
+        echo "[git] push failed; commit was created locally"
+        return 0
+      }
+    fi
+  )
+}
+
+on_exit_save_logs() {
+  local rc=$?
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "[job] exiting with rc=${rc}; attempting to save logs/artifacts"
+    auto_git_save "failed"
+  fi
+  exit "${rc}"
+}
+
+trap on_exit_save_logs EXIT
+
 checkpoint_step() {
   local ckpt="$1"
   "${PYTHON}" - "$ckpt" <<'PY'
@@ -122,23 +286,6 @@ final_ckpt_for() {
     ckpt="${ckpt_dir}/final.pt"
   fi
   printf '%s\n' "${ckpt}"
-}
-
-resolve_gp02_base_ckpt() {
-  if [[ -n "${GP02_BASE_CKPT:-}" ]]; then
-    printf '%s\n' "${GP02_BASE_CKPT}"
-    return 0
-  fi
-  local scratch_base="/scratch/${USER}/runs/libri_advlearn_hardqfreeze4000_base_dann6800_gn00015_gp02_aux64_20k_s${SEED}/checkpoints/latest-resume.pt"
-  local rds_base="${RUNS_ROOT}/libri_advlearn_hardqfreeze4000_base_dann6800_gn00015_gp02_aux64_20k_s${SEED}/checkpoints/latest-resume.pt"
-  if [[ -f "${scratch_base}" ]]; then
-    printf '%s\n' "${scratch_base}"
-  elif [[ -f "${rds_base}" ]]; then
-    printf '%s\n' "${rds_base}"
-  else
-    # Keep a useful default in the error message if neither path exists.
-    printf '%s\n' "${scratch_base}"
-  fi
 }
 
 common_train_args=(
@@ -329,7 +476,13 @@ case "${TASK_ID}" in
     gpu_pre="0.0"
     gu_post="0.0"
     gpu_post="0.0"
-    base_ckpt="$(resolve_gp02_base_ckpt)"
+    base_run="libri_advlearn_hardqfreeze${FREEZE_STEP}_base_dann${DANN_RAMP_STEPS}_gn00015_gp02_aux64_20k_s${SEED}"
+    if [[ -n "${GP02_BASE_CKPT:-}" ]]; then
+      base_ckpt="${GP02_BASE_CKPT}"
+      base_run=""
+    else
+      base_ckpt="${RUNS_ROOT}/${base_run}/checkpoints/latest-resume.pt"
+    fi
     run_name="libri_advlearn_hardqfreeze${FREEZE_STEP}_postgp030_fromgp02base_dann${DANN_RAMP_STEPS}_gn0002_aux64_20k_s${SEED}"
     probe_sources="z_t,z_L,z_P"
     probe_route_args=(--n_routes 2 --hard_gumbel_routing --gumbel_tau_end 0.1)
@@ -379,7 +532,7 @@ echo "json_root     : ${json_root}"
 echo "dry_run       : ${DRY_RUN}"
 echo "gpu           : $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo unknown)"
 
-if [[ "${TASK_ID}" == "1" ]]; then
+if [[ -n "${base_run:-}" ]]; then
   base_dir="${RUNS_ROOT}/${base_run}"
   mkdir -p "${base_dir}/checkpoints" "${base_dir}/tensorboard" "${base_dir}/trainer_logs"
 
@@ -390,9 +543,9 @@ if [[ "${TASK_ID}" == "1" ]]; then
   fi
 
   if [[ "${base_step}" == "${FREEZE_STEP}" ]]; then
-    echo "[base] reusing existing U weak freeze checkpoint: ${base_ckpt}"
+    echo "[base] reusing existing freeze checkpoint: ${base_ckpt}"
   else
-    echo "[base] training U weak routing to step ${FREEZE_STEP}"
+    echo "[base] training routing base to step ${FREEZE_STEP}"
     pre_args=()
     read_null_array pre_args < <(learned_args "${n_routes}" "${gp_pre}" "${gu_pre}" "${gpu_pre}")
     run_or_print "${PYTHON}" -u Disentanglement/run.py \
@@ -406,10 +559,10 @@ if [[ "${TASK_ID}" == "1" ]]; then
       --log_dir "${base_dir}/trainer_logs"
 
     if [[ "${DRY_RUN}" != "1" ]]; then
-      [[ -f "${base_ckpt}" ]] || { echo "Missing U base checkpoint: ${base_ckpt}" >&2; exit 7; }
+      [[ -f "${base_ckpt}" ]] || { echo "Missing trained base checkpoint: ${base_ckpt}" >&2; exit 7; }
       base_step="$(checkpoint_step "${base_ckpt}")"
       [[ "${base_step}" == "${FREEZE_STEP}" ]] || {
-        echo "Bad U base checkpoint step=${base_step}; expected ${FREEZE_STEP}: ${base_ckpt}" >&2
+        echo "Bad trained base checkpoint step=${base_step}; expected ${FREEZE_STEP}: ${base_ckpt}" >&2
         exit 8
       }
     fi
@@ -417,8 +570,7 @@ if [[ "${TASK_ID}" == "1" ]]; then
 else
   if [[ "${DRY_RUN}" != "1" ]]; then
     [[ -f "${base_ckpt}" ]] || {
-      echo "Missing required reused gp02 base checkpoint: ${base_ckpt}" >&2
-      echo "Override with GP02_BASE_CKPT=/path/to/latest-resume.pt if needed." >&2
+      echo "Missing external base checkpoint from GP02_BASE_CKPT: ${base_ckpt}" >&2
       exit 7
     }
     base_step="$(checkpoint_step "${base_ckpt}")"
@@ -466,3 +618,5 @@ if [[ "${TASK_ID}" == "0" ]]; then
 fi
 
 echo "finished      : $(date)"
+trap - EXIT
+auto_git_save "complete"
