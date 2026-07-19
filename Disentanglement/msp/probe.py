@@ -463,12 +463,17 @@ def main():
         if k in current and torch.is_tensor(v) and tuple(v.shape) != tuple(current[k].shape)
     )
     ignored_unexpected = sorted(k for k in state if k not in current)
+    route_topk_buffers = {
+        "sae.route_topk_enabled",
+        "sae.route_topk_idx",
+        "sae.route_topk_quotas",
+    }
     non_encoder_missing = [k for k in missing
                            if "_spear." not in k and not k.startswith((
                                "pr_head.", "sid_head.", "grl_head.", "pr_grl_head.",
                                "prosody_head.", "prosody_grl_head.", "emotion_head.",
                                "emotion_grl_head.", "emotion_u_grl_head.",
-                           ))]
+                           )) and k not in route_topk_buffers]
     if non_encoder_missing:
         raise ValueError(f"checkpoint/model mismatch after compatible load: "
                          f"missing={non_encoder_missing[:8]}")
