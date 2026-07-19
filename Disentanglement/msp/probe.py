@@ -369,6 +369,9 @@ def main():
     p.add_argument("--manifest", required=True)
     p.add_argument("--audio_root", required=True)
     p.add_argument("--transcripts", required=True)
+    p.add_argument("--lexicon_path", type=Path, default=None,
+                   help="Pronunciation lexicon for transcript-derived PR targets. "
+                        "If omitted, the checkpoint/config default is used.")
     p.add_argument("--steps", type=int, default=3000)
     p.add_argument("--val_every", type=int, default=250)
     p.add_argument("--batch_size", type=int, default=16)
@@ -425,11 +428,19 @@ def main():
     cfg.msp_manifest = args.manifest
     cfg.msp_audio_root = args.audio_root
     cfg.msp_transcripts = args.transcripts
+    if args.lexicon_path is not None:
+        cfg.lexicon_path = args.lexicon_path
     cfg.batch_size = args.batch_size
     cfg.eval_batch_size = args.eval_batch
     cfg.num_workers = args.num_workers
     cfg.invariance = False
     cfg.device = str(device)
+
+    if not Path(cfg.lexicon_path).is_file():
+        raise FileNotFoundError(
+            f"Missing lexicon_path={cfg.lexicon_path}. "
+            "Pass --lexicon_path to an HPC-visible librispeech-lexicon.txt."
+        )
 
     tokenizer, train_dl, val_dl, test_dl, *extra = make_msp_dataloaders(cfg)
     model = build_dis_model(cfg).to(device)

@@ -661,6 +661,268 @@ def _add_mean_rows(table: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([table, pd.DataFrame(additions)], ignore_index=True) if additions else table
 
 
+def _prediction_mig(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Predictive lower bound on normalized MI for a complete route vector."""
+    from sklearn.metrics import mutual_info_score
+
+    counts = np.bincount(np.asarray(y_true, dtype=np.int32))
+    entropy = _entropy(counts / max(int(counts.sum()), 1))
+    if entropy <= 0:
+        return 0.0
+    return float(mutual_info_score(y_true, y_pred) / entropy)
+
+
+def _shuffle_factor_labels(
+    factor: str,
+    labels: np.ndarray,
+    segments: pd.DataFrame,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Shuffle labels without leaving adjacent segments as independent controls."""
+    if factor != "speaker_id":
+        return rng.permutation(labels).astype(np.int32)
+    utterances = segments[["utterance_id"]].drop_duplicates("utterance_id")
+    utterance_labels = rng.choice(
+        np.unique(labels), size=len(utterances), replace=True,
+    ).astype(np.int32)
+    mapping = dict(zip(utterances["utterance_id"].astype(str), utterance_labels))
+    return segments["utterance_id"].astype(str).map(mapping).to_numpy(dtype=np.int32)
+
+
+def _route_subspace_rows(
+    x,
+    labels: dict[str, np.ndarray],
+    segments: pd.DataFrame,
+    views: dict[str, np.ndarray],
+    *,
+    seed: int,
+    repeats: int,
+    estimators: int,
+    null_repeats: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Evaluate factors from whole routes rather than individual SAE coordinates.
+
+    DCI uses nonlinear ExtraTrees informativeness. Grouped SAP uses a linear
+    SVM trained by SGD. Grouped MIG is normalized mutual information between the
+    true factor and the held-out nonlinear prediction, which is a conservative
+    predictive lower bound on I(factor; route).
+    """
+    try:
+        from sklearn.ensemble import ExtraTreesClassifier
+        from sklearn.linear_model import SGDClassifier
+        from sklearn.metrics import balanced_accuracy_score
+        from sklearn.preprocessing import MaxAbsScaler
+    except ImportError as exc:
+        raise AnalysisError(
+            "Grouped route metrics require scikit-learn; install SAEUnitAnalysis/requirements.txt."
+        ) from exc
+
+    activity = np.asarray(x.getnnz(axis=0)).reshape(-1)
+    route_views = {name: np.asarray(views[name], dtype=np.int32) for name in ("L", "P")}
+    matched_count = min(len(route_views["L"]), len(route_views["P"]))
+    matched_views: dict[str, np.ndarray] = {}
+    for route, units in route_views.items():
+        order = np.lexsort((units, -activity[units]))
+        matched_views[route] = np.sort(units[order[:matched_count]])
+    capacity_views = {
+        "all_observed": {
+            "L": route_views["L"],
+            "P": route_views["P"],
+        },
+        "matched_active_units": matched_views,
+    }
+
+    draw_rows: list[dict[str, Any]] = []
+    rng = np.random.default_rng(seed + 3907)
+    factors = tuple(labels)
+    for repeat in range(max(2, int(repeats))):
+        train_rows, test_rows = _stratified_utterance_split(segments, seed + 101 * repeat)
+        if len(train_rows) == 0 or len(test_rows) == 0:
+            raise AnalysisError("Grouped route metrics need non-empty grouped train/test splits.")
+        controls = ["observed"]
+        if repeat < max(1, int(null_repeats)):
+            controls.append("label_shuffle")
+        shuffled = {
+            factor: _shuffle_factor_labels(factor, y, segments, rng)
+            for factor, y in labels.items()
+        }
+        for capacity_mode, mode_views in capacity_views.items():
+            for view, units in mode_views.items():
+                view_x = x[:, units].tocsr()
+                scaler = MaxAbsScaler(copy=True)
+                linear_train = scaler.fit_transform(view_x[train_rows])
+                linear_test = scaler.transform(view_x[test_rows])
+                for control in controls:
+                    for factor_index, factor in enumerate(factors):
+                        y = labels[factor] if control == "observed" else shuffled[factor]
+                        chance = 1.0 / max(len(np.unique(y)), 1)
+                        nonlinear = ExtraTreesClassifier(
+                            n_estimators=max(12, int(estimators)), max_depth=18,
+                            min_samples_leaf=2, max_features="sqrt",
+                            class_weight="balanced", n_jobs=-1,
+                            random_state=(
+                                seed + 1009 * repeat + 31 * factor_index
+                                + (0 if control == "observed" else 100_003)
+                                + (0 if capacity_mode == "all_observed" else 200_003)
+                            ),
+                        )
+                        nonlinear.fit(view_x[train_rows], y[train_rows])
+                        nonlinear_prediction = nonlinear.predict(view_x[test_rows])
+                        nonlinear_accuracy = float(
+                            balanced_accuracy_score(y[test_rows], nonlinear_prediction)
+                        )
+                        linear = SGDClassifier(
+                            loss="hinge", alpha=1e-4, class_weight="balanced",
+                            max_iter=300, tol=1e-3, average=True, n_jobs=-1,
+                            random_state=(
+                                seed + 2029 * repeat + 43 * factor_index
+                                + (0 if control == "observed" else 300_007)
+                                + (0 if capacity_mode == "all_observed" else 400_009)
+                            ),
+                        )
+                        linear.fit(linear_train, y[train_rows])
+                        linear_prediction = linear.predict(linear_test)
+                        linear_accuracy = float(
+                            balanced_accuracy_score(y[test_rows], linear_prediction)
+                        )
+                        common = {
+                            "repeat": int(repeat), "target": factor, "view": view,
+                            "capacity_mode": capacity_mode, "control": control,
+                            "chance": float(chance), "route_units": int(len(units)),
+                        }
+                        draw_rows.extend([
+                            {
+                                **common, "metric": "MIG", "component": "informativeness",
+                                "value": _prediction_mig(y[test_rows], nonlinear_prediction),
+                                "estimator": "normalized_MI_of_ExtraTrees_prediction",
+                            },
+                            {
+                                **common, "metric": "SAP", "component": "informativeness",
+                                "value": linear_accuracy,
+                                "estimator": "SGD_linear_SVM_balanced_accuracy",
+                            },
+                            {
+                                **common, "metric": "DCI", "component": "informativeness",
+                                "value": nonlinear_accuracy,
+                                "estimator": "ExtraTrees_balanced_accuracy",
+                            },
+                        ])
+
+    draws = pd.DataFrame(draw_rows)
+    summary_rows: list[dict[str, Any]] = []
+    group_columns = [
+        "metric", "component", "target", "view", "capacity_mode", "control",
+        "chance", "route_units", "estimator",
+    ]
+    for keys, group in draws.groupby(group_columns, sort=False, observed=True, dropna=False):
+        values = group["value"].to_numpy(dtype=np.float64)
+        row = dict(zip(group_columns, keys))
+        row.update({
+            "value": float(values.mean()),
+            "ci95_low": float(np.quantile(values, .025)) if len(values) > 1 else float(values[0]),
+            "ci95_high": float(np.quantile(values, .975)) if len(values) > 1 else float(values[0]),
+            "interval_method": "repeated_utterance_group_holdout",
+            "repetitions": int(len(values)),
+            "scope": "route_subspace",
+            "status": "primary" if row["capacity_mode"] == "all_observed" else "capacity_control",
+        })
+        summary_rows.append(row)
+
+    # Paired desired-route minus other-route contrasts are the primary
+    # disentanglement quantities. They never compare units within a route.
+    for (metric, target, capacity_mode, control), group in draws[
+        draws["view"].isin(["L", "P"])
+    ].groupby(["metric", "target", "capacity_mode", "control"], sort=False, observed=True):
+        desired, other = ("L", "P") if target == "phone" else ("P", "L")
+        wide = group.pivot_table(index="repeat", columns="view", values="value", aggfunc="first")
+        if desired not in wide or other not in wide:
+            continue
+        contrast = (wide[desired] - wide[other]).dropna().to_numpy(dtype=np.float64)
+        source = group.iloc[0]
+        summary_rows.append({
+            "metric": metric, "component": "route_contrast", "target": target,
+            "view": f"{desired}-{other}", "capacity_mode": capacity_mode,
+            "control": control, "chance": 0.0,
+            "route_units": int(min(
+                group[group.view == "L"].route_units.min(),
+                group[group.view == "P"].route_units.min(),
+            )),
+            "estimator": source.estimator,
+            "value": float(contrast.mean()),
+            "ci95_low": float(np.quantile(contrast, .025)),
+            "ci95_high": float(np.quantile(contrast, .975)),
+            "interval_method": "paired_repeated_utterance_group_holdout",
+            "repetitions": int(len(contrast)), "scope": "route_subspace",
+            "status": "primary" if capacity_mode == "all_observed" else "capacity_control",
+        })
+
+    # Grouped DCI: the two rows of the importance matrix are the L and P
+    # subspaces, and the columns are phone and speaker. Evidence is each
+    # route's chance-corrected held-out informativeness.
+    dci_draws = draws[
+        (draws.metric == "DCI") & (draws.control == "observed")
+        & (draws.view.isin(["L", "P"]))
+    ]
+    structure_draws: list[dict[str, Any]] = []
+    for (capacity_mode, repeat), group in dci_draws.groupby(
+        ["capacity_mode", "repeat"], sort=False, observed=True,
+    ):
+        matrix = np.zeros((2, 2), dtype=np.float64)
+        for route_index, route in enumerate(("L", "P")):
+            for factor_index, factor in enumerate(("phone", "speaker_id")):
+                match = group[(group.view == route) & (group.target == factor)]
+                if match.empty:
+                    continue
+                item = match.iloc[0]
+                matrix[route_index, factor_index] = max(
+                    0.0, (float(item.value) - float(item.chance)) / max(1.0 - float(item.chance), 1e-12)
+                )
+        disentanglement, completeness_mean, completeness = _dci_scores(matrix)
+        shares = []
+        for factor_index, desired_index in ((0, 0), (1, 1)):
+            total = float(matrix[:, factor_index].sum())
+            shares.append(float(matrix[desired_index, factor_index] / total) if total > 0 else 0.0)
+        structure_draws.extend([
+            {"capacity_mode": capacity_mode, "repeat": repeat, "component": "route_disentanglement", "target": "all", "value": disentanglement},
+            {"capacity_mode": capacity_mode, "repeat": repeat, "component": "route_completeness", "target": "mean", "value": completeness_mean},
+            {"capacity_mode": capacity_mode, "repeat": repeat, "component": "route_completeness", "target": "phone", "value": float(completeness[0])},
+            {"capacity_mode": capacity_mode, "repeat": repeat, "component": "route_completeness", "target": "speaker_id", "value": float(completeness[1])},
+            {"capacity_mode": capacity_mode, "repeat": repeat, "component": "directional_alignment", "target": "mean", "value": float(np.mean(shares))},
+            {"capacity_mode": capacity_mode, "repeat": repeat, "component": "directional_alignment", "target": "phone", "value": shares[0]},
+            {"capacity_mode": capacity_mode, "repeat": repeat, "component": "directional_alignment", "target": "speaker_id", "value": shares[1]},
+        ])
+    structure = pd.DataFrame(structure_draws)
+    for (capacity_mode, component, target), group in structure.groupby(
+        ["capacity_mode", "component", "target"], sort=False, observed=True,
+    ):
+        values = group.value.to_numpy(dtype=np.float64)
+        summary_rows.append({
+            "metric": "DCI", "component": component, "target": target,
+            "view": "L|P", "capacity_mode": capacity_mode, "control": "observed",
+            "chance": 0.5 if component == "directional_alignment" else 0.0,
+            "route_units": int(matched_count if capacity_mode == "matched_active_units" else len(route_views["L"]) + len(route_views["P"])),
+            "estimator": "chance_corrected_route_evidence_matrix",
+            "value": float(values.mean()), "ci95_low": float(np.quantile(values, .025)),
+            "ci95_high": float(np.quantile(values, .975)),
+            "interval_method": "repeated_utterance_group_holdout",
+            "repetitions": int(len(values)), "scope": "route_subspace",
+            "status": "primary" if capacity_mode == "all_observed" else "capacity_control",
+        })
+
+    metrics = pd.DataFrame(summary_rows)
+    evidence = metrics[
+        (metrics.metric == "DCI") & (metrics.component == "informativeness")
+        & (metrics.control == "observed")
+    ].copy()
+    evidence["chance_corrected_evidence"] = np.maximum(
+        0.0,
+        (evidence.value - evidence.chance) / np.maximum(1.0 - evidence.chance, 1e-12),
+    )
+    return metrics, evidence, pd.concat([draws, structure.assign(
+        metric="DCI", view="L|P", control="observed", scope="route_subspace"
+    )], ignore_index=True, sort=False)
+
+
 def _headline(table: pd.DataFrame, metric: str, target: str, positive: str, negative: str) -> float | None:
     contrast = table[
         (table.metric == metric) & (table.target == target)
@@ -696,19 +958,37 @@ def speech_factor_metrics(
     bootstrap_repetitions: int | None = None,
     dci_repeats: int | None = None,
     dci_estimators: int | None = None,
+    null_repeats: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    """Compute speech-adapted MIG, DCI and SAP on balanced phone segments.
+    """Compute grouped MIG, SAP and DCI for the complete L/P subspaces.
 
-    This is deliberately a labelled, post-hoc evaluation.  It does not replace
-    controlled geometry or latent interventions, and it avoids treating adjacent
-    speech frames as independent observations.
+    The intended object of disentanglement is the partition z=(z_L,z_P), not
+    independence among individual coordinates inside either subspace. Historic
+    coordinate-gap results are archived as deprecated artifacts on upgrade.
     """
-    max_segments = int(max_segments if max_segments is not None else (2_000 if quick else 20_000))
+    max_segments = int(max_segments if max_segments is not None else (2_000 if quick else 30_000))
+    # Retained in the public signature for compatibility with older commands.
     bootstrap_repetitions = int(
-        bootstrap_repetitions if bootstrap_repetitions is not None else (20 if quick else 100)
+        bootstrap_repetitions if bootstrap_repetitions is not None else (20 if quick else 0)
     )
-    dci_repeats = int(dci_repeats if dci_repeats is not None else (2 if quick else 5))
+    dci_repeats = int(dci_repeats if dci_repeats is not None else (2 if quick else 10))
     dci_estimators = int(dci_estimators if dci_estimators is not None else (16 if quick else 48))
+    null_repeats = int(null_repeats if null_repeats is not None else (1 if quick else 2))
+
+    tables_dir = output / "tables"
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    existing_metrics = tables_dir / "speech_factor_metrics.csv"
+    deprecated_metrics = tables_dir / "deprecated_unit_compactness_metrics.csv"
+    if existing_metrics.exists() and not deprecated_metrics.exists():
+        previous = pd.read_csv(existing_metrics)
+        if "scope" not in previous or not previous["scope"].eq("route_subspace").all():
+            previous["status"] = "deprecated_within_route_coordinate_metric"
+            previous.to_csv(deprecated_metrics, index=False)
+    existing_importance = tables_dir / "dci_unit_importances.csv"
+    deprecated_importance = tables_dir / "deprecated_dci_unit_importances.csv"
+    if existing_importance.exists() and not deprecated_importance.exists():
+        pd.read_csv(existing_importance).to_csv(deprecated_importance, index=False)
+
     segments_available = _phone_segments(cache, bundle, evaluation_split)
     if segments_available.empty:
         raise AnalysisError(
@@ -721,7 +1001,6 @@ def speech_factor_metrics(
         raise AnalysisError("Speech factor metrics need at least 20 balanced phone segments.")
     segment_topk = min(cache.indices.shape[1], cache.K)
     x = _segment_matrix(cache, segments, segment_topk)
-    binned, effective_bins = _discretize_sparse(x, positive_bins=positive_bins)
     raw_labels = {
         "phone": segments.phone.astype(str).to_numpy(),
         "speaker_id": segments.speaker_id.astype(str).to_numpy(),
@@ -736,28 +1015,21 @@ def speech_factor_metrics(
     if not {"L", "P"}.issubset(views):
         raise AnalysisError("Speech factor metrics require at least two assigned units in both L and P.")
 
-    mig_rows, _ = _mig_rows(
-        binned, labels, raw_labels, segments, views, seed, bootstrap_repetitions,
+    metrics, importance, repeats = _route_subspace_rows(
+        x, labels, segments, views, seed=seed, repeats=dci_repeats,
+        estimators=dci_estimators, null_repeats=null_repeats,
     )
-    predictor_rows, importance, repeats = _predictor_rows(
-        x, binned, labels, segments, views, cache, seed, dci_repeats, dci_estimators,
-    )
-    metrics = _add_mean_rows(pd.DataFrame(mig_rows + predictor_rows))
     metrics.insert(0, "speech_adapted", True)
     metrics["observations"] = int(len(segments))
     metrics["phones"] = int(segments.phone.nunique())
     metrics["speakers"] = int(segments.speaker_id.nunique())
-    metrics["observed_units_in_view"] = metrics["view"].map(
-        {name: int(len(units)) for name, units in views.items()}
-    )
-
-    output.joinpath("tables").mkdir(parents=True, exist_ok=True)
+    metrics["observed_units_in_view"] = metrics["route_units"].astype(int)
     metrics.to_csv(output / "tables" / "speech_factor_metrics.csv", index=False)
-    importance.to_csv(output / "tables" / "dci_unit_importances.csv", index=False)
+    importance.to_csv(output / "tables" / "route_dci_evidence.csv", index=False)
     repeats.to_csv(output / "tables" / "speech_factor_metric_repeats.csv", index=False)
     try:
         metrics.to_parquet(output / "tables" / "speech_factor_metrics.parquet", index=False)
-        importance.to_parquet(output / "tables" / "dci_unit_importances.parquet", index=False)
+        importance.to_parquet(output / "tables" / "route_dci_evidence.parquet", index=False)
     except Exception:
         pass
 
@@ -795,6 +1067,7 @@ def speech_factor_metrics(
     summary = {
         "status": "ok",
         "speech_adapted": True,
+        "scope": "route_subspace",
         "evaluation_split": evaluation_split,
         "available_segments": int(len(segments_available)),
         "sampled_segments": int(len(segments)),
@@ -803,31 +1076,34 @@ def speech_factor_metrics(
         "speakers": int(segments.speaker_id.nunique()),
         "balance": balance,
         "segment_representation": f"mean_pooled_then_top_{segment_topk}",
-        "inactive_bin": True,
-        "requested_positive_bins": int(positive_bins),
-        "median_effective_bins": float(np.median(effective_bins)),
-        "bootstrap_repetitions": int(bootstrap_repetitions),
-        "MIG_bootstrap_candidate_units_per_factor_view": 32,
-        "MIG_interval_clusters": {"phone": "utterance_id", "speaker_id": "speaker_id"},
-        "DCI_SAP_interval_method": "repeated_utterance_group_holdout",
-        "DCI_repeats": int(dci_repeats),
+        "route_metric_definitions": {
+            "MIG": "I(target; held-out ExtraTrees prediction from route) / H(target)",
+            "SAP": "held-out RidgeClassifier balanced accuracy from the complete route",
+            "DCI_informativeness": "held-out ExtraTrees balanced accuracy from the complete route",
+            "DCI_structure": "standard DCI entropy equations on the 2-route x 2-factor chance-corrected evidence matrix",
+        },
+        "interval_method": "repeated_utterance_group_holdout_stability",
+        "repeats": int(dci_repeats),
+        "null_repeats": int(null_repeats),
         "DCI_predictor": "ExtraTreesClassifier",
-        "DCI_importance_weighting": "tree_importance_times_chance_corrected_balanced_accuracy",
         "DCI_estimators_per_factor": int(dci_estimators),
+        "SAP_predictor": "MaxAbsScaler_plus_SGD_linear_SVM",
+        "capacity_control": "same_number_of_most_active_observed_units_in_L_and_P",
         "observed_units_by_view": {name: int(len(units)) for name, units in views.items()},
         "headline_route_contrasts": headline,
         "headline_route_contrast_intervals": headline_intervals,
         "interpretation": (
-            "The desired route signature is positive phone L-P and speaker P-L. "
-            "MIG/SAP additionally reward compact single-unit coding, so low values can coexist "
-            "with correct distributed route-level separation."
+            "The evaluated object is the L/P subspace partition. Positive phone L-P and "
+            "speaker P-L contrasts mean that the intended complete route carries more "
+            "held-out factor information; no within-route unit independence is claimed."
         ),
         "caveats": [
             "Natural speech is not a complete speaker-by-phone factorial design; observed cells are capped to reduce imbalance.",
-            "MIG and SAP are coordinate-compactness diagnostics and can penalize redundant distributed codes.",
-            "SAP/DCI intervals summarize repeated grouped train/test splits and are estimator-stability intervals, not population bootstrap confidence intervals.",
-            "DCI and SAP fit post-hoc predictors; swaps and controlled full-space geometry remain the stronger causal and classifier-free evidence.",
+            "Grouped MIG is a predictive lower bound based on held-out predictions, not a high-dimensional plug-in MI estimate.",
+            "Intervals summarize repeated grouped train/test splits and are estimator-stability intervals, not population bootstrap confidence intervals.",
+            "MIG, SAP and DCI are post-hoc labelled metrics; latent swaps remain the causal evidence.",
         ],
+        "deprecated_artifact": str(deprecated_metrics) if deprecated_metrics.exists() else None,
     }
     write_json(output / "speech_factor_metrics.json", summary)
     return metrics, importance, repeats, summary

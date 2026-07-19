@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import time
 import wave
 from dataclasses import dataclass
@@ -426,6 +427,7 @@ def extract(
     seed: int = 42,
     split_limits: dict[str, int] | None = None,
     compute_acoustics: bool = True,
+    persist_cache: bool = True,
 ) -> FeatureCache:
     split_limits = parse_split_limits(split_limits)
     key = fingerprint(
@@ -458,23 +460,97 @@ def extract(
     rows = pd.concat(selected, ignore_index=True)
     if rows.empty:
         raise AnalysisError("No train/validation/test utterances were selected from the bundle.")
+
+    # A larger scientific run often strictly contains a completed smaller run
+    # (for example 12k after 5k with the same deterministic split sampler).
+    # Reuse that cache and encode only the missing utterances. Validate the old
+    # filename against the *current* checkpoint/data fingerprint so an
+    # overwritten checkpoint can never silently reuse stale features.
+    base_cache: FeatureCache | None = None
+    if profile == "full":
+        desired_ids = set(rows["utterance_id"].astype(str).tolist())
+        candidates: list[tuple[int, Path]] = []
+        for meta_path in cache_dir.glob("features-*.json"):
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                old_limits = parse_split_limits(meta.get("split_limits"))
+                old_key = fingerprint(
+                    [resolved.checkpoint, bundle.spec.manifest_path]
+                    + ([bundle.spec.alignments_path] if bundle.spec.alignments_path else []),
+                    {
+                        "cache_schema_version": CACHE_SCHEMA_VERSION,
+                        "config": meta.get("config", {}),
+                        "profile": meta.get("profile", "full"),
+                        "seed": None,
+                        "split_limits": old_limits,
+                        "compute_acoustics": bool(meta.get("compute_acoustics", True)),
+                    },
+                )
+                expected_name = f"features-{old_key}.json"
+                if meta_path.name != expected_name:
+                    continue
+                if str(Path(meta.get("checkpoint", "")).resolve()) != str(resolved.checkpoint):
+                    continue
+                if meta.get("profile") != profile or int(meta.get("seed", seed)) != int(seed):
+                    continue
+                if bool(meta.get("compute_acoustics", True)) != bool(compute_acoustics):
+                    continue
+                count = int(meta.get("utterances", 0))
+                if 0 < count < len(rows):
+                    candidates.append((count, meta_path.with_suffix(".npz")))
+            except Exception:
+                continue
+        for _, candidate in sorted(candidates, reverse=True):
+            try:
+                cached = FeatureCache.load(candidate)
+            except AnalysisError:
+                continue
+            cached_ids = set(cached.utterance_ids.astype(str).tolist())
+            if cached_ids <= desired_ids and cached.K == int(resolved.config["K"]):
+                base_cache = cached
+                break
+
+    if base_cache is not None:
+        cached_ids = set(base_cache.utterance_ids.astype(str).tolist())
+        rows = rows[~rows["utterance_id"].astype(str).isin(cached_ids)].reset_index(drop=True)
+        print(
+            f"[SAEUnitAnalysis] extending {len(base_cache.utterance_ids)} cached utterances "
+            f"with {len(rows)} new utterances",
+            flush=True,
+        )
     print(
-        f"[SAEUnitAnalysis] extracting {len(rows)} utterances on {device} "
+        f"[SAEUnitAnalysis] extracting {len(rows)} new utterances on {device} "
         f"(splits={selected_counts}, acoustics={bool(compute_acoustics)})",
         flush=True,
     )
 
     model.to(device).eval()
     batch_size = 1 if profile == "quick" else int(bundle.spec.raw.get("batch_size", 4))
-    all_idx: list[np.ndarray] = []
-    all_val: list[np.ndarray] = []
-    all_phone: list[np.ndarray] = []
-    all_f0: list[np.ndarray] = []
-    all_energy: list[np.ndarray] = []
-    all_voicing: list[np.ndarray] = []
-    offsets, lens, ids = [], [], []
-    pooled, h_stats, h_sample, h_sample_frames = [], [], [], []
-    cursor = 0
+    if base_cache is None:
+        all_idx: list[np.ndarray] = []
+        all_val: list[np.ndarray] = []
+        all_phone: list[np.ndarray] = []
+        all_f0: list[np.ndarray] = []
+        all_energy: list[np.ndarray] = []
+        all_voicing: list[np.ndarray] = []
+        offsets, lens, ids = [], [], []
+        pooled, h_stats, h_sample, h_sample_frames = [], [], [], []
+        cursor = 0
+    else:
+        all_idx = [base_cache.indices]
+        all_val = [base_cache.values]
+        all_phone = [base_cache.phones]
+        all_f0 = [base_cache.f0]
+        all_energy = [base_cache.energy]
+        all_voicing = [base_cache.voicing]
+        offsets = base_cache.offsets.astype(np.int64).tolist()
+        lens = base_cache.lengths.astype(np.int32).tolist()
+        ids = base_cache.utterance_ids.astype(str).tolist()
+        pooled = list(base_cache.pooled_z)
+        h_stats = list(base_cache.h_stats)
+        h_sample = [base_cache.h_sample]
+        h_sample_frames = [base_cache.h_sample_frames]
+        cursor = base_cache.n_frames
     rng = np.random.default_rng(seed)
     extraction_started = time.monotonic()
 
@@ -543,21 +619,28 @@ def extract(
         route=route, route_probability=probability,
         K=int(resolved.config["K"]), D=int(resolved.config["D"]),
     )
-    print(
-        f"[SAEUnitAnalysis] writing feature cache: {cache.n_frames} frames, "
-        f"indices={cache.indices.dtype}",
-        flush=True,
-    )
-    cache.save()
-    write_json(path.with_suffix(".json"), {
-        "checkpoint": str(resolved.checkpoint), "utterances": len(ids),
-        "frames": cache.n_frames, "K": cache.K, "D": cache.D,
-        "profile": profile, "config": resolved.config,
-        "cache_schema_version": CACHE_SCHEMA_VERSION,
-        "seed": int(seed),
-        "split_limits": split_limits,
-        "selected_splits": selected_counts,
-        "index_dtype": str(cache.indices.dtype),
-        "compute_acoustics": bool(compute_acoustics),
-    })
+    if persist_cache:
+        print(
+            f"[SAEUnitAnalysis] writing feature cache: {cache.n_frames} frames, "
+            f"indices={cache.indices.dtype}",
+            flush=True,
+        )
+        cache.save()
+        write_json(path.with_suffix(".json"), {
+            "checkpoint": str(resolved.checkpoint), "utterances": len(ids),
+            "frames": cache.n_frames, "K": cache.K, "D": cache.D,
+            "profile": profile, "config": resolved.config,
+            "cache_schema_version": CACHE_SCHEMA_VERSION,
+            "seed": int(seed),
+            "split_limits": split_limits,
+            "selected_splits": selected_counts,
+            "index_dtype": str(cache.indices.dtype),
+            "compute_acoustics": bool(compute_acoustics),
+        })
+    else:
+        print(
+            f"[SAEUnitAnalysis] using transient feature arrays: {cache.n_frames} frames "
+            "(deadness-only run; no large cache written)",
+            flush=True,
+        )
     return cache

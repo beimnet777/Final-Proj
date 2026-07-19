@@ -32,7 +32,10 @@ ROUTE_COLORS = {"L": "#087f5b", "P": "#d9480f", "U": "#7048e8", "unassigned": "#
 
 PLOT_CAPTIONS = {
     "route_activity": "Distribution of how often observed units enter the frame-level Top-K, separated by route.",
+    "unit_activity": "Distribution of how often observed units enter the frame-level Top-K in the shared unrouted SAE code.",
     "phone_score_vs_speaker_score": "Each point is one SAE unit. PhoneScore uses positive frame-activity AUROC; SpeakerScore uses positive mean-activation correlation. Shapes mark the top-decile associations; anti-associations receive zero.",
+    "unrouted_selectivity_composition": "Counts use units observed in the extracted Top-K sample. Phone, speaker and mixed labels are descriptive top-decile association categories, not routed subspaces.",
+    "unrouted_top_associated_units": "Strongest observed units under the reported PhoneScore and SpeakerScore definitions. A unit may appear in both panels; that overlap is meaningful in a shared code.",
     "route_probe_accuracy": "Held-out frozen linear-probe balanced accuracy. Disentanglement predicts the crossover visible here: phone decoding is stronger from L, while speaker decoding is stronger from P. Dashed segments show chance.",
     "route_classifier_free_geometry": "Classifier-free full-space cosine geometry with controlled pairs. Phone pairs cross speakers and utterances; speaker pairs cross transcript/content and utterances. Bars show same-label minus different-label cosine similarity with cluster-bootstrap 95% intervals.",
     "route_phone_probe_confusion": "A true held-out classification confusion matrix. Rows are actual phones and columns are frozen-probe predictions. The expected result is a strong L diagonal and a diffuse P matrix.",
@@ -45,10 +48,17 @@ PLOT_CAPTIONS = {
     "route_speaker_representation_umap": "Supplementary cosine-UMAP of exactly the same held-out speaker observations used by PCA. Parameters are n_neighbors=30, min_dist=0.1 and seed=42.",
     "latent_swap_outcomes": "Feature-level intervention, not generated audio. P-swap combines recipient L with donor P; L-swap is the complementary control. Bars report recipient-phone preservation and whether the reconstructed SPEAR features match donor or recipient speaker identity. Evaluators are calibrated only on unswapped SAE reconstructions. The shuffled-mask diagnostic can overlap true P units—especially in learned models with roughly half their capacity assigned to P—so it is not a clean negative control.",
     "route_selectivity_composition": "Fractions use observed-active units as the denominator; assigned-capacity fractions remain in the CSV tables.",
-    "speech_factor_metrics": "Speech-adapted metrics on the same jointly capped held-out phone segments. MIG and SAP compare the two strongest individual coordinates within each route; DCI informativeness uses the complete route subspace. The desired crossover is phone L > P and speaker P > L. MIG intervals bootstrap utterances for phone and speakers for speaker; SAP/DCI intervals vary utterance-grouped fitting splits.",
+    "route_factor_information": "Whole-subspace information on identical held-out phone segments. Each line joins z_L and z_P for the same factor. Route-MIG uses normalized mutual information in held-out nonlinear predictions, SAP uses a linear classifier, and DCI informativeness uses a nonlinear classifier.",
+    "route_factor_contrasts": "Desired-route minus other-route contrasts. Positive values mean phone information favours z_L or speaker information favours z_P. Circles use every observed route unit; diamonds equalize the number of active units in the two routes. Horizontal intervals show repeated grouped-split stability.",
+    "route_factor_information_matrix": "The same route-level scores as 2 x 2 factor-routing matrices. Outlined cells are the intended allocation: phone to z_L and speaker to z_P. These are subspace results, not claims that units within a route are mutually disentangled.",
+    "deprecated_unit_compactness_metrics": "DEPRECATED: the former MIG/SAP view compared the strongest individual coordinates inside each route. It is retained for provenance but does not match the intended z_L-versus-z_P disentanglement claim.",
 }
 
 PLOT_TITLES = {
+    "unit_activity": "Shared-Code Unit Activity",
+    "phone_score_vs_speaker_score": "Per-Unit Phone and Speaker Association",
+    "unrouted_selectivity_composition": "Unrouted Unit Association Composition",
+    "unrouted_top_associated_units": "Strongest Phone- and Speaker-Associated Units",
     "route_probe_accuracy": "Held-Out Probe Accuracy: Phone–Speaker Crossover",
     "route_classifier_free_geometry": "Classifier-Free Geometry: Phone–Speaker Crossover",
     "route_phone_probe_confusion": "Held-Out Phone Probe Confusion",
@@ -58,7 +68,10 @@ PLOT_TITLES = {
     "route_phone_representation_umap": "Supplementary UMAP: Held-Out Phone Vectors",
     "route_speaker_representation_umap": "Supplementary UMAP: Held-Out Speaker Vectors",
     "latent_swap_outcomes": "Latent Swap: Content Retention and Speaker Transfer",
-    "speech_factor_metrics": "Speech-Adapted MIG, SAP and DCI by Route",
+    "route_factor_information": "Route-Subspace Information: MIG, SAP and DCI",
+    "route_factor_contrasts": "Route Disentanglement Contrasts and Capacity Control",
+    "route_factor_information_matrix": "Phone–Speaker Information by Complete Route",
+    "deprecated_unit_compactness_metrics": "Deprecated: Within-Route Coordinate Compactness",
 }
 
 
@@ -134,8 +147,13 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
     sns = _sns()
     focused = tables.get("phone_speaker_scores") is not None
     health = tables.get("health")
+    unrouted = bool(
+        health is not None and len(health) and "route" in health
+        and set(health["route"].astype(str).unique()) <= {"unassigned"}
+    )
     if health is not None and len(health):
-        path = output / "plots" / "route_activity"
+        activity_name = "unit_activity" if unrouted else "route_activity"
+        path = output / "plots" / activity_name
         if "observed_active" in health.columns:
             active = health[health.observed_active.fillna(False)].copy()
         else:
@@ -143,7 +161,7 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
         active["log10_frame_frequency"] = np.log10(active.frame_frequency.clip(lower=1e-9))
         _save_plot_data(
             output,
-            "route_activity",
+            activity_name,
             active[[c for c in (
                 "unit", "route", "route_id", "route_probability", "frame_frequency",
                 "utterance_frequency", "active_frames", "active_utterances",
@@ -153,12 +171,18 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
         def draw(fig):
             ax = fig.subplots()
             if sns is not None:
-                sns.histplot(
-                    data=active, x="log10_frame_frequency", hue="route",
-                    hue_order=[x for x in ("L", "P", "U", "unassigned") if x in set(active.route)],
-                    palette=ROUTE_COLORS, bins=45, element="step", stat="count",
-                    common_norm=False, alpha=.35, ax=ax,
-                )
+                if unrouted:
+                    sns.histplot(
+                        data=active, x="log10_frame_frequency", bins=45,
+                        element="step", stat="count", color="#667085", alpha=.38, ax=ax,
+                    )
+                else:
+                    sns.histplot(
+                        data=active, x="log10_frame_frequency", hue="route",
+                        hue_order=[x for x in ("L", "P", "U", "unassigned") if x in set(active.route)],
+                        palette=ROUTE_COLORS, bins=45, element="step", stat="count",
+                        common_norm=False, alpha=.35, ax=ax,
+                    )
             else:
                 for route, group in active.groupby("route"):
                     ax.hist(group.log10_frame_frequency, bins=40, alpha=.55, label=route,
@@ -193,11 +217,27 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
         def draw(fig):
             ax = fig.subplots()
             if sns is not None:
-                sns.scatterplot(
-                    data=unit_scores, x="PhoneScore", y="SpeakerScore",
-                    hue="route", style="category", palette=ROUTE_COLORS,
-                    s=22, alpha=.65, linewidth=0, ax=ax,
-                )
+                if unrouted:
+                    category_palette = {
+                        "phone-selective": "#087f5b", "speaker-selective": "#d9480f",
+                        "mixed phone/speaker": "#7048e8", "other": "#98a2b3",
+                    }
+                    display_scores = unit_scores.copy()
+                    display_scores["association category"] = display_scores["category"].map({
+                        "phone": "phone-selective", "speaker": "speaker-selective",
+                        "entangled": "mixed phone/speaker", "other": "other",
+                    }).fillna(display_scores["category"].astype(str))
+                    sns.scatterplot(
+                        data=display_scores, x="PhoneScore", y="SpeakerScore",
+                        hue="association category", palette=category_palette,
+                        s=24, alpha=.68, linewidth=0, ax=ax,
+                    )
+                else:
+                    sns.scatterplot(
+                        data=unit_scores, x="PhoneScore", y="SpeakerScore",
+                        hue="route", style="category", palette=ROUTE_COLORS,
+                        s=22, alpha=.65, linewidth=0, ax=ax,
+                    )
             else:
                 for route, group in unit_scores.groupby("route"):
                     ax.scatter(group.PhoneScore, group.SpeakerScore, s=12, alpha=.55,
@@ -209,6 +249,81 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
                 title="Per-unit phone vs. speaker scores",
             )
         _plot(path, draw); made.append(path.with_suffix(".png"))
+        if unrouted:
+            if "observed_active" in unit_scores:
+                active_scores = unit_scores[unit_scores["observed_active"].fillna(False)].copy()
+            else:
+                active_scores = unit_scores.copy()
+            category_order = ["phone", "speaker", "entangled", "other"]
+            category_labels = {
+                "phone": "phone-selective", "speaker": "speaker-selective",
+                "entangled": "mixed phone/speaker", "other": "other",
+            }
+            counts = active_scores["category"].value_counts().reindex(category_order, fill_value=0)
+            composition = pd.DataFrame({
+                "category": category_order,
+                "label": [category_labels[x] for x in category_order],
+                "count": counts.to_numpy(dtype=int),
+            })
+            composition["fraction"] = composition["count"] / max(1, int(composition["count"].sum()))
+            _save_plot_data(output, "unrouted_selectivity_composition", composition)
+            path = output / "plots" / "unrouted_selectivity_composition"
+            def draw_composition(fig):
+                ax = fig.subplots()
+                data = composition[composition["count"] > 0]
+                colors = [
+                    {"phone": "#087f5b", "speaker": "#d9480f", "entangled": "#7048e8", "other": "#98a2b3"}[x]
+                    for x in data["category"]
+                ]
+                wedges, _ = ax.pie(
+                    data["count"], startangle=90, counterclock=False, colors=colors,
+                    wedgeprops={"width": .38, "edgecolor": "white", "linewidth": 2},
+                )
+                ax.text(0, .05, f"{int(data['count'].sum()):,}", ha="center", va="center",
+                        fontsize=22, fontweight="bold", color="#17233c")
+                ax.text(0, -.13, "observed units", ha="center", va="center",
+                        fontsize=9, color="#667085")
+                legend = [
+                    f"{row.label}: {int(row['count']):,} ({float(row.fraction):.1%})"
+                    for _, row in data.iterrows()
+                ]
+                ax.legend(wedges, legend, loc="center left", bbox_to_anchor=(.95, .5), frameon=False)
+                ax.set_title("Association categories in the shared SAE code")
+            _plot(path, draw_composition, figsize=(8.8, 5.6)); made.append(path.with_suffix(".png"))
+
+            top_parts = []
+            for metric, preferred, factor in (
+                ("PhoneScore", "preferred_phone", "phone"),
+                ("SpeakerScore", "preferred_speaker", "speaker"),
+            ):
+                top = active_scores[active_scores[metric] > 0].nlargest(18, metric).copy()
+                top["factor"] = factor
+                top["association"] = top[metric].astype(float)
+                label_values = top.get(preferred, pd.Series("", index=top.index)).astype(str)
+                top["unit_label"] = "u" + top["unit"].astype(int).astype(str) + " · " + label_values
+                top_parts.append(top[["unit", "factor", "association", "unit_label", "category"]])
+            top_associations = pd.concat(top_parts, ignore_index=True) if top_parts else pd.DataFrame()
+            if len(top_associations):
+                _save_plot_data(output, "unrouted_top_associated_units", top_associations)
+                path = output / "plots" / "unrouted_top_associated_units"
+                def draw_top(fig):
+                    axes = fig.subplots(1, 2, squeeze=False)[0]
+                    colors = {"phone": "#087f5b", "speaker": "#d9480f"}
+                    for ax, factor in zip(axes, ("phone", "speaker")):
+                        data = top_associations[top_associations["factor"] == factor].sort_values(
+                            "association", ascending=True,
+                        ).reset_index(drop=True)
+                        y = np.arange(len(data))
+                        ax.hlines(y, 0, data["association"], color=colors[factor], alpha=.32, lw=2)
+                        ax.scatter(data["association"], y, color=colors[factor], s=48,
+                                   edgecolor="white", linewidth=.7, zorder=3)
+                        ax.set(
+                            yticks=y, yticklabels=data["unit_label"], xlim=(0, None),
+                            xlabel=f"{factor.capitalize()}Score",
+                            title=f"Strongest {factor}-associated units",
+                        )
+                        ax.tick_params(axis="y", labelsize=8)
+                _plot(path, draw_top, figsize=(11.6, 7.0)); made.append(path.with_suffix(".png"))
     separation = tables.get("representation_separation")
     if separation is not None and len(separation) and "linear_probe_balanced_accuracy" in separation:
         accuracy = separation[[
@@ -415,7 +530,8 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
             previous_family = None
             for _, row in atlas.iterrows():
                 family = str(row["phone_family"])
-                label = f"{row['phone']} · u{int(row['unit'])} · {row['route']}"
+                route_suffix = "" if unrouted else f" · {row['route']}"
+                label = f"{row['phone']} · u{int(row['unit'])}{route_suffix}"
                 if family != previous_family:
                     label = f"{family.upper()}  |  {label}"
                 labels.append(label)
@@ -463,7 +579,7 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
                 ax.set(
                     yticks=y, yticklabels=atlas["unit_label"],
                     xlabel="phone specificity margin",
-                    ylabel="target phone · selected unit · route",
+                    ylabel=("target phone · selected unit" if unrouted else "target phone · selected unit · route"),
                     title=f"All {len(atlas)} unique phone–unit assignments · held-out specificity",
                 )
                 ax.invert_yaxis()
@@ -506,9 +622,9 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
                 plot_frame["selected_phone"].astype(str)
                 + " · u"
                 + plot_frame["selected_unit"].astype(str)
-                + " · "
-                + plot_frame["route"].astype(str)
             )
+            if not unrouted:
+                labels = labels + " · " + plot_frame["route"].astype(str)
             matrix = plot_frame[value_cols].astype(float)
             matrix.index = labels
             _save_plot_data(output, "phone_selected_unit_confusion", phone_confusion.copy())
@@ -648,73 +764,143 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
     factor_metrics = tables.get("factor_metrics")
     if factor_metrics is not None and len(factor_metrics):
         metric_plot = factor_metrics[
-            (factor_metrics["control"] == "observed")
+            (factor_metrics["scope"] == "route_subspace")
+            & (factor_metrics["capacity_mode"] == "all_observed")
+            & (factor_metrics["control"] == "observed")
+            & (factor_metrics["component"] == "informativeness")
             & (factor_metrics["target"].isin(["phone", "speaker_id"]))
             & (factor_metrics["view"].isin(["L", "P"]))
-            & (
-                ((factor_metrics["metric"].isin(["MIG", "SAP"]))
-                 & (factor_metrics["component"] == "factor_gap"))
-                | ((factor_metrics["metric"] == "DCI")
-                   & (factor_metrics["component"] == "informativeness"))
-            )
         ].copy()
         if len(metric_plot):
-            metric_plot["metric_label"] = metric_plot.apply(
-                lambda row: "DCI informativeness" if row["metric"] == "DCI" else str(row["metric"]),
-                axis=1,
-            )
             metric_plot["target_label"] = metric_plot["target"].map({
                 "phone": "Phone", "speaker_id": "Speaker",
             })
-            _save_plot_data(output, "speech_factor_metrics", metric_plot)
-            path = output / "plots" / "speech_factor_metrics"
-            def draw(fig):
-                metric_order = [
-                    name for name in ("MIG", "SAP", "DCI informativeness")
-                    if name in set(metric_plot["metric_label"])
-                ]
-                axes = fig.subplots(1, len(metric_order), squeeze=False)[0]
-                targets = ["Phone", "Speaker"]
-                routes = ["L", "P"]
-                x = np.arange(len(targets), dtype=float)
-                width = .34
-                for ax, metric_name in zip(axes, metric_order):
-                    subset = metric_plot[metric_plot["metric_label"] == metric_name]
-                    for route_index, route in enumerate(routes):
-                        values, lows, highs = [], [], []
-                        for target in targets:
-                            match = subset[
-                                (subset["target_label"] == target) & (subset["view"] == route)
-                            ]
+            _save_plot_data(output, "route_factor_information", metric_plot)
+            path = output / "plots" / "route_factor_information"
+            def draw_information(fig):
+                axes = fig.subplots(1, 3, squeeze=False)[0]
+                for ax, metric in zip(axes, ("MIG", "SAP", "DCI")):
+                    subset = metric_plot[metric_plot.metric == metric]
+                    for y, target in enumerate(("Phone", "Speaker")):
+                        rows = subset[subset.target_label == target].set_index("view")
+                        if not {"L", "P"}.issubset(rows.index):
+                            continue
+                        l_value, p_value = float(rows.loc["L", "value"]), float(rows.loc["P", "value"])
+                        ax.plot([l_value, p_value], [y, y], color="#98a2b3", lw=3, zorder=1)
+                        for route, value in (("L", l_value), ("P", p_value)):
+                            row = rows.loc[route]
+                            low, high = float(row.ci95_low), float(row.ci95_high)
+                            ax.errorbar(
+                                value, y, xerr=[[max(0.0, value-low)], [max(0.0, high-value)]],
+                                fmt="o", ms=9, capsize=3, color=ROUTE_COLORS[route], zorder=3,
+                                label=f"{route} route" if y == 0 else None,
+                            )
+                            ax.annotate(
+                                f"{route} {value:.3f}", (value, y), xytext=(0, -15 if route == "L" else 12),
+                                textcoords="offset points", ha="center", fontsize=8,
+                                color=ROUTE_COLORS[route],
+                            )
+                    ax.set(
+                        yticks=[0, 1], yticklabels=["Phone", "Speaker"], xlim=(-.025, 1.025),
+                        xlabel="held-out route information", title=metric,
+                    )
+                    ax.invert_yaxis()
+                    ax.axvline(0, color="#d0d5dd", lw=.8)
+                handles, legend_labels = axes[0].get_legend_handles_labels()
+                fig.legend(handles, legend_labels, frameon=False, loc="upper center",
+                           bbox_to_anchor=(.5, .93), ncol=2)
+                fig.suptitle("Whole-route phone–speaker information crossover", fontsize=14, y=.99)
+            _plot(path, draw_information, figsize=(14.2, 4.6)); made.append(path.with_suffix(".png"))
+
+            _save_plot_data(output, "route_factor_information_matrix", metric_plot)
+            path = output / "plots" / "route_factor_information_matrix"
+            def draw_matrix(fig):
+                axes = fig.subplots(1, 3, squeeze=False)[0]
+                for ax, metric in zip(axes, ("MIG", "SAP", "DCI")):
+                    subset = metric_plot[metric_plot.metric == metric]
+                    matrix = np.zeros((2, 2), dtype=float)
+                    for r, route in enumerate(("L", "P")):
+                        for c, target in enumerate(("phone", "speaker_id")):
+                            match = subset[(subset.view == route) & (subset.target == target)]
+                            matrix[r, c] = float(match.iloc[0].value) if len(match) else 0.0
+                    image = ax.imshow(matrix, cmap="YlGnBu", vmin=0, vmax=max(.05, float(matrix.max())))
+                    for r in range(2):
+                        for c in range(2):
+                            ax.text(c, r, f"{matrix[r,c]:.3f}", ha="center", va="center",
+                                    color="white" if matrix[r,c] > matrix.max()*.58 else "#162033",
+                                    fontsize=12, fontweight="bold")
+                    from matplotlib.patches import Rectangle
+                    for r, c in ((0, 0), (1, 1)):
+                        ax.add_patch(Rectangle((c-.48, r-.48), .96, .96, fill=False,
+                                               edgecolor="#f79009", lw=3))
+                    ax.set(xticks=[0, 1], xticklabels=["Phone", "Speaker"],
+                           yticks=[0, 1], yticklabels=["zL", "zP"], title=metric)
+                    fig.colorbar(image, ax=ax, fraction=.046, pad=.04)
+                fig.suptitle("Factor information in the two complete route vectors", fontsize=14, y=.99)
+            _plot(path, draw_matrix, figsize=(13.6, 4.4)); made.append(path.with_suffix(".png"))
+
+        contrasts = factor_metrics[
+            (factor_metrics["scope"] == "route_subspace")
+            & (factor_metrics["component"] == "route_contrast")
+            & (factor_metrics["target"].isin(["phone", "speaker_id"]))
+        ].copy()
+        if len(contrasts):
+            _save_plot_data(output, "route_factor_contrasts", contrasts)
+            path = output / "plots" / "route_factor_contrasts"
+            def draw_contrasts(fig):
+                axes = fig.subplots(1, 3, squeeze=False)[0]
+                styles = {
+                    ("all_observed", "observed"): ("o", "#275dad", "all observed units"),
+                    ("matched_active_units", "observed"): ("D", "#f79009", "capacity matched"),
+                    ("all_observed", "label_shuffle"): ("x", "#98a2b3", "label shuffle"),
+                }
+                for ax, metric in zip(axes, ("MIG", "SAP", "DCI")):
+                    subset = contrasts[contrasts.metric == metric]
+                    for y, target in enumerate(("phone", "speaker_id")):
+                        for offset, (key, (marker, color, label)) in enumerate(styles.items()):
+                            mode, control = key
+                            match = subset[(subset.target == target) &
+                                           (subset.capacity_mode == mode) &
+                                           (subset.control == control)]
                             if match.empty:
-                                values.append(np.nan); lows.append(0.0); highs.append(0.0)
                                 continue
-                            row = match.iloc[0]
-                            value = float(row["value"])
-                            low = float(row["ci95_low"]) if pd.notna(row["ci95_low"]) else value
-                            high = float(row["ci95_high"]) if pd.notna(row["ci95_high"]) else value
-                            values.append(value)
-                            lows.append(max(0.0, value - low)); highs.append(max(0.0, high - value))
-                        offsets = x + (route_index - .5) * width
-                        bars = ax.bar(
-                            offsets, values, width=width, label=f"{route} route",
-                            color=ROUTE_COLORS[route], alpha=.88,
-                            yerr=np.asarray([lows, highs]), capsize=4,
-                        )
-                        finite = [value for value in values if np.isfinite(value)]
-                        pad = max(finite, default=.01) * .035 + .002
-                        for bar, value in zip(bars, values):
-                            if np.isfinite(value):
-                                ax.text(
-                                    bar.get_x() + bar.get_width() / 2, value + pad,
-                                    f"{value:.3f}", ha="center", va="bottom", fontsize=7.5,
-                                )
-                    ax.set(xticks=x, xticklabels=targets, ylabel="score", title=metric_name)
-                    ax.axhline(0, color="#475467", lw=.9)
-                if len(axes):
-                    axes[0].legend(frameon=False, loc="upper center")
-                fig.suptitle("Held-out phone–speaker route crossover", y=1.03, fontsize=13)
-            _plot(path, draw, figsize=(14.0, 4.8)); made.append(path.with_suffix(".png"))
+                            row = match.iloc[0]; value = float(row.value)
+                            low, high = float(row.ci95_low), float(row.ci95_high)
+                            ypos = y + (offset - 1) * .14
+                            ax.errorbar(value, ypos,
+                                xerr=[[max(0.0, value-low)], [max(0.0, high-value)]],
+                                fmt=marker, ms=7, capsize=3, color=color,
+                                label=label if y == 0 else None)
+                    low_limit = min(-.04, float(np.nanmin(subset["ci95_low"].to_numpy())) - .03)
+                    high_limit = max(.04, float(np.nanmax(subset["ci95_high"].to_numpy())) + .04)
+                    ax.set(yticks=[0, 1], yticklabels=["Phone: L − P", "Speaker: P − L"],
+                           xlim=(low_limit, high_limit), xlabel="desired-route contrast", title=metric)
+                    ax.invert_yaxis(); ax.axvline(0, color="#344054", lw=1)
+                axes[0].legend(frameon=False, loc="lower right", fontsize=8)
+                fig.suptitle("Route contrast, uncertainty and equal-capacity control", fontsize=14, y=.99)
+            _plot(path, draw_contrasts, figsize=(14.5, 4.9)); made.append(path.with_suffix(".png"))
+
+    deprecated = tables.get("deprecated_factor_metrics")
+    if deprecated is not None and len(deprecated):
+        legacy = deprecated[
+            (deprecated.control == "observed") & (deprecated.target.isin(["phone", "speaker_id"]))
+            & (deprecated.view.isin(["L", "P"]))
+            & (((deprecated.metric.isin(["MIG", "SAP"])) & (deprecated.component == "factor_gap"))
+               | ((deprecated.metric == "DCI") & (deprecated.component == "informativeness")))
+        ].copy()
+        if len(legacy):
+            _save_plot_data(output, "deprecated_unit_compactness_metrics", legacy)
+            path = output / "plots" / "deprecated_unit_compactness_metrics"
+            def draw_deprecated(fig):
+                ax = fig.subplots()
+                labels = []
+                for _, row in legacy.iterrows():
+                    labels.append(f"{row.metric} · {'speaker' if row.target == 'speaker_id' else row.target} · {row.view}")
+                order = np.argsort(legacy.value.to_numpy())
+                ax.barh(np.arange(len(legacy)), legacy.value.to_numpy()[order], color="#98a2b3")
+                ax.set(yticks=np.arange(len(legacy)), yticklabels=np.asarray(labels)[order],
+                       xlabel="historic score", title="Deprecated coordinate-level diagnostic")
+            _plot(path, draw_deprecated, figsize=(10.5, 7.0)); made.append(path.with_suffix(".png"))
 
     disent = tables.get("disentanglement")
     if disent is not None and len(disent) and not focused:
@@ -1135,8 +1321,10 @@ def build_report(
     tables: dict[str, pd.DataFrame], warnings: list[str], plots: list[Path],
     *, profile: str = "full",
 ) -> Path:
+    unrouted = not bool(resolved.capabilities.get("unit_routes", False))
     health = tables.get("health", pd.DataFrame())
     rows = []
+    unrouted_rows = []
     unit_page_dir = output / "report" / "units"
     has_unit_pages = unit_page_dir.exists() and any(unit_page_dir.glob("*.html"))
     if len(health):
@@ -1152,10 +1340,24 @@ def build_report(
             rows.append(f"<tr data-route='{row.route}'><td>{unit_html}</td>"
                         f"<td class='{row.route}'>{row.route}</td><td>{row.frame_frequency:.5%}</td>"
                         f"<td>{row.route_probability:.3f}</td><td>{row.mean_abs_contribution:.4g}</td></tr>")
+            unrouted_rows.append(
+                f"<tr><td>{unit_html}</td><td>{row.frame_frequency:.5%}</td>"
+                f"<td>{row.mean_abs_contribution:.4g}</td></tr>"
+            )
     plot_parts = []
     for p in plots:
         key = p.stem
         caption = PLOT_CAPTIONS.get(key, "")
+        if unrouted and key == "phone_unit_alignment_ranked":
+            caption = (
+                "All 39 unique phone–unit assignments in the shared code, grouped by phonetic family. "
+                "Circles are held-out test specificity; diamonds are train+validation selection margins."
+            )
+        elif unrouted and key == "phone_selected_unit_confusion":
+            caption = (
+                "DEPRECATED diagnostic: raw P(unit active | phone), not a classifier confusion matrix. "
+                "It is retained for coverage inspection; the ranked held-out specificity atlas is clearer."
+            )
         title = PLOT_TITLES.get(key, key.replace('_', ' ').title())
         plot_parts.append(
             f"<div class='panel'><h3>{html.escape(title)}</h3>"
@@ -1174,9 +1376,26 @@ def build_report(
         )
     health_summary = summaries.get("health", {})
     dead_comparable = bool(health_summary.get("deadness_comparable_to_training", False))
+    if dead_comparable:
+        dead_fraction = health_summary.get("train_like_dead_fraction")
+        dead_count = health_summary.get("train_like_dead_units", "—")
+        dead_card_value = (
+            f"{dead_count} ({float(dead_fraction):.1%})"
+            if isinstance(dead_fraction, (int, float)) and np.isfinite(dead_fraction)
+            else str(dead_count)
+        )
+        warning_html += (
+            "<p class='muted'>Frozen-checkpoint deadness replays the trainer's consecutive-inactive-batch "
+            f"definition over {int(health_summary.get('deadness_replays', 1))} shuffled utterance orders; "
+            "the reported percentage is the mean final dead fraction over valid (unpadded) frames. "
+            "It is not the historical training counter: that transient state was not saved and was "
+            "updated while model weights changed.</p>"
+        )
+    else:
+        dead_card_value = "N/A"
     if health_summary and not dead_comparable:
         warning_html += (
-            "<p class='warn'>Train-like deadness is not estimable in this run: "
+            "<p class='warn'>Frozen-checkpoint deadness is not estimable in this run: "
             f"only {int(health_summary.get('deadness_analysis_batches', 0))} analysis batches "
             f"were observed; at least two windows of "
             f"{int(health_summary.get('deadness_threshold_batches', 0))} batches are required. "
@@ -1233,12 +1452,34 @@ def build_report(
         ) + "</div>"
     score_summary = summaries.get("phone_speaker_scores", {})
     score_cards = ""
-    if score_summary:
+    if score_summary and not unrouted:
         cats = score_summary.get("categories", {})
         score_cards = "<h2>Positive phone/speaker association categories</h2><div class='cards'>" + "".join(
-            f"<div class='card'>{html.escape(str(label))}<br><b>{int(value)}</b></div>"
+            f"<div class='card'>{html.escape('mixed phone/speaker' if unrouted and str(label) == 'entangled' else str(label))}<br><b>{int(value)}</b></div>"
             for label, value in sorted(cats.items())
         ) + "</div>"
+    baseline_html = ""
+    baseline_summary = summaries.get("unrouted_unit_summary", {})
+    if unrouted and baseline_summary:
+        baseline_cards = [
+            ("observed-active units", baseline_summary.get("observed_active_units"), "count"),
+            ("phone-selective", baseline_summary.get("phone_selective_fraction"), "fraction"),
+            ("speaker-selective", baseline_summary.get("speaker_selective_fraction"), "fraction"),
+            ("mixed phone/speaker", baseline_summary.get("mixed_phone_speaker_fraction"), "fraction"),
+        ]
+        card_html = []
+        for label, value, kind in baseline_cards:
+            if not isinstance(value, (int, float)) or not np.isfinite(value):
+                continue
+            shown = f"{int(value):,}" if kind == "count" else f"{float(value):.2%}"
+            card_html.append(f"<div class='card'>{html.escape(label)}<br><b>{shown}</b></div>")
+        baseline_html = (
+            "<h2>Shared-code baseline</h2>"
+            "<p class='muted'>This checkpoint has one unrouted SAE representation. Phone and speaker "
+            "associations can therefore be measured per unit, but L/P separation, route leakage, latent "
+            "swapping, and route-level MIG/DCI/SAP are not defined.</p>"
+            "<div class='cards'>" + "".join(card_html) + "</div>"
+        )
     separation_html = ""
     separation = tables.get("representation_separation", pd.DataFrame())
     if len(separation):
@@ -1286,10 +1527,10 @@ def build_report(
         headline = factor_summary.get("headline_route_contrasts", {})
         headline_intervals = factor_summary.get("headline_route_contrast_intervals", {})
         labels = {
-            "MIG_phone_L_minus_P": "MIG phone L − P",
-            "MIG_speaker_P_minus_L": "MIG speaker P − L",
-            "SAP_phone_L_minus_P": "SAP phone L − P",
-            "SAP_speaker_P_minus_L": "SAP speaker P − L",
+            "MIG_phone_L_minus_P": "Route-MIG phone L − P",
+            "MIG_speaker_P_minus_L": "Route-MIG speaker P − L",
+            "SAP_phone_L_minus_P": "Grouped SAP phone L − P",
+            "SAP_speaker_P_minus_L": "Grouped SAP speaker P − L",
             "DCI_phone_informativeness_L_minus_P": "DCI phone L − P",
             "DCI_speaker_informativeness_P_minus_L": "DCI speaker P − L",
         }
@@ -1300,41 +1541,81 @@ def build_report(
             interval = headline_intervals.get(key, {})
             low, high = interval.get("ci95_low"), interval.get("ci95_high")
             interval_html = (
-                f"<br><span class='muted'>95% [{float(low):+.3f}, {float(high):+.3f}]</span>"
+                f"<br><span class='muted'>split interval [{float(low):+.3f}, {float(high):+.3f}]</span>"
                 if isinstance(low, (int, float)) and isinstance(high, (int, float)) else ""
             )
             card_parts.append(
                 f"<div class='card'>{html.escape(labels[key])}<br><b>{float(value):+.3f}</b>{interval_html}</div>"
             )
         cards = "<div class='cards'>" + "".join(card_parts) + "</div>"
-        show_rows = factor_metrics[
-            (factor_metrics["control"] == "observed")
-            & (
-                (factor_metrics["component"] == "route_contrast")
-                | ((factor_metrics["metric"] == "DCI")
-                   & (factor_metrics["view"].isin(["L", "P"]))
-                   & (factor_metrics["component"].isin(["disentanglement", "completeness"])))
-            )
-        ].copy()
-        show = [c for c in (
-            "metric", "component", "target", "view", "observed_units_in_view",
-            "value", "ci95_low", "ci95_high",
-        ) if c in show_rows.columns]
+        def metric_value(metric: str, target: str, view: str, capacity: str,
+                         control: str = "observed", component: str = "informativeness"):
+            match = factor_metrics[
+                (factor_metrics.metric == metric) & (factor_metrics.target == target)
+                & (factor_metrics.view == view) & (factor_metrics.capacity_mode == capacity)
+                & (factor_metrics.control == control) & (factor_metrics.component == component)
+            ]
+            return None if match.empty else match.iloc[0]
+
+        table_rows = []
+        for metric in ("MIG", "SAP", "DCI"):
+            for target, target_label, contrast_view in (
+                ("phone", "Phone", "L-P"), ("speaker_id", "Speaker", "P-L"),
+            ):
+                l_row = metric_value(metric, target, "L", "all_observed")
+                p_row = metric_value(metric, target, "P", "all_observed")
+                contrast = metric_value(metric, target, contrast_view, "all_observed", component="route_contrast")
+                matched = metric_value(metric, target, contrast_view, "matched_active_units", component="route_contrast")
+                shuffled = metric_value(metric, target, contrast_view, "all_observed", "label_shuffle", "route_contrast")
+                def score(row):
+                    return "—" if row is None else f"{float(row.value):.3f}"
+                interval = (
+                    "—" if contrast is None else
+                    f"{float(contrast.value):+.3f} [{float(contrast.ci95_low):+.3f}, {float(contrast.ci95_high):+.3f}]"
+                )
+                table_rows.append(
+                    "<tr>" + "".join([
+                        f"<td>{html.escape('Route-MIG' if metric == 'MIG' else metric)}</td>",
+                        f"<td>{target_label}</td>", f"<td>{score(l_row)}</td>",
+                        f"<td>{score(p_row)}</td>", f"<td>{interval}</td>",
+                        f"<td>{score(matched)}</td>", f"<td>{score(shuffled)}</td>",
+                    ]) + "</tr>"
+                )
+
+        structure_cards = []
+        structure_labels = {
+            ("route_disentanglement", "all"): "Grouped DCI disentanglement",
+            ("route_completeness", "mean"): "Grouped DCI completeness",
+            ("directional_alignment", "mean"): "Intended-route alignment",
+        }
+        for (component, target), label in structure_labels.items():
+            row = metric_value("DCI", target, "L|P", "all_observed", component=component)
+            if row is not None:
+                structure_cards.append(
+                    f"<div class='card'>{html.escape(label)}<br><b>{float(row.value):.3f}</b></div>"
+                )
+        structure_html = "<div class='cards'>" + "".join(structure_cards) + "</div>"
         factor_metrics_html = (
-            "<h2>Speech-adapted MIG, SAP and DCI</h2>"
-            "<p class='muted'>All scores use the same held-out phone segments and are computed "
-            "separately from full z, z<sub>L</sub>, and z<sub>P</sub>. The headline contrasts "
-            "show phone L−P and speaker P−L, so positive values support the routing claim. "
-            "MIG and SAP reward concentration in individual units and can therefore be low for "
-            "a correctly routed but distributed code. DCI informativeness uses complete route "
-            "subspaces; its feature importances are weighted by chance-corrected held-out accuracy. "
-            "Natural speech is not fully factorial; observed speaker–phone cells are "
-            "capped before scoring, and shuffled-label controls remain in the CSV. "
-            "MIG intervals use clustered bootstraps; SAP/DCI intervals summarize five "
-            "grouped fitting splits and therefore measure estimator stability rather "
-            "than population uncertainty.</p>"
-            + cards + "<div class='scroll'>"
-            + show_rows[show].to_html(index=False, escape=True, classes="tight") + "</div>"
+            "<h2>Grouped MIG, SAP and DCI for z<sub>L</sub> and z<sub>P</sub></h2>"
+            "<p class='muted'>The object being evaluated is the two-subspace partition—not "
+            "independence among units inside either route. Route-MIG is "
+            "I(target; held-out route prediction)/H(target). Grouped SAP compares linear-SVM "
+            "balanced accuracy from each complete route. DCI uses nonlinear held-out "
+            "informativeness and applies its entropy decomposition to the resulting "
+            "2-route × 2-factor evidence matrix. Positive desired gaps mean phone favours "
+            "z<sub>L</sub> or speaker favours z<sub>P</sub>. The capacity-matched column uses "
+            "the same number of most-active units in each route; label shuffle is the negative control. "
+            "Intervals summarize repeated utterance-grouped splits and measure estimator stability, "
+            "not population uncertainty.</p>"
+            + cards + structure_html
+            + "<div class='scroll'><table class='tight'><thead><tr>"
+            "<th>metric</th><th>factor</th><th>zL</th><th>zP</th>"
+            "<th>desired gap [split interval]</th><th>capacity-matched gap</th>"
+            "<th>shuffled gap</th></tr></thead><tbody>"
+            + "".join(table_rows) + "</tbody></table></div>"
+            + "<p class='muted'><b>Deprecated provenance:</b> the previous coordinate-gap "
+            "MIG/SAP table is retained as <code>deprecated_unit_compactness_metrics.csv</code>; "
+            "it is no longer used to support the route-disentanglement claim.</p>"
         )
     classifier_free_geometry = tables.get("classifier_free_geometry_summary", pd.DataFrame())
     if len(classifier_free_geometry):
@@ -1388,21 +1669,28 @@ def build_report(
         "<p class='muted'>The table displays only units observed in the extracted "
         "Top-K sample. Complete assigned-capacity rows remain in the CSV tables.</p>"
     )
-    page = f"""<!doctype html><html><head><meta charset='utf-8'><style>{CSS}</style><title>SAE Unit Analysis</title></head>
-    <body><header><h1>SAE Unit Analysis</h1><p>{html.escape(resolved.checkpoint.name)} · {', '.join(completed)}</p></header><main>
+    report_title = "Unrouted SAE Unit Analysis" if unrouted else "SAE Unit Analysis"
+    if unrouted:
+        unit_controls = "<label>Unit <input id='search' placeholder='unit id'></label>"
+        unit_header = "<table><thead><tr><th>unit</th><th>frame frequency</th><th>contribution</th></tr></thead>"
+        unit_rows = "".join(unrouted_rows)
+        unit_script = "<script>document.getElementById('search').oninput=function(){let q=this.value;document.querySelectorAll('#units tr').forEach(x=>x.style.display=(!q||x.cells[0].innerText.includes(q))?'':'none')}</script>"
+    else:
+        unit_controls = "<label>Route <select id='route'><option value=''>all</option><option>L</option><option>P</option><option>U</option></select></label><label>Unit <input id='search' placeholder='unit id'></label>"
+        unit_header = "<table><thead><tr><th>unit</th><th>route</th><th>frame frequency</th><th>route confidence</th><th>contribution</th></tr></thead>"
+        unit_rows = "".join(rows)
+        unit_script = "<script>function filt(){let q=document.getElementById('search').value,r=document.getElementById('route').value;document.querySelectorAll('#units tr').forEach(x=>x.style.display=(!r||x.dataset.route===r)&&(!q||x.cells[0].innerText.includes(q))?'':'none')}document.getElementById('route').onchange=filt;document.getElementById('search').oninput=filt</script>"
+    page = f"""<!doctype html><html><head><meta charset='utf-8'><style>{CSS}</style><title>{report_title}</title></head>
+    <body><header><h1>{report_title}</h1><p>{html.escape(resolved.checkpoint.name)} · {', '.join(completed)}</p></header><main>
     {warning_html}<div class='cards'><div class='card'>K<br><b>{resolved.config['K']}</b></div>
     <div class='card'>active units<br><b>{summaries.get('health',{}).get('active_units','—')}</b></div>
     <div class='card'>unobserved units<br><b>{summaries.get('health',{}).get('unobserved_units','—')}</b></div>
-    <div class='card'>train-like dead<br><b>{health_summary.get('train_like_dead_units','—') if dead_comparable else 'N/A'}</b></div>
+    <div class='card'>frozen replay dead<br><b>{dead_card_value}</b></div>
     <div class='card'>frames<br><b>{summaries.get('health',{}).get('frames','—')}</b></div>
     <div class='card'>format<br><b>{resolved.source_format}</b></div></div>
-    {thesis_cards}{score_cards}{separation_html}{factor_metrics_html}{geometry_html}{swap_html}{route_table_html}{leaky_html}
+    {baseline_html}{thesis_cards}{score_cards}{separation_html}{factor_metrics_html}{geometry_html}{swap_html}{route_table_html}{leaky_html}
     <h2>Figures</h2><div class='grid'>{plot_html}</div><h2>{unit_section_title}</h2>{unit_section_note}
-    <label>Route <select id='route'><option value=''>all</option><option>L</option><option>P</option><option>U</option></select></label>
-    <label>Unit <input id='search' placeholder='unit id'></label>
-    <table><thead><tr><th>unit</th><th>route</th><th>frame frequency</th><th>route confidence</th><th>contribution</th></tr></thead>
-    <tbody id='units'>{''.join(rows)}</tbody></table>
-    <script>function filt(){{let q=document.getElementById('search').value,r=document.getElementById('route').value;document.querySelectorAll('#units tr').forEach(x=>x.style.display=(!r||x.dataset.route===r)&&(!q||x.cells[0].innerText.includes(q))?'':'none')}}document.getElementById('route').onchange=filt;document.getElementById('search').oninput=filt</script>
+    {unit_controls}{unit_header}<tbody id='units'>{unit_rows}</tbody></table>{unit_script}
     </main></body></html>"""
     path = output / "report" / "index.html"; path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(page, encoding="utf-8")

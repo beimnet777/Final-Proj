@@ -189,17 +189,29 @@ def load_checkpoint(path: str | Path) -> ResolvedModel:
         config.setdefault("n_routes", 2)
         config.setdefault("routing_tau_end", 0.1)
 
+    # ``no_routing`` checkpoints still contain a RoutingModule in the model
+    # state because the shared architecture instantiates it unconditionally.
+    # Its logits were bypassed in forward(), so they must not be interpreted as
+    # learned L/P unit assignments during post-hoc analysis.
+    no_routing = bool(config.get("no_routing", False))
+    effective_routing = bool(structural["has_routing"] and not no_routing)
+    config["has_routing"] = effective_routing
     capabilities = {
         "features": True,
-        "routes": bool(structural["has_routing"]),
-        "unit_routes": bool(structural["has_routing"] and not structural["projection_disentanglement"]),
-        "causal": bool(structural["has_routing"] and not structural["projection_disentanglement"]),
-        "swap": bool(structural["has_routing"] and not structural["projection_disentanglement"]),
+        "routes": effective_routing,
+        "unit_routes": bool(effective_routing and not structural["projection_disentanglement"]),
+        "causal": bool(effective_routing and not structural["projection_disentanglement"]),
+        "swap": bool(effective_routing and not structural["projection_disentanglement"]),
         "projection_views": bool(structural["projection_disentanglement"]),
     }
     if structural["projection_disentanglement"]:
         warnings.append("Projection checkpoint: SAE units do not have one-to-one L/P assignments.")
-    if not structural["has_routing"]:
+    if no_routing:
+        warnings.append(
+            "Checkpoint uses no_routing; all SAE units belong to one shared latent space. "
+            "L/P route analyses and interventions are unavailable."
+        )
+    elif not structural["has_routing"]:
         warnings.append("Checkpoint has no trained route state; route-dependent analyses are unavailable.")
     return ResolvedModel(checkpoint, state, config, source_format, capabilities, warnings)
 
@@ -212,6 +224,8 @@ def route_information(resolved: ResolvedModel) -> tuple[np.ndarray, np.ndarray]:
     """Return dominant route and route probability per SAE unit."""
     state, cfg = resolved.state, resolved.config
     K = int(cfg["K"])
+    if bool(cfg.get("no_routing", False)):
+        return np.full(K, -1, dtype=np.int16), np.zeros(K, dtype=np.float32)
     enabled = state.get("sae.route_topk_enabled")
     frozen_idx = state.get("sae.route_topk_idx")
     if enabled is not None and frozen_idx is not None and bool(torch.as_tensor(enabled).item()):

@@ -6,7 +6,7 @@ from typing import Any
 
 
 ANALYSES = (
-    "health", "atlas", "selectivity", "factor_metrics", "clustering", "similarity",
+    "deadness", "health", "atlas", "selectivity", "factor_metrics", "clustering", "similarity",
     "geometry", "causal", "swap",
 )
 

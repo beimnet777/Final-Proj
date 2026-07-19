@@ -152,7 +152,14 @@ class CoreTests(unittest.TestCase):
             self.assertGreater(headline["SAP_speaker_P_minus_L"], 0.2)
             self.assertGreater(headline["DCI_phone_informativeness_L_minus_P"], 0.4)
             self.assertGreater(headline["DCI_speaker_informativeness_P_minus_L"], 0.4)
-            self.assertEqual(set(metrics["view"]), {"full", "L", "P", "L-P", "P-L"})
+            self.assertEqual(set(metrics["view"]), {"L", "P", "L-P", "P-L", "L|P"})
+            self.assertEqual(set(metrics["scope"]), {"route_subspace"})
+            self.assertEqual(
+                set(metrics["capacity_mode"]), {"all_observed", "matched_active_units"},
+            )
+            self.assertTrue(
+                ((metrics.metric == "DCI") & (metrics.component == "route_disentanglement")).any()
+            )
             self.assertTrue(len(importance) > 0)
             self.assertTrue(len(repeats) > 0)
             self.assertTrue((out / "tables" / "speech_factor_metrics.csv").exists())
@@ -165,6 +172,19 @@ class CoreTests(unittest.TestCase):
             for key in ("model","model_state"):
                 cp=Path(td)/f"{key}.pt"; torch.save({key:_state(),"analysis_config":{"topk":2,"spear_layernorm":False}},cp)
                 r=load_checkpoint(cp); self.assertEqual(r.config["K"],8); self.assertTrue(r.capabilities["unit_routes"])
+            cp = Path(td) / "unrouted.pt"
+            torch.save({
+                "model": _state(),
+                "analysis_config": {"topk": 2, "spear_layernorm": False, "no_routing": True},
+            }, cp)
+            unrouted = load_checkpoint(cp)
+            self.assertFalse(unrouted.capabilities["routes"])
+            self.assertFalse(unrouted.capabilities["unit_routes"])
+            self.assertFalse(unrouted.capabilities["causal"])
+            route, probability = route_information(unrouted)
+            np.testing.assert_array_equal(route, np.full(8, -1, dtype=np.int16))
+            np.testing.assert_array_equal(probability, np.zeros(8, dtype=np.float32))
+            self.assertTrue(any("one shared latent space" in warning for warning in unrouted.warnings))
 
     def test_missing_alignment_allows_descriptive_but_rejects_causal_analysis(self):
         with tempfile.TemporaryDirectory() as td:
@@ -469,6 +489,15 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(summary["evaluation_diagonal_max_fraction"], 1.0)
             for _, row in matrix.iterrows():
                 self.assertEqual(float(row[row.selected_phone]), 1.0)
+            cache.route[:] = -1
+            unrouted_matrix, unrouted_selected, unrouted_summary = phone_unit_confusion(
+                cache, bundle, out, min_phone_frames=1,
+                selection_splits="train,validation", evaluation_splits="test",
+            )
+            self.assertEqual(len(unrouted_selected), 2)
+            self.assertEqual(set(unrouted_selected["route"]), {"unassigned"})
+            self.assertEqual(unrouted_summary["selected_units"], 2)
+            self.assertEqual(len(unrouted_matrix), 2)
 
     def test_fake_spear_cli_vertical_slice(self):
         with tempfile.TemporaryDirectory() as td:
@@ -508,6 +537,29 @@ class CoreTests(unittest.TestCase):
             self.assertTrue(rich_pages)
             self.assertNotIn("<audio", rich_pages[0].read_text())
             self.assertTrue((td/"rich_result"/"report"/"assets"/"traces").exists())
+
+    def test_unrouted_selectivity_report_avoids_route_claims(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td); root = _bundle(td / "bundle")
+            cp = td / "unrouted.pt"
+            torch.save({
+                "model": _state(),
+                "analysis_config": {"topk": 2, "spear_layernorm": False, "no_routing": True},
+            }, cp)
+            fake_transformers = types.ModuleType("transformers")
+            fake_transformers.AutoModel = FakeAutoModel
+            with patch.dict(sys.modules, {"transformers": fake_transformers}):
+                result = run_analysis(
+                    cp, root, "health,selectivity", output_dir=td / "result",
+                    device="cpu", profile="quick", score_splits="test",
+                )
+            report = (td / "result" / "report" / "index.html").read_text()
+            self.assertIn("Unrouted SAE Unit Analysis", report)
+            self.assertIn("one unrouted SAE representation", report)
+            self.assertNotIn("Disentanglement summary by route", report)
+            self.assertNotIn("Probing-style route-vector separation", report)
+            self.assertTrue((td / "result" / "tables" / "unrouted_unit_summary.csv").exists())
+            self.assertNotIn("factor_metrics", result.completed)
 
     def test_timit_style_metadata_counts_as_l_route_leakage(self):
         with tempfile.TemporaryDirectory() as td:

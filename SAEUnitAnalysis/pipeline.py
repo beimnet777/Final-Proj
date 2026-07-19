@@ -8,8 +8,9 @@ import pandas as pd
 import torch
 
 from .analyses import (
-    clustering_analysis, geometry_analysis, health_analysis, selectivity_analysis,
+    clustering_analysis, deadness_analysis, geometry_analysis, health_analysis, selectivity_analysis,
     disentanglement_tables, phone_speaker_unit_scores, phone_unit_confusion,
+    unrouted_unit_summary,
     route_representation_embeddings, classifier_free_route_geometry,
     similarity_analysis, top_examples, _load_umap,
 )
@@ -65,16 +66,15 @@ def run_analysis(
 ) -> AnalysisResult:
     set_seed(seed)
     selected = _expand(analyses)
-    # UMAP is part of every selectivity report. Import it before feature-model
-    # setup and the SciPy-heavy analyses; this also avoids a late-extension-load
-    # failure observed with the current NumPy/SciPy wheels on Python 3.14.
-    if "selectivity" in selected:
-        _load_umap()
     bundle = AnalysisBundle(data_root)
     resolved = load_checkpoint(checkpoint)
+    # UMAP is part of routed representation reports, but an unrouted unit-only
+    # report does not construct L/P embeddings.
+    if "selectivity" in selected and resolved.capabilities["unit_routes"]:
+        _load_umap()
     for name in selected:
         bundle.require(name)
-        if name in {"selectivity", "factor_metrics", "clustering", "similarity", "geometry", "causal", "swap"} and not resolved.capabilities["unit_routes"]:
+        if name in {"factor_metrics", "clustering", "similarity", "geometry", "causal", "swap"} and not resolved.capabilities["unit_routes"]:
             raise AnalysisError(f"Checkpoint architecture does not support unit-route analysis '{name}'.")
         if name in {"causal", "swap"} and not resolved.capabilities[name]:
             raise AnalysisError(f"Checkpoint architecture does not support '{name}'.")
@@ -121,6 +121,7 @@ def run_analysis(
         resolved, bundle, model, cache_dir, device, profile, seed,
         split_limits=parsed_split_limits,
         compute_acoustics=factor_scope == "broad",
+        persist_cache=selected != ["deadness"],
     )
     write_json(output / "resolved_model.json", {
         "checkpoint": str(resolved.checkpoint), "format": resolved.source_format,
@@ -131,6 +132,13 @@ def run_analysis(
     tables: dict[str, pd.DataFrame] = {}
     summaries: dict = {}
     health = profiles = scores = causal_table = None
+    if "deadness" in selected:
+        deadness, deadness_summary = deadness_analysis(cache, resolved, output)
+        tables["deadness"] = deadness
+        summaries["deadness"] = deadness_summary
+        # Reuse the established deadness card/caption in the HTML report,
+        # without pretending that the full unit-health analysis was run.
+        summaries["health"] = deadness_summary
     if "health" in selected:
         health, summaries["health"] = health_analysis(cache, resolved, output); tables["health"] = health
     if "selectivity" in selected:
@@ -154,28 +162,34 @@ def run_analysis(
         )
         tables["phone_unit_confusion"] = phone_confusion
         tables["selected_phone_units"] = selected_phone_units
-        phone_embedding, speaker_embedding, separation, probe_confusion, summaries["route_representation_embeddings"] = (
-            route_representation_embeddings(
-                cache, bundle, output, seed=seed,
-                min_utts_per_speaker=2 if profile == "quick" else 20,
+        if resolved.capabilities["unit_routes"]:
+            phone_embedding, speaker_embedding, separation, probe_confusion, summaries["route_representation_embeddings"] = (
+                route_representation_embeddings(
+                    cache, bundle, output, seed=seed,
+                    min_utts_per_speaker=2 if profile == "quick" else 20,
+                )
             )
-        )
-        tables["phone_embedding"] = phone_embedding
-        tables["speaker_embedding"] = speaker_embedding
-        tables["representation_separation"] = separation
-        tables["probe_confusion"] = probe_confusion
-        geometry_pairs, geometry_summary, summaries["classifier_free_geometry"] = (
-            classifier_free_route_geometry(cache, bundle, output, seed=seed)
-        )
-        tables["classifier_free_geometry_pairs"] = geometry_pairs
-        tables["classifier_free_geometry_summary"] = geometry_summary
-        disent, leaky, route_summary, summaries["disentanglement"] = disentanglement_tables(
-            health, profiles, scores, output,
-            focus=str(resolved.config.get("analysis_focus", "speaker_content")),
-        )
-        tables["disentanglement"] = disent
-        tables["leaky"] = leaky
-        tables["route_summary"] = route_summary
+            tables["phone_embedding"] = phone_embedding
+            tables["speaker_embedding"] = speaker_embedding
+            tables["representation_separation"] = separation
+            tables["probe_confusion"] = probe_confusion
+            geometry_pairs, geometry_summary, summaries["classifier_free_geometry"] = (
+                classifier_free_route_geometry(cache, bundle, output, seed=seed)
+            )
+            tables["classifier_free_geometry_pairs"] = geometry_pairs
+            tables["classifier_free_geometry_summary"] = geometry_summary
+            disent, leaky, route_summary, summaries["disentanglement"] = disentanglement_tables(
+                health, profiles, scores, output,
+                focus=str(resolved.config.get("analysis_focus", "speaker_content")),
+            )
+            tables["disentanglement"] = disent
+            tables["leaky"] = leaky
+            tables["route_summary"] = route_summary
+        else:
+            baseline_table, summaries["unrouted_unit_summary"] = unrouted_unit_summary(
+                unit_scores, output,
+            )
+            tables["unrouted_unit_summary"] = baseline_table
     if "clustering" in selected:
         clustered, summaries["clustering"] = clustering_analysis(cache, profiles, output, seed)
         tables["clusters"] = clustered
@@ -229,7 +243,10 @@ def run_analysis(
         "threshold_percentile": float(threshold_percentile),
         "split_limits": parsed_split_limits,
         "python": platform.python_version(), "torch": torch.__version__,
-        "cache": str(cache.path), "report": str(report),
+        "cache": str(cache.path) if cache.path.exists() else None,
+        "cache_persisted": bool(cache.path.exists()), "report": str(report),
     })
-    artifacts = {"report": report, "summary": output / "summary.json", "cache": cache.path}
+    artifacts = {"report": report, "summary": output / "summary.json"}
+    if cache.path.exists():
+        artifacts["cache"] = cache.path
     return AnalysisResult(output, selected, artifacts, resolved.warnings, summaries)

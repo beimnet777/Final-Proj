@@ -125,38 +125,130 @@ def _training_like_deadness(cache: FeatureCache, resolved: ResolvedModel) -> dic
     batch_size = int(cfg.get("batch_size", cfg.get("eval_batch_size", 16)) or 16)
     batch_size = max(batch_size, 1)
     threshold = int(cfg.get("dead_steps_threshold", 256) or 256)
-    inactive = np.zeros(K, dtype=np.int32)
-    max_inactive = np.zeros(K, dtype=np.int32)
-    fired_batches = np.zeros(K, dtype=np.int32)
     n_utterances = len(cache.utterance_ids)
     n_batches = int(math.ceil(n_utterances / batch_size)) if n_utterances else 0
-    for start in range(0, n_utterances, batch_size):
-        fired = np.zeros(K, dtype=bool)
-        for ui in range(start, min(start + batch_size, n_utterances)):
-            sl = cache.utterance_slice(ui)
-            if sl.stop > sl.start:
-                fired[np.unique(cache.indices[sl].reshape(-1).astype(np.int64))] = True
-        inactive += 1
-        inactive[fired] = 0
-        fired_batches[fired] += 1
-        max_inactive = np.maximum(max_inactive, inactive)
-    raw_train_like_dead = inactive > threshold
     # A stream only barely longer than the threshold is dominated by its tail
     # ordering and is not a stable analogue of shuffled training. Require two
-    # full threshold windows before exposing a headline deadness estimate.
+    # full threshold windows before exposing a headline deadness estimate, and
+    # replay multiple shuffled orders because the training loader was shuffled.
     comparable = bool(n_batches >= 2 * threshold)
-    train_like_dead = raw_train_like_dead if comparable else np.zeros(K, dtype=bool)
+    repetitions = int(resolved.config.get("analysis_deadness_replays", 10) or 10) if comparable else 1
+    repetitions = max(1, repetitions)
+    seed = int(resolved.config.get("seed", 42) or 42)
+    fired_by_utterance: list[np.ndarray] = []
+    for ui in range(n_utterances):
+        sl = cache.utterance_slice(ui)
+        if sl.stop > sl.start:
+            # K is only a few thousand, so marking a reusable-size boolean
+            # vector is substantially faster than sorting/hashing hundreds of
+            # thousands of repeated top-k indices with np.unique().
+            seen = np.zeros(K, dtype=bool)
+            seen[cache.indices[sl].reshape(-1)] = True
+            fired_by_utterance.append(np.flatnonzero(seen))
+        else:
+            fired_by_utterance.append(np.zeros(0, dtype=np.int64))
+
+    final_dead = np.zeros((repetitions, K), dtype=bool)
+    first_inactive = np.zeros(K, dtype=np.int32)
+    first_max_inactive = np.zeros(K, dtype=np.int32)
+    first_fired_batches = np.zeros(K, dtype=np.int32)
+    for repetition in range(repetitions):
+        rng = np.random.default_rng(seed + 104729 * repetition)
+        order = rng.permutation(n_utterances)
+        inactive = np.zeros(K, dtype=np.int32)
+        max_inactive = np.zeros(K, dtype=np.int32)
+        fired_batches = np.zeros(K, dtype=np.int32)
+        for start in range(0, n_utterances, batch_size):
+            fired = np.zeros(K, dtype=bool)
+            for ui in order[start:start + batch_size]:
+                fired[fired_by_utterance[int(ui)]] = True
+            inactive += 1
+            inactive[fired] = 0
+            fired_batches[fired] += 1
+            max_inactive = np.maximum(max_inactive, inactive)
+        final_dead[repetition] = inactive > threshold
+        if repetition == 0:
+            first_inactive = inactive
+            first_max_inactive = max_inactive
+            first_fired_batches = fired_batches
+
+    dead_probability = final_dead.mean(axis=0, dtype=np.float64)
+    dead_fractions = final_dead.mean(axis=1, dtype=np.float64)
+    # Unit-level tables use majority status across replay orders. The headline
+    # percentage below retains the mean instantaneous dead fraction. It uses
+    # the trainer's threshold rule, but is a frozen-checkpoint diagnostic: the
+    # historical counter was not checkpointed and was accumulated while the
+    # SAE weights changed (and, in the legacy trainer, over padded frames).
+    train_like_dead = (dead_probability >= 0.5) if comparable else np.zeros(K, dtype=bool)
     return {
         "batch_size": batch_size,
         "threshold": threshold,
         "n_batches": n_batches,
-        "final_inactive_batches": inactive,
-        "max_inactive_batches": max_inactive,
-        "fired_batches": fired_batches,
+        "repetitions": repetitions,
+        "final_inactive_batches": first_inactive,
+        "max_inactive_batches": first_max_inactive,
+        "fired_batches": first_fired_batches,
         "train_like_dead": train_like_dead,
-        "raw_train_like_dead": raw_train_like_dead,
+        "raw_train_like_dead": final_dead[0],
+        "dead_probability": dead_probability,
+        "dead_fraction_replays": dead_fractions,
         "comparable": comparable,
     }
+
+
+def deadness_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) -> tuple[pd.DataFrame, dict]:
+    """Replay only the trainer's rolling dead-unit definition.
+
+    This deliberately avoids the full health pass over every sparse value. It
+    is intended for the >=512-batch comparability check, where activation
+    magnitudes and corpus-wide selectivity statistics are not required.
+    """
+    result = _training_like_deadness(cache, resolved)
+    route = np.asarray(cache.route, dtype=np.int64)
+    frame = pd.DataFrame({
+        "unit": np.arange(cache.K, dtype=np.int64),
+        "route": [ROUTE_NAMES.get(int(r), str(int(r))) for r in route],
+        "route_id": route,
+        "train_like_dead_probability": result["dead_probability"],
+        "train_like_dead": result["train_like_dead"],
+        "final_inactive_batches": result["final_inactive_batches"],
+        "max_inactive_batches": result["max_inactive_batches"],
+        "fired_batches": result["fired_batches"],
+    })
+    comparable = bool(result["comparable"])
+    route_summary = []
+    for rid in sorted(set(route.tolist())):
+        mask = route == rid
+        route_summary.append({
+            "route": ROUTE_NAMES.get(int(rid), str(int(rid))),
+            "assigned_units": int(mask.sum()),
+            "train_like_dead_fraction": float(result["dead_probability"][mask].mean()),
+        })
+    mean_fraction = float(result["dead_probability"].mean())
+    fractions = np.asarray(result["dead_fraction_replays"], dtype=np.float64)
+    summary = {
+        "frames": int(cache.n_frames),
+        "utterances": int(len(cache.utterance_ids)),
+        "K": int(cache.K),
+        "train_like_dead_units": int(round(mean_fraction * cache.K)) if comparable else 0,
+        "train_like_dead_fraction": mean_fraction if comparable else None,
+        "train_like_dead_fraction_replay_median": float(np.median(fractions)) if comparable else None,
+        "train_like_dead_fraction_replay_interval": (
+            [float(x) for x in np.quantile(fractions, [0.025, 0.975])] if comparable else None
+        ),
+        "deadness_replay_fractions": [float(x) for x in fractions],
+        "deadness_replays": int(result["repetitions"]),
+        "deadness_batch_size": int(result["batch_size"]),
+        "deadness_threshold_batches": int(result["threshold"]),
+        "deadness_analysis_batches": int(result["n_batches"]),
+        "deadness_comparable_to_training": comparable,
+        "deadness_scope": "frozen_checkpoint_valid_frames",
+        "historical_training_counter_reconstructable": False,
+        "route_summary": route_summary,
+    }
+    frame.to_csv(output / "tables" / "deadness.csv", index=False)
+    write_json(output / "deadness.json", summary)
+    return frame, summary
 
 
 def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) -> tuple[pd.DataFrame, dict]:
@@ -173,7 +265,8 @@ def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) 
     for i in range(len(cache.utterance_ids)):
         sl = cache.utterance_slice(i)
         if sl.stop > sl.start:
-            seen = np.unique(cache.indices[sl].reshape(-1).astype(np.int64))
+            seen = np.zeros(K, dtype=bool)
+            seen[cache.indices[sl].reshape(-1)] = True
             utterance_count[seen] += 1
     decoder = resolved.state["sae.dec_weight"].detach().float().cpu().numpy()
     decoder_norm = np.linalg.norm(decoder, axis=0)
@@ -199,6 +292,7 @@ def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) 
             "observed_active": bool(observed_active[j]),
             "unobserved": bool(unobserved[j]),
             "train_like_dead": bool(train_like_dead[j]),
+            "train_like_dead_probability": float(deadness["dead_probability"][j]),
             # Keep the historical column name, but make it comparable to the
             # trainer: dead now means inactive for > dead_steps_threshold
             # analysis batches, not merely absent from the analysis subset.
@@ -217,8 +311,8 @@ def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) 
             "route": ROUTE_NAMES.get(int(rid), str(rid)), "assigned_units": int(len(subset)),
             "active_units": int(subset.observed_active.sum()),
             "unobserved_fraction": float(subset.unobserved.mean()),
-            "train_like_dead_fraction": float(subset.train_like_dead.mean()),
-            "dead_fraction": float(subset.train_like_dead.mean()),
+            "train_like_dead_fraction": float(subset.train_like_dead_probability.mean()),
+            "dead_fraction": float(subset.train_like_dead_probability.mean()),
             "median_frame_frequency": float(subset.frame_frequency.median()),
             "active_slots_per_frame": float(subset.active_frames.sum() / max(cache.n_frames, 1)),
         })
@@ -226,12 +320,23 @@ def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) 
         "frames": cache.n_frames, "utterances": len(cache.utterance_ids), "K": K,
         "active_units": int(observed_active.sum()),
         "unobserved_units": int(unobserved.sum()),
-        "dead_units": int(train_like_dead.sum()),
-        "train_like_dead_units": int(train_like_dead.sum()),
+        "dead_units": int(round(float(deadness["dead_probability"].mean()) * K)) if deadness["comparable"] else 0,
+        "train_like_dead_units": int(round(float(deadness["dead_probability"].mean()) * K)) if deadness["comparable"] else 0,
+        "train_like_dead_fraction": float(deadness["dead_probability"].mean()) if deadness["comparable"] else None,
+        "train_like_dead_fraction_replay_median": (
+            float(np.median(deadness["dead_fraction_replays"])) if deadness["comparable"] else None
+        ),
+        "train_like_dead_fraction_replay_interval": (
+            [float(x) for x in np.quantile(deadness["dead_fraction_replays"], [0.025, 0.975])]
+            if deadness["comparable"] else None
+        ),
+        "deadness_replays": int(deadness["repetitions"]),
         "deadness_batch_size": int(deadness["batch_size"]),
         "deadness_threshold_batches": int(deadness["threshold"]),
         "deadness_analysis_batches": int(deadness["n_batches"]),
         "deadness_comparable_to_training": bool(deadness["comparable"]),
+        "deadness_scope": "frozen_checkpoint_valid_frames",
+        "historical_training_counter_reconstructable": False,
         "raw_tail_inactive_units": int(deadness["raw_train_like_dead"].sum()),
         "route_summary": route_summary,
     }
@@ -643,13 +748,22 @@ def selectivity_analysis(
         alignment_auc = float("nan")
     ci_L, ci_P = bootstrap_ci(L), bootstrap_ci(P)
     summary = {
-        "rows": int(len(scores)), "route_alignment_effect": effect, "route_alignment_auc": alignment_auc,
+        "rows": int(len(scores)),
         "factor_scope": factor_scope,
         "score_splits": split_summary,
-        "L_delta_mean": float(L.mean()) if len(L) else None,
-        "P_delta_mean": float(P.mean()) if len(P) else None,
-        "L_delta_ci": ci_L, "P_delta_ci": ci_P,
     }
+    if len(L) and len(P):
+        summary.update({
+            "space": "routed_L_P",
+            "route_alignment_effect": effect,
+            "route_alignment_auc": alignment_auc,
+            "L_delta_mean": float(L.mean()),
+            "P_delta_mean": float(P.mean()),
+            "L_delta_ci": ci_L,
+            "P_delta_ci": ci_P,
+        })
+    else:
+        summary["space"] = "shared_unrouted"
     scores.to_csv(output / "tables" / "unit_factor_scores.csv", index=False)
     profiles.to_csv(output / "tables" / "unit_profiles.csv", index=False)
     try:
@@ -859,6 +973,55 @@ def phone_speaker_unit_scores(
     return units, summary
 
 
+def unrouted_unit_summary(
+    unit_scores: pd.DataFrame,
+    output: Path,
+) -> tuple[pd.DataFrame, dict]:
+    """Summarize phone/speaker selectivity in one shared SAE code space.
+
+    This is deliberately not called a disentanglement or leakage summary:
+    an unrouted baseline has no intended L/P partition to validate or violate.
+    Fractions use units observed in the extracted Top-K sample.
+    """
+    if "observed_active" in unit_scores:
+        active = unit_scores[unit_scores["observed_active"].fillna(False)].copy()
+    else:
+        active = unit_scores.copy()
+    counts = active.get("category", pd.Series(dtype=str)).value_counts()
+    denominator = int(len(active))
+
+    def count(category: str) -> int:
+        return int(counts.get(category, 0))
+
+    row = {
+        "space": "shared_unrouted",
+        "assigned_units": int(len(unit_scores)),
+        "observed_active_units": denominator,
+        "phone_selective_units": count("phone"),
+        "speaker_selective_units": count("speaker"),
+        "mixed_phone_speaker_units": count("entangled"),
+        "other_units": count("other"),
+        "phone_selective_fraction": count("phone") / denominator if denominator else 0.0,
+        "speaker_selective_fraction": count("speaker") / denominator if denominator else 0.0,
+        "mixed_phone_speaker_fraction": count("entangled") / denominator if denominator else 0.0,
+        "other_fraction": count("other") / denominator if denominator else 0.0,
+        "mean_phone_score": float(active["PhoneScore"].mean()) if denominator else 0.0,
+        "mean_speaker_score": float(active["SpeakerScore"].mean()) if denominator else 0.0,
+        "max_phone_score": float(active["PhoneScore"].max()) if denominator else 0.0,
+        "max_speaker_score": float(active["SpeakerScore"].max()) if denominator else 0.0,
+        "denominator": "observed_active_units",
+    }
+    table = pd.DataFrame([row])
+    table.to_csv(output / "tables" / "unrouted_unit_summary.csv", index=False)
+    summary = dict(row)
+    summary["interpretation"] = (
+        "Descriptive phone/speaker association in one shared code; no route leakage or "
+        "route disentanglement is defined for this checkpoint."
+    )
+    write_json(output / "unrouted_unit_summary.json", summary)
+    return table, summary
+
+
 def phone_unit_confusion(
     cache: FeatureCache,
     bundle: AnalysisBundle,
@@ -931,7 +1094,12 @@ def phone_unit_confusion(
         other_max = np.zeros_like(selection_prob)
     margin = selection_prob - other_max
     observed = selection_prob.max(axis=0) > 0
-    candidate_units = np.flatnonzero(observed & (cache.route >= 0))
+    # A no-routing checkpoint labels every unit ``-1`` because there is one
+    # shared code rather than an L/P partition. Those units are still valid
+    # candidates for the phone atlas; ``route >= 0`` is only appropriate when
+    # actual routed units exist.
+    route_candidate = cache.route >= 0 if np.any(cache.route >= 0) else np.ones(cache.K, dtype=bool)
+    candidate_units = np.flatnonzero(observed & route_candidate)
     try:
         from scipy.optimize import linear_sum_assignment
         candidate_margin = margin[:, candidate_units]

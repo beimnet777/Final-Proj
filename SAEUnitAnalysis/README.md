@@ -52,6 +52,13 @@ python -m SAEUnitAnalysis \
 Split caps are sampled deterministically and speaker-balanced; they are part of
 the feature-cache fingerprint and run manifest.
 
+For the rolling dead-unit diagnostic alone, request `--analysis deadness`. It
+requires at least two windows of `dead_steps_threshold` batches (8,192
+utterances for batch size 16 and threshold 256), replays ten shuffled orders,
+and avoids writing another large feature cache. This is a frozen-checkpoint,
+valid-frame analogue of the trainer counter, not a reconstruction of its
+unsaved historical state.
+
 The unit atlas is table-only by default: it writes the main report and CSV
 tables, but does not generate thousands of low-information per-unit HTML pages,
 per-example spectrogram PNGs, activation-trace PNG/CSVs, or audio controls.
@@ -155,32 +162,54 @@ the strongest `Top-K` mean activations. Observed speaker-phone cells are capped
 approximately equally before scoring so common speakers and phones do not
 dominate the natural, incomplete factorial design.
 
-Every metric is computed separately from the same observations in full `z`,
-`z_L`, and `z_P`. MIG uses an exact inactive bin plus equal-mass positive bins.
-SAP uses a one-coordinate binned lookup predictor with utterance-grouped
-holdout. DCI uses ExtraTrees feature importances weighted by chance-corrected
-held-out balanced accuracy, again with utterance-grouped fitting/evaluation. Only
-units observed in the balanced evaluation sample enter route metrics. The main comparisons are phone
-`L-P` and speaker `P-L`; positive contrasts support the intended routing.
+The evaluated object is the predefined subspace partition `z=(z_L,z_P)`, not
+independence among units inside either route. Every primary score uses the
+complete observed `z_L` or `z_P` vector on identical observations. Grouped
+Route-MIG is the predictive lower bound
 
-MIG confidence intervals bootstrap utterances for phone and speakers for
-speaker. SAP/DCI intervals summarize five repeated utterance-grouped holdouts;
-they measure estimator split stability, not population-level bootstrap
-uncertainty.
+```text
+RouteMIG(route, factor) = I(factor; held-out route prediction) / H(factor).
+```
+
+Grouped SAP is held-out balanced accuracy from a linear SVM trained on the
+complete route. DCI informativeness is held-out balanced accuracy from an
+ExtraTrees predictor. The chance-corrected DCI evidence matrix has two rows
+(`L`, `P`) and two columns (phone, speaker); standard DCI entropy equations are
+applied to this group matrix. The main contrasts are phone `L-P` and speaker
+`P-L`, so positive values support the intended routing.
+
+All metrics use ten repeated utterance-grouped fitting splits. Their intervals
+measure estimator split stability rather than population-level uncertainty.
+Shuffled-label controls are fitted independently. An additional capacity
+control retains the same number of most-active observed units in `L` and `P`,
+testing whether the crossover survives unequal route widths.
+
+The earlier coordinate-gap MIG/SAP computation is retained as
+`deprecated_unit_compactness_metrics.csv` for provenance. It measured
+concentration into individual units and is not used to claim L/P subspace
+disentanglement.
 Label-shuffled controls are exported beside the observed scores:
 
 ```text
 tables/speech_factor_metrics.csv
-tables/dci_unit_importances.csv
+tables/route_dci_evidence.csv
 tables/speech_factor_metric_repeats.csv
-plots/speech_factor_metrics.png
+tables/deprecated_unit_compactness_metrics.csv
+plots/route_factor_information.png
+plots/route_factor_information_matrix.png
+plots/route_factor_contrasts.png
 speech_factor_metrics.json
 ```
 
-These are supplementary metrics. MIG and SAP reward concentration in individual
-coordinates, so they can be low when a factor is correctly routed but represented
-redundantly across several SAE units. Controlled geometry and latent swapping
-remain the stronger classifier-free and intervention evidence.
+To create the cross-checkpoint forest and learned-training trajectory after
+upgrading result folders, run:
+
+```bash
+python -m SAEUnitAnalysis.compare_factor_metrics
+```
+
+These remain labelled post-hoc metrics. Controlled geometry and latent swapping
+provide the classifier-free and intervention evidence.
 
 The `swap` analysis is currently a feature-space intervention, not an audio
 generation or listening experiment. Its main condition combines recipient L

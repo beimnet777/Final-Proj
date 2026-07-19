@@ -44,6 +44,7 @@ PROBE_JSON="${DIS_DIR}/msp/probe_results/${RUN_NAME}_zt_pr_sid_emo_prosody_probe
 MANIFEST="${DIS_DIR}/data/msp_subset"
 AUDIO_ROOT="${DIS_DIR}/data/msp_audio"
 TRANSCRIPTS="/rds/project/rds-xyBFuSj0hm0/dataset/MSP-Podcast-2.0/Transcripts.zip"
+LEXICON_PATH="${DIS_DIR}/../Probing/data/librispeech-lexicon.txt"
 
 STEPS=12000
 WARMUP_STEPS=500
@@ -76,12 +77,18 @@ echo "topk       : 256 (DISConfig default)"
 echo "steps      : ${STEPS}"
 echo "objective  : reconstruction only; all supervised/adversarial weights set to 0"
 echo "checkpoint : ${CHECKPOINT_DIR}/final.pt"
+echo "lexicon    : ${LEXICON_PATH}"
 echo "probe      : z_t only; PR/SID/emotion/prosody; steps=5000"
+
+if [[ ! -f "${LEXICON_PATH}" ]]; then
+  echo "Missing lexicon: ${LEXICON_PATH}" >&2
+  exit 3
+fi
 
 "${PYTHON}" -u -m msp.run \
   --run_name "${RUN_NAME}" \
   --checkpoint_dir "${CHECKPOINT_DIR}" \
-  --manifest "${MANIFEST}" --audio_root "${AUDIO_ROOT}" --transcripts "${TRANSCRIPTS}" \
+  --manifest "${MANIFEST}" --audio_root "${AUDIO_ROOT}" --transcripts "${TRANSCRIPTS}" --lexicon_path "${LEXICON_PATH}" \
   --steps "${STEPS}" \
   --warmup_steps "${WARMUP_STEPS}" --dann_ramp_steps "${WARMUP_STEPS}" \
   --batch_size "${BATCH_SIZE}" --eval_batch "${EVAL_BATCH_SIZE}" \
@@ -113,7 +120,7 @@ echo "output       : ${PROBE_JSON}"
 
 "${PYTHON}" -u -m msp.probe \
   --checkpoint "${CHECKPOINT_DIR}/final.pt" \
-  --manifest "${MANIFEST}" --audio_root "${AUDIO_ROOT}" --transcripts "${TRANSCRIPTS}" \
+  --manifest "${MANIFEST}" --audio_root "${AUDIO_ROOT}" --transcripts "${TRANSCRIPTS}" --lexicon_path "${LEXICON_PATH}" \
   --steps 5000 --val_every 500 \
   --batch_size 16 --eval_batch 32 --num_workers 8 \
   --lr 5e-4 --seed "${SEED}" \

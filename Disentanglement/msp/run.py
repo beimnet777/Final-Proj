@@ -20,6 +20,8 @@ def main() -> None:
     p.add_argument("--manifest", default=d.manifest)
     p.add_argument("--audio_root", default=d.audio_root)
     p.add_argument("--transcripts", default=d.transcripts)
+    p.add_argument("--lexicon_path", default=d.lexicon_path,
+                   help="Pronunciation lexicon for transcript-derived PR targets.")
     p.add_argument("--spear_revision", default="",
                    help="optional immutable Hugging Face SPEAR commit")
     # schedule / scale
@@ -101,6 +103,7 @@ def main() -> None:
 
     m = MSPConfig(
         manifest=a.manifest, audio_root=a.audio_root, transcripts=a.transcripts,
+        lexicon_path=a.lexicon_path,
         steps=a.steps, warmup_steps=a.warmup_steps, dann_ramp_steps=a.dann_ramp_steps,
         batch_size=a.batch_size,
         eval_batch=a.eval_batch, num_workers=a.num_workers, seed=a.seed,
@@ -141,6 +144,8 @@ def main() -> None:
     cfg.dataset_fingerprint = a.dataset_fingerprint
     cfg.experiment_preset = a.experiment_preset
     cfg.drive_mirror = a.drive_mirror
+    if not Path(cfg.lexicon_path).is_file():
+        p.error(f"--lexicon_path does not exist: {cfg.lexicon_path}")
     if not cfg.spear_revision and cfg.resume not in {"none", ""}:
         _rp = cfg.checkpoint_dir / "latest-resume.pt" if cfg.resume == "auto" else Path(cfg.resume)
         if _rp.exists():

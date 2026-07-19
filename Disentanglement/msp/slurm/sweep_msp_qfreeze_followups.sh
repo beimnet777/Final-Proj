@@ -102,6 +102,8 @@ CKPT_EVERY=1000
 MANIFEST="${DIS_DIR}/data/msp_subset"
 AUDIO_ROOT="${DIS_DIR}/data/msp_audio"
 TRANSCRIPTS="/rds/project/rds-xyBFuSj0hm0/dataset/MSP-Podcast-2.0/Transcripts.zip"
+LEXICON_PATH="${DIS_DIR}/../Probing/data/librispeech-lexicon.txt"
+[[ -f "${LEXICON_PATH}" ]] || { echo "Missing lexicon: ${LEXICON_PATH}" >&2; exit 8; }
 
 case "${TASK_ID}" in
   0)
@@ -152,7 +154,7 @@ echo "logs       : compact_every=${LOG_EVERY} grad_every=${GRAD_LOG_EVERY}"
 COMMON_ARGS=(
   --run_name "${RUN_NAME}"
   --checkpoint_dir "${CHECKPOINT_DIR}"
-  --manifest "${MANIFEST}" --audio_root "${AUDIO_ROOT}" --transcripts "${TRANSCRIPTS}"
+  --manifest "${MANIFEST}" --audio_root "${AUDIO_ROOT}" --transcripts "${TRANSCRIPTS}" --lexicon_path "${LEXICON_PATH}"
   --steps "${STEPS}"
   --warmup_steps "${WARMUP_STEPS}" --dann_ramp_steps "${DANN_RAMP_STEPS}"
   --batch_size "${BATCH_SIZE}" --eval_batch "${EVAL_BATCH_SIZE}"

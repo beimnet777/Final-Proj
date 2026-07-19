@@ -41,6 +41,7 @@ PYTHON="${PYTHON:-/home/bbg25/.conda/envs/mlmi4/bin/python}"
 REPO_ROOT="${REPO_ROOT:-/rds/user/bbg25/hpc-work/Thesis/Final-Proj}"
 DIS_DIR="${DIS_DIR:-${REPO_ROOT}/Disentanglement}"
 CKPT_ROOT="${CKPT_ROOT:-${REPO_ROOT}/checkpoints/blackwell}"
+LEXICON_PATH="${LEXICON_PATH:-${REPO_ROOT}/Probing/data/librispeech-lexicon.txt}"
 
 export PYTHONUNBUFFERED=1
 export HF_HOME="${HF_HOME:-${REPO_ROOT}/Probing/data/hf_home}"
@@ -93,6 +94,11 @@ fi
 if [[ ! -e "${TRANSCRIPTS}" ]]; then
   echo "[error] Missing MSP transcripts: ${TRANSCRIPTS}" >&2
   exit 7
+fi
+if [[ ! -f "${LEXICON_PATH}" ]]; then
+  echo "[error] Missing lexicon: ${LEXICON_PATH}" >&2
+  echo "[hint] Set LEXICON_PATH=/path/to/librispeech-lexicon.txt." >&2
+  exit 8
 fi
 
 cd "${DIS_DIR}"
@@ -166,6 +172,7 @@ echo "steps      : ${STEPS}"
 echo "val_every  : ${VAL_EVERY}"
 echo "manifest   : ${MANIFEST}"
 echo "audio_root : ${AUDIO_ROOT}"
+echo "lexicon    : ${LEXICON_PATH}"
 echo "output     : ${OUT_JSON}"
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
@@ -176,6 +183,7 @@ fi
   --manifest "${MANIFEST}" \
   --audio_root "${AUDIO_ROOT}" \
   --transcripts "${TRANSCRIPTS}" \
+  --lexicon_path "${LEXICON_PATH}" \
   --sources "${SOURCES}" \
   --tasks "${TASKS}" \
   --steps "${STEPS}" \

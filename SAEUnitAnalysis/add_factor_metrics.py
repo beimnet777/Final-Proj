@@ -30,6 +30,7 @@ TABLE_FILES = {
     "route_summary": "route_disentanglement_summary.csv",
     "swap": "swaps.csv",
     "swap_summary": "swap_mode_summary.csv",
+    "deprecated_factor_metrics": "deprecated_unit_compactness_metrics.csv",
 }
 
 
@@ -51,10 +52,11 @@ def _existing_tables(result_dir: Path) -> dict[str, pd.DataFrame]:
 def add_factor_metrics(
     result_dir: str | Path,
     *,
-    max_segments: int = 20_000,
-    bootstrap_repetitions: int = 100,
-    dci_repeats: int = 5,
+    max_segments: int = 30_000,
+    bootstrap_repetitions: int = 0,
+    dci_repeats: int = 10,
     dci_estimators: int = 48,
+    null_repeats: int = 2,
 ) -> dict:
     result_dir = Path(result_dir).resolve()
     manifest = _read_json(result_dir / "run_manifest.json")
@@ -69,6 +71,7 @@ def add_factor_metrics(
         bootstrap_repetitions=bootstrap_repetitions,
         dci_repeats=dci_repeats,
         dci_estimators=dci_estimators,
+        null_repeats=null_repeats,
     )
     tables = _existing_tables(result_dir)
     tables["factor_metrics"] = metrics
@@ -77,8 +80,8 @@ def add_factor_metrics(
     # make_plots intentionally prunes stale files, so pass every preserved
     # report table while adding the new metric figure.
     plot_paths = make_plots(result_dir, tables)
-    if not any(path.stem == "speech_factor_metrics" for path in plot_paths):
-        raise AnalysisError("Factor metrics completed but produced no report plot.")
+    if not any(path.stem == "route_factor_information" for path in plot_paths):
+        raise AnalysisError("Grouped route metrics completed but produced no primary report plot.")
 
     resolved = ResolvedModel(
         checkpoint=Path(resolved_data.get("checkpoint", manifest["checkpoint"])),
@@ -103,6 +106,8 @@ def add_factor_metrics(
         "bootstrap_repetitions": int(bootstrap_repetitions),
         "dci_repeats": int(dci_repeats),
         "dci_estimators": int(dci_estimators),
+        "null_repeats": int(null_repeats),
+        "scope": "route_subspace",
     }
     manifest["report"] = str(report)
     write_json(result_dir / "summary.json", summary)
@@ -112,13 +117,16 @@ def add_factor_metrics(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Add speech-adapted MIG/DCI/SAP to existing SAE 5k result folders using their caches.",
+        description="Add grouped L/P MIG, DCI and SAP to existing SAE result folders using their caches.",
     )
     parser.add_argument("results", nargs="+", type=Path)
-    parser.add_argument("--max-segments", type=int, default=20_000)
-    parser.add_argument("--bootstrap-repetitions", type=int, default=100)
-    parser.add_argument("--dci-repeats", type=int, default=5)
+    parser.add_argument("--max-segments", type=int, default=30_000)
+    parser.add_argument("--bootstrap-repetitions", type=int, default=0,
+                        help="deprecated compatibility option; grouped MIG uses repeated held-out predictions")
+    parser.add_argument("--dci-repeats", type=int, default=10,
+                        help="grouped holdout repetitions shared by MIG, SAP and DCI")
     parser.add_argument("--dci-estimators", type=int, default=48)
+    parser.add_argument("--null-repeats", type=int, default=2)
     return parser
 
 
@@ -132,6 +140,7 @@ def main() -> None:
             bootstrap_repetitions=args.bootstrap_repetitions,
             dci_repeats=args.dci_repeats,
             dci_estimators=args.dci_estimators,
+            null_repeats=args.null_repeats,
         )
         print(
             f"[SAEUnitAnalysis] completed {result}: "

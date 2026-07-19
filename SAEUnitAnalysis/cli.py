@@ -13,7 +13,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--checkpoint", required=True, type=Path)
     p.add_argument("--data", required=True, type=Path, help="analysis-bundle root")
     p.add_argument("--analysis", required=True,
-                   help="comma-separated health,atlas,selectivity,factor_metrics,clustering,similarity,geometry,causal,swap or all")
+                   help="comma-separated deadness,health,atlas,selectivity,factor_metrics,clustering,similarity,geometry,causal,swap or all")
     p.add_argument("--output-dir", type=Path, default=None)
     p.add_argument("--device", default=None)
     p.add_argument("--seed", type=int, default=42)

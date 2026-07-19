@@ -28,6 +28,7 @@ class MSPConfig:
     manifest:    str = str(_DIS / "data" / "msp_subset")
     audio_root:  str = str(_DIS / "data" / "msp_audio")
     transcripts: str = str(_MSP / "Transcripts.zip")
+    lexicon_path: str = str(_DIS.parent / "Probing" / "data" / "librispeech-lexicon.txt")
 
     # gradient-conflict handling on the shared SAE trunk
     pcgrad:        bool = True
@@ -157,6 +158,7 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.msp_manifest = m.manifest
     c.msp_audio_root = m.audio_root
     c.msp_transcripts = m.transcripts
+    c.lexicon_path = Path(m.lexicon_path)
     # ---- gradient-conflict controls (read by msp.train) ----
     c.pcgrad = m.pcgrad
     c.pcgrad_tasks = tuple(t.strip() for t in m.pcgrad_tasks.split(",") if t.strip())
