@@ -6,7 +6,7 @@ from typing import Any
 
 
 ANALYSES = (
-    "health", "atlas", "selectivity", "clustering", "similarity",
+    "health", "atlas", "selectivity", "factor_metrics", "clustering", "similarity",
     "geometry", "causal", "swap",
 )
 
@@ -48,4 +48,3 @@ class AnalysisResult:
     artifacts: dict[str, Path]
     warnings: list[str]
     summary: dict[str, Any]
-

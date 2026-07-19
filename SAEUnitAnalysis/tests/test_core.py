@@ -41,6 +41,7 @@ from SAEUnitAnalysis.extraction import (
     FeatureCache, _block_spec, _encode_sparse, _quick_sample,
     _speaker_balanced_sample, parse_split_limits,
 )
+from SAEUnitAnalysis.factor_metrics import speech_factor_metrics
 from SAEUnitAnalysis.import_mfa_alignments import import_alignments, parse_textgrid
 from SAEUnitAnalysis.pipeline import run_analysis
 from SAEUnitAnalysis.prepare_librispeech_mfa_corpus import prepare_corpus
@@ -101,6 +102,62 @@ class FakeAutoModel:
 
 
 class CoreTests(unittest.TestCase):
+    def test_speech_factor_metrics_compare_full_L_and_P(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            utterance_ids = np.asarray([f"u{i}" for i in range(32)])
+            metadata = pd.DataFrame({
+                "utterance_id": utterance_ids,
+                "split": "test",
+                "speaker_id": [f"s{i % 4}" for i in range(32)],
+            })
+            frames_per_utterance = 8
+            n_frames = len(utterance_ids) * frames_per_utterance
+            phones = np.tile(np.asarray(["AA", "T"] * 4), len(utterance_ids))
+            speaker_codes = np.repeat((np.arange(len(utterance_ids)) % 4) + 1, frames_per_utterance)
+            phone_codes = np.where(phones == "AA", 1.0, 2.0)
+            # One L coordinate carries phone amplitude and one P coordinate
+            # carries speaker amplitude; remaining coordinates are inactive.
+            indices = np.tile(np.asarray([[0, 1, 2, 3]], dtype=np.int32), (n_frames, 1))
+            values = np.stack([
+                phone_codes, np.full(n_frames, .1),
+                speaker_codes, np.full(n_frames, .1),
+            ], axis=1).astype(np.float16)
+            K = 6
+            cache = FeatureCache(
+                td / "features.npz", utterance_ids,
+                np.arange(0, n_frames, frames_per_utterance, dtype=np.int64),
+                np.full(len(utterance_ids), frames_per_utterance, dtype=np.int32),
+                indices, values, phones.astype("U8"),
+                np.zeros(n_frames), np.zeros(n_frames), np.zeros(n_frames),
+                np.zeros((len(utterance_ids), K), dtype=np.float16),
+                np.zeros((len(utterance_ids), 8), dtype=np.float16),
+                np.zeros((8, 4), dtype=np.float16), np.arange(8),
+                np.asarray([0, 0, 1, 1, 1, 1], dtype=np.int16),
+                np.ones(K, dtype=np.float32), K, 4,
+            )
+            bundle = SimpleNamespace(
+                utterances=metadata,
+                spec=SimpleNamespace(split_map={"test": "test"}),
+            )
+            out = td / "out"
+            metrics, importance, repeats, summary = speech_factor_metrics(
+                cache, bundle, out, max_segments=256,
+                bootstrap_repetitions=8, dci_repeats=2, dci_estimators=12,
+            )
+            headline = summary["headline_route_contrasts"]
+            self.assertGreater(headline["MIG_phone_L_minus_P"], 0.2)
+            self.assertGreater(headline["MIG_speaker_P_minus_L"], 0.2)
+            self.assertGreater(headline["SAP_phone_L_minus_P"], 0.2)
+            self.assertGreater(headline["SAP_speaker_P_minus_L"], 0.2)
+            self.assertGreater(headline["DCI_phone_informativeness_L_minus_P"], 0.4)
+            self.assertGreater(headline["DCI_speaker_informativeness_P_minus_L"], 0.4)
+            self.assertEqual(set(metrics["view"]), {"full", "L", "P", "L-P", "P-L"})
+            self.assertTrue(len(importance) > 0)
+            self.assertTrue(len(repeats) > 0)
+            self.assertTrue((out / "tables" / "speech_factor_metrics.csv").exists())
+            self.assertTrue((out / "speech_factor_metrics.json").exists())
+
     def test_bundle_validation_and_checkpoint_formats(self):
         with tempfile.TemporaryDirectory() as td:
             root=_bundle(Path(td)/"bundle")

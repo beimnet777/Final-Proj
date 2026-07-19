@@ -140,10 +140,10 @@ class AnalysisBundle:
 
     def require(self, analysis: str) -> None:
         factor_names = {f.name for f in self.spec.factors}
-        if analysis in {"causal", "swap", "all"}:
+        if analysis in {"factor_metrics", "causal", "swap", "all"}:
             if "phone" not in factor_names:
                 raise AnalysisError(f"Analysis '{analysis}' requires independent phone alignments.")
-        if analysis in {"causal", "swap", "all"}:
+        if analysis in {"factor_metrics", "causal", "swap", "all"}:
             for split in ("train", "validation", "test"):
                 if self.split(split).empty:
                     raise AnalysisError(f"Analysis '{analysis}' requires a non-empty {split} split.")

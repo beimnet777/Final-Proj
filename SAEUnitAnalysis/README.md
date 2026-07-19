@@ -18,11 +18,11 @@ The only required inputs are `--checkpoint`, `--data`, and `--analysis`.
 Analyses may be comma-separated:
 
 ```text
-health,atlas,selectivity,clustering,similarity,geometry,causal,swap
+health,atlas,selectivity,factor_metrics,clustering,similarity,geometry,causal,swap
 ```
 
 For the current dissertation analysis, keep the main run focused on
-`health,selectivity,swap`. This answers the phone-vs-speaker unit question,
+`health,selectivity,factor_metrics,swap`. This answers the phone-vs-speaker unit question,
 adds controlled full-space geometry and PCA/UMAP route views, and runs the
 feature-level L/P swap intervention without enabling the broader similarity,
 decoder-geometry, or prosody diagnostics.  The
@@ -44,7 +44,7 @@ and held-out test splits, use:
 python -m SAEUnitAnalysis \
   --checkpoint /path/to/model.pt \
   --data /path/to/analysis_bundle \
-  --analysis health,selectivity,swap \
+  --analysis health,selectivity,factor_metrics,swap \
   --profile full \
   --split-limits train=3000,validation=1000,test=1000
 ```
@@ -145,6 +145,42 @@ utterances; speaker pairs cross transcripts/content and utterances. The report
 shows the paired same-minus-different cosine gap with cluster-bootstrap 95%
 intervals. Disentanglement predicts a larger phone gap in L and a larger
 speaker gap in P.
+
+## Speech-adapted MIG, DCI and SAP
+
+The optional `factor_metrics` analysis reuses the extracted sparse cache; it
+does not rerun SPEAR or edit the checkpoint. It forms contiguous phone runs in
+the held-out test split and represents each run by its mean SAE vector, retaining
+the strongest `Top-K` mean activations. Observed speaker-phone cells are capped
+approximately equally before scoring so common speakers and phones do not
+dominate the natural, incomplete factorial design.
+
+Every metric is computed separately from the same observations in full `z`,
+`z_L`, and `z_P`. MIG uses an exact inactive bin plus equal-mass positive bins.
+SAP uses a one-coordinate binned lookup predictor with utterance-grouped
+holdout. DCI uses ExtraTrees feature importances weighted by chance-corrected
+held-out balanced accuracy, again with utterance-grouped fitting/evaluation. Only
+units observed in the balanced evaluation sample enter route metrics. The main comparisons are phone
+`L-P` and speaker `P-L`; positive contrasts support the intended routing.
+
+MIG confidence intervals bootstrap utterances for phone and speakers for
+speaker. SAP/DCI intervals summarize five repeated utterance-grouped holdouts;
+they measure estimator split stability, not population-level bootstrap
+uncertainty.
+Label-shuffled controls are exported beside the observed scores:
+
+```text
+tables/speech_factor_metrics.csv
+tables/dci_unit_importances.csv
+tables/speech_factor_metric_repeats.csv
+plots/speech_factor_metrics.png
+speech_factor_metrics.json
+```
+
+These are supplementary metrics. MIG and SAP reward concentration in individual
+coordinates, so they can be low when a factor is correctly routed but represented
+redundantly across several SAE units. Controlled geometry and latent swapping
+remain the stronger classifier-free and intervention evidence.
 
 The `swap` analysis is currently a feature-space intervention, not an audio
 generation or listening experiment. Its main condition combines recipient L

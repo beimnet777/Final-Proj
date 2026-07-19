@@ -18,6 +18,7 @@ from .causal import causal_analysis, swap_analysis
 from .checkpoint import load_checkpoint
 from .evaluators import train_evaluators
 from .extraction import calibrate, extract, parse_split_limits
+from .factor_metrics import speech_factor_metrics
 from .report import build_atlas, build_report, make_plots
 from .types import ANALYSES, AnalysisResult
 from .utils import AnalysisError, fingerprint, set_seed, write_json
@@ -73,7 +74,7 @@ def run_analysis(
     resolved = load_checkpoint(checkpoint)
     for name in selected:
         bundle.require(name)
-        if name in {"selectivity", "clustering", "similarity", "geometry", "causal", "swap"} and not resolved.capabilities["unit_routes"]:
+        if name in {"selectivity", "factor_metrics", "clustering", "similarity", "geometry", "causal", "swap"} and not resolved.capabilities["unit_routes"]:
             raise AnalysisError(f"Checkpoint architecture does not support unit-route analysis '{name}'.")
         if name in {"causal", "swap"} and not resolved.capabilities[name]:
             raise AnalysisError(f"Checkpoint architecture does not support '{name}'.")
@@ -183,6 +184,13 @@ def run_analysis(
     if "geometry" in selected:
         geometry, summaries["geometry"] = geometry_analysis(cache, resolved, health, output)
         tables["geometry"] = geometry
+    if "factor_metrics" in selected:
+        factor_metrics, dci_importance, factor_metric_repeats, summaries["factor_metrics"] = (
+            speech_factor_metrics(cache, bundle, output, seed=seed, quick=profile == "quick")
+        )
+        tables["factor_metrics"] = factor_metrics
+        tables["dci_importance"] = dci_importance
+        tables["factor_metric_repeats"] = factor_metric_repeats
 
     suite = None
     if "causal" in selected or "swap" in selected:

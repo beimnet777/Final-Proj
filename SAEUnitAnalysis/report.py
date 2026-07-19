@@ -45,6 +45,7 @@ PLOT_CAPTIONS = {
     "route_speaker_representation_umap": "Supplementary cosine-UMAP of exactly the same held-out speaker observations used by PCA. Parameters are n_neighbors=30, min_dist=0.1 and seed=42.",
     "latent_swap_outcomes": "Feature-level intervention, not generated audio. P-swap combines recipient L with donor P; L-swap is the complementary control. Bars report recipient-phone preservation and whether the reconstructed SPEAR features match donor or recipient speaker identity. Evaluators are calibrated only on unswapped SAE reconstructions. The shuffled-mask diagnostic can overlap true P units—especially in learned models with roughly half their capacity assigned to P—so it is not a clean negative control.",
     "route_selectivity_composition": "Fractions use observed-active units as the denominator; assigned-capacity fractions remain in the CSV tables.",
+    "speech_factor_metrics": "Speech-adapted metrics on the same jointly capped held-out phone segments. MIG and SAP compare the two strongest individual coordinates within each route; DCI informativeness uses the complete route subspace. The desired crossover is phone L > P and speaker P > L. MIG intervals bootstrap utterances for phone and speakers for speaker; SAP/DCI intervals vary utterance-grouped fitting splits.",
 }
 
 PLOT_TITLES = {
@@ -57,6 +58,7 @@ PLOT_TITLES = {
     "route_phone_representation_umap": "Supplementary UMAP: Held-Out Phone Vectors",
     "route_speaker_representation_umap": "Supplementary UMAP: Held-Out Speaker Vectors",
     "latent_swap_outcomes": "Latent Swap: Content Retention and Speaker Transfer",
+    "speech_factor_metrics": "Speech-Adapted MIG, SAP and DCI by Route",
 }
 
 
@@ -643,6 +645,77 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
                 for ax in axes[len(routes):]:
                     ax.axis("off")
             _plot(path, draw, figsize=(12.5, 5.2)); made.append(path.with_suffix(".png"))
+    factor_metrics = tables.get("factor_metrics")
+    if factor_metrics is not None and len(factor_metrics):
+        metric_plot = factor_metrics[
+            (factor_metrics["control"] == "observed")
+            & (factor_metrics["target"].isin(["phone", "speaker_id"]))
+            & (factor_metrics["view"].isin(["L", "P"]))
+            & (
+                ((factor_metrics["metric"].isin(["MIG", "SAP"]))
+                 & (factor_metrics["component"] == "factor_gap"))
+                | ((factor_metrics["metric"] == "DCI")
+                   & (factor_metrics["component"] == "informativeness"))
+            )
+        ].copy()
+        if len(metric_plot):
+            metric_plot["metric_label"] = metric_plot.apply(
+                lambda row: "DCI informativeness" if row["metric"] == "DCI" else str(row["metric"]),
+                axis=1,
+            )
+            metric_plot["target_label"] = metric_plot["target"].map({
+                "phone": "Phone", "speaker_id": "Speaker",
+            })
+            _save_plot_data(output, "speech_factor_metrics", metric_plot)
+            path = output / "plots" / "speech_factor_metrics"
+            def draw(fig):
+                metric_order = [
+                    name for name in ("MIG", "SAP", "DCI informativeness")
+                    if name in set(metric_plot["metric_label"])
+                ]
+                axes = fig.subplots(1, len(metric_order), squeeze=False)[0]
+                targets = ["Phone", "Speaker"]
+                routes = ["L", "P"]
+                x = np.arange(len(targets), dtype=float)
+                width = .34
+                for ax, metric_name in zip(axes, metric_order):
+                    subset = metric_plot[metric_plot["metric_label"] == metric_name]
+                    for route_index, route in enumerate(routes):
+                        values, lows, highs = [], [], []
+                        for target in targets:
+                            match = subset[
+                                (subset["target_label"] == target) & (subset["view"] == route)
+                            ]
+                            if match.empty:
+                                values.append(np.nan); lows.append(0.0); highs.append(0.0)
+                                continue
+                            row = match.iloc[0]
+                            value = float(row["value"])
+                            low = float(row["ci95_low"]) if pd.notna(row["ci95_low"]) else value
+                            high = float(row["ci95_high"]) if pd.notna(row["ci95_high"]) else value
+                            values.append(value)
+                            lows.append(max(0.0, value - low)); highs.append(max(0.0, high - value))
+                        offsets = x + (route_index - .5) * width
+                        bars = ax.bar(
+                            offsets, values, width=width, label=f"{route} route",
+                            color=ROUTE_COLORS[route], alpha=.88,
+                            yerr=np.asarray([lows, highs]), capsize=4,
+                        )
+                        finite = [value for value in values if np.isfinite(value)]
+                        pad = max(finite, default=.01) * .035 + .002
+                        for bar, value in zip(bars, values):
+                            if np.isfinite(value):
+                                ax.text(
+                                    bar.get_x() + bar.get_width() / 2, value + pad,
+                                    f"{value:.3f}", ha="center", va="bottom", fontsize=7.5,
+                                )
+                    ax.set(xticks=x, xticklabels=targets, ylabel="score", title=metric_name)
+                    ax.axhline(0, color="#475467", lw=.9)
+                if len(axes):
+                    axes[0].legend(frameon=False, loc="upper center")
+                fig.suptitle("Held-out phone–speaker route crossover", y=1.03, fontsize=13)
+            _plot(path, draw, figsize=(14.0, 4.8)); made.append(path.with_suffix(".png"))
+
     disent = tables.get("disentanglement")
     if disent is not None and len(disent) and not focused:
         active = disent.copy()
@@ -1206,6 +1279,63 @@ def build_report(
             "<div class='scroll'>" + separation[show].to_html(index=False, escape=True, classes="tight") + "</div>"
         )
     geometry_html = ""
+    factor_metrics_html = ""
+    factor_metrics = tables.get("factor_metrics", pd.DataFrame())
+    factor_summary = summaries.get("factor_metrics", {})
+    if len(factor_metrics):
+        headline = factor_summary.get("headline_route_contrasts", {})
+        headline_intervals = factor_summary.get("headline_route_contrast_intervals", {})
+        labels = {
+            "MIG_phone_L_minus_P": "MIG phone L − P",
+            "MIG_speaker_P_minus_L": "MIG speaker P − L",
+            "SAP_phone_L_minus_P": "SAP phone L − P",
+            "SAP_speaker_P_minus_L": "SAP speaker P − L",
+            "DCI_phone_informativeness_L_minus_P": "DCI phone L − P",
+            "DCI_speaker_informativeness_P_minus_L": "DCI speaker P − L",
+        }
+        card_parts = []
+        for key, value in headline.items():
+            if key not in labels or not isinstance(value, (int, float)) or not np.isfinite(value):
+                continue
+            interval = headline_intervals.get(key, {})
+            low, high = interval.get("ci95_low"), interval.get("ci95_high")
+            interval_html = (
+                f"<br><span class='muted'>95% [{float(low):+.3f}, {float(high):+.3f}]</span>"
+                if isinstance(low, (int, float)) and isinstance(high, (int, float)) else ""
+            )
+            card_parts.append(
+                f"<div class='card'>{html.escape(labels[key])}<br><b>{float(value):+.3f}</b>{interval_html}</div>"
+            )
+        cards = "<div class='cards'>" + "".join(card_parts) + "</div>"
+        show_rows = factor_metrics[
+            (factor_metrics["control"] == "observed")
+            & (
+                (factor_metrics["component"] == "route_contrast")
+                | ((factor_metrics["metric"] == "DCI")
+                   & (factor_metrics["view"].isin(["L", "P"]))
+                   & (factor_metrics["component"].isin(["disentanglement", "completeness"])))
+            )
+        ].copy()
+        show = [c for c in (
+            "metric", "component", "target", "view", "observed_units_in_view",
+            "value", "ci95_low", "ci95_high",
+        ) if c in show_rows.columns]
+        factor_metrics_html = (
+            "<h2>Speech-adapted MIG, SAP and DCI</h2>"
+            "<p class='muted'>All scores use the same held-out phone segments and are computed "
+            "separately from full z, z<sub>L</sub>, and z<sub>P</sub>. The headline contrasts "
+            "show phone L−P and speaker P−L, so positive values support the routing claim. "
+            "MIG and SAP reward concentration in individual units and can therefore be low for "
+            "a correctly routed but distributed code. DCI informativeness uses complete route "
+            "subspaces; its feature importances are weighted by chance-corrected held-out accuracy. "
+            "Natural speech is not fully factorial; observed speaker–phone cells are "
+            "capped before scoring, and shuffled-label controls remain in the CSV. "
+            "MIG intervals use clustered bootstraps; SAP/DCI intervals summarize five "
+            "grouped fitting splits and therefore measure estimator stability rather "
+            "than population uncertainty.</p>"
+            + cards + "<div class='scroll'>"
+            + show_rows[show].to_html(index=False, escape=True, classes="tight") + "</div>"
+        )
     classifier_free_geometry = tables.get("classifier_free_geometry_summary", pd.DataFrame())
     if len(classifier_free_geometry):
         show = [c for c in (
@@ -1266,7 +1396,7 @@ def build_report(
     <div class='card'>train-like dead<br><b>{health_summary.get('train_like_dead_units','—') if dead_comparable else 'N/A'}</b></div>
     <div class='card'>frames<br><b>{summaries.get('health',{}).get('frames','—')}</b></div>
     <div class='card'>format<br><b>{resolved.source_format}</b></div></div>
-    {thesis_cards}{score_cards}{separation_html}{geometry_html}{swap_html}{route_table_html}{leaky_html}
+    {thesis_cards}{score_cards}{separation_html}{factor_metrics_html}{geometry_html}{swap_html}{route_table_html}{leaky_html}
     <h2>Figures</h2><div class='grid'>{plot_html}</div><h2>{unit_section_title}</h2>{unit_section_note}
     <label>Route <select id='route'><option value=''>all</option><option>L</option><option>P</option><option>U</option></select></label>
     <label>Unit <input id='search' placeholder='unit id'></label>
