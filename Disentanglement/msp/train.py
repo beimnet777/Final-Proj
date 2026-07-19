@@ -51,6 +51,18 @@ def _amp_dtype(precision: str):
     return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
 
+def _loss_if_present(out: dict, key: str, reference: torch.Tensor, fn):
+    """Return a task loss only when its optional model output exists.
+
+    Zero-weight baselines and adversary ablations intentionally suppress some
+    heads.  The training loop must therefore treat a missing optional output as a
+    zero loss instead of crashing before the first step.
+    """
+    if key not in out:
+        return reference.new_zeros(())
+    return fn(out[key])
+
+
 def _gumbel_tau(step: int, total: int, tau_start: float, tau_end: float) -> float:
     """Geometric anneal of the Gumbel temperature (matches legacy)."""
     return tau_start * (tau_end / tau_start) ** (step / max(1, total))
@@ -259,6 +271,23 @@ def evaluate(model, dl, device, amp_dtype, n_emotion) -> Dict[str, float]:
     return m
 
 
+@torch.no_grad()
+def evaluate_recon(model, dl, device, amp_dtype) -> Dict[str, float]:
+    model.eval()
+    recon_sum = 0.0
+    n_batches = 0
+    for b in dl:
+        audios = b["audios"].to(device)
+        alen = b["audio_lengths"].to(device)
+        with _autocast(amp_dtype):
+            out = model(audios, alen, stage=1)
+            loss = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
+        recon_sum += float(loss)
+        n_batches += 1
+    model.train()
+    return {"recon": recon_sum / max(n_batches, 1)}
+
+
 # ---------------------------------------------------------------- train
 def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     _set_seed(cfg.seed)
@@ -339,6 +368,19 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     emo_frame = (float(getattr(cfg, "grl_emotion_grad_norm_target", float("nan")))
                  if getattr(cfg, "grl_emotion_grad_norm", False) else float("nan"))
     print(f"[msp] per-frame GRL targets: speaker={spk_frame:.2e} emotion={emo_frame:.2e}")
+    pure_recon_only = (
+        float(getattr(cfg, "recon_weight", 1.0)) > 0.0
+        and cfg.alpha == 0.0 and cfg.beta == 0.0
+        and cfg.grl_weight == 0.0 and cfg.grl_phoneme_weight == 0.0
+        and cfg.prosody_weight == 0.0 and cfg.grl_prosody_weight == 0.0
+        and cfg.emotion_weight == 0.0 and cfg.grl_emotion_weight == 0.0
+        and cfg.inv_weight == 0.0
+        and getattr(cfg, "routing_spec_weight", 0.0) == 0.0
+        and getattr(cfg, "rho", 0.0) == 0.0
+    )
+    if pure_recon_only:
+        print("[msp] pure reconstruction mode: using stage=1 forward "
+              "(no routing/task/adversary heads during training)", flush=True)
 
     best = float("inf")
     step = 0
@@ -424,6 +466,76 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                                         cfg.gumbel_tau_start, cfg.gumbel_tau_end)
 
         audios = b["audios"].to(device); alen = b["audio_lengths"].to(device)
+        if pure_recon_only:
+            with _autocast(amp_dtype):
+                out = model(audios, alen, stage=1)
+                model.sae.update_dead(out["z_t"])
+                olen = out["out_lengths"]
+                l_recon = recon_loss(out["h_t"], out["h_hat"], olen)
+                total = float(getattr(cfg, "recon_weight", 1.0)) * l_recon
+            if micro_index == 1:
+                optimizer.zero_grad(set_to_none=True)
+            scaled_total = total / accumulation
+            if scaler.is_enabled(): scaler.scale(scaled_total).backward()
+            else: scaled_total.backward()
+            if not boundary:
+                continue
+            step = next_step
+            if scaler.is_enabled():
+                scaler.unscale_(optimizer)
+            main_pre_clip = float(nn.utils.clip_grad_norm_(sae_params, cfg.grad_clip))
+            main_clip_scale = min(1.0, cfg.grad_clip / max(main_pre_clip, 1e-12))
+            if scaler.is_enabled():
+                scaler.step(optimizer); scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            micro_index = 0
+            task_grad_sums = None
+            extra_grad_sum = None
+            disc_micro_batches = []
+            if log_now or grad_now:
+                with torch.no_grad():
+                    z_active = (out["z_t"] != 0).float()
+                    T = z_active.shape[1]
+                    fmask = (torch.arange(T, device=device).unsqueeze(0)
+                             < olen.unsqueeze(1)).float()
+                    n_valid = fmask.sum().clamp(min=1)
+                    active = float((z_active.sum(-1) * fmask).sum() / n_valid)
+                    n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
+                    dead_frac = n_dead / cfg.K
+                print(f"\n[train {step:05d}/{cfg.stage2_steps}] "
+                      f"lr={lr_now:.2e} recon={l_recon.item():.4f} "
+                      f"dead={100*dead_frac:.1f}% active={active:.0f} "
+                      f"clip main={main_pre_clip:.2e}->{main_clip_scale:.2e}",
+                      flush=True)
+                if log_now:
+                    append_metrics(metrics_path, {
+                        "step": step, "split": "train", "lr": lr_now,
+                        "recon": float(l_recon), "active": active,
+                        "dead_fraction": dead_frac,
+                    })
+
+            if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
+                vm = evaluate_recon(model, val_dl, device, amp_dtype)
+                score = vm["recon"]
+                print(f"\n[val step={step:05d}] recon={vm['recon']:.4f}", flush=True)
+                append_metrics(metrics_path, {"step": step, "split": "val", **vm, "score": score})
+                save_runtime(f"step{step}.pt", kind="inference", val=vm)
+                if score < best:
+                    best = score
+                    save_runtime("best.pt", kind="inference", val=vm)
+                    print(f"  [best] recon={best:.4f} -> {ckpt_dir/'best.pt'}", flush=True)
+
+            resume_every = int(getattr(cfg, "resume_every", 0))
+            if resume_every > 0 and step % resume_every == 0:
+                save_runtime("latest-resume.pt")
+            if segment.reached(step):
+                save_runtime("latest-resume.pt")
+                print(f"[msp] segment complete at step {step}; resume from latest-resume.pt")
+                return ckpt_dir / "latest-resume.pt"
+            continue
+
         tgt = b["targets"].to(device); tlen = b["target_lengths"].to(device)
         spk = b["speaker_ids"].to(device); emo = b["emotion"].to(device)
         pert = b.get("pert_audios")
@@ -449,13 +561,18 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 out_p = model(pert, alen, stage=2, grl_lambda=0.0, emit_emotion=False)
                 l_inv = U.invariance_loss(out["z_L"], out_p["z_L"], olen)
             # adversaries (kept out of PCGrad — their conflict is the mechanism)
-            l_grl     = U.speaker_adv_loss(out["grl_logits"], spk, olen)
-            l_grl_p   = ctc_pr_loss(out["pr_grl_logits"], tgt, olen, tlen)
-            l_prosgrl = (U.prosody_train_loss(
-                out["prosody_grl_pred"], p_f0, p_v, p_e, olen)
-                if "prosody_grl_pred" in out else l_recon.new_zeros(()))
-            l_emogrl = (F.cross_entropy(out["emotion_grl_logits"], emo, weight=emo_w)
-                        if "emotion_grl_logits" in out else l_recon.new_zeros(()))
+            l_grl = _loss_if_present(
+                out, "grl_logits", l_recon,
+                lambda logits: U.speaker_adv_loss(logits, spk, olen))
+            l_grl_p = _loss_if_present(
+                out, "pr_grl_logits", l_recon,
+                lambda logits: ctc_pr_loss(logits, tgt, olen, tlen))
+            l_prosgrl = _loss_if_present(
+                out, "prosody_grl_pred", l_recon,
+                lambda pred: U.prosody_train_loss(pred, p_f0, p_v, p_e, olen))
+            l_emogrl = _loss_if_present(
+                out, "emotion_grl_logits", l_recon,
+                lambda logits: F.cross_entropy(logits, emo, weight=emo_w))
             l_route   = route_loss(out["routing_logits"])
             l_spec    = routing_spec_loss(out["routing_logits"])
 
@@ -620,7 +737,10 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 else:
                     lc = lt = 0
                 pr_n, pr_d = U.ctc_errors(out["pr_logits"].float(), tgt, olen, tlen)
-                gp_n, gp_d = U.ctc_errors(out["pr_grl_logits"].float(), tgt, olen, tlen)
+                if "pr_grl_logits" in out:
+                    gp_n, gp_d = U.ctc_errors(out["pr_grl_logits"].float(), tgt, olen, tlen)
+                else:
+                    gp_n = gp_d = 0
 
                 route_idx = out["routing_logits"].detach().argmax(dim=-1)
                 if route_idx.dim() == 1:
@@ -799,21 +919,27 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     # is retained as a validation diagnostic only: the composite proxy score mixes
     # heterogeneous jointly-trained heads and is not reliable enough to decide
     # which weights are allowed to see the held-out test set.
-    tm = evaluate(model, test_dl, device, amp_dtype, n_emotion)
+    tm = (evaluate_recon(model, test_dl, device, amp_dtype)
+          if pure_recon_only else evaluate(model, test_dl, device, amp_dtype, n_emotion))
     append_metrics(metrics_path, {"step": step, "split": "test", **tm})
     final_payload = torch.load(final_path, map_location="cpu", weights_only=False)
     final_payload.setdefault("auxiliary", {})["test"] = tm
     if test_unseen_dl is not None:
-        tum = evaluate(model, test_unseen_dl, device, amp_dtype, n_emotion)
+        tum = (evaluate_recon(model, test_unseen_dl, device, amp_dtype)
+               if pure_recon_only else evaluate(model, test_unseen_dl, device, amp_dtype, n_emotion))
         append_metrics(metrics_path, {"step": step, "split": "test_unseen", **tum})
         final_payload["auxiliary"]["test_unseen"] = tum
     atomic_torch_save(final_payload, final_path)
     mirror_file(final_path, mirror_dir)
     if metrics_path.exists():
         mirror_file(metrics_path, mirror_dir)
-    print(f"[test] final.pt: z_L PER={tm['per']:.3f} "
-          f"z_P SID={tm['sid_acc']:.3f} z_L SID={tm['zL_sid_acc']:.3f} "
-          f"z_P emo UAR={tm['zP_emo_uar']:.3f} z_L emo UAR={tm['zL_emo_uar']:.3f}",
-          flush=True)
-    print(f"[msp] done. best disent={best:.3f}  ckpts in {ckpt_dir}")
+    if pure_recon_only:
+        print(f"[test] final.pt: recon={tm['recon']:.4f}", flush=True)
+        print(f"[msp] done. best recon={best:.4f}  ckpts in {ckpt_dir}")
+    else:
+        print(f"[test] final.pt: z_L PER={tm['per']:.3f} "
+              f"z_P SID={tm['sid_acc']:.3f} z_L SID={tm['zL_sid_acc']:.3f} "
+              f"z_P emo UAR={tm['zP_emo_uar']:.3f} z_L emo UAR={tm['zL_emo_uar']:.3f}",
+              flush=True)
+        print(f"[msp] done. best disent={best:.3f}  ckpts in {ckpt_dir}")
     return final_path

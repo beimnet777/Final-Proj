@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+import sys
 
 import torch
 
@@ -69,6 +70,31 @@ class MSPGradientDiagnosticsTests(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertEqual(1, diagnostics["coop_conflicts"])
         self.assertIn("external_bundle", diagnostics["norms"])
+
+
+class MSPOptionalAdversaryTests(unittest.TestCase):
+    def test_missing_optional_adversary_output_is_zero_loss(self):
+        dis_dir = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(dis_dir))
+        from msp.train import _loss_if_present
+
+        ref = torch.tensor(3.0)
+        loss = _loss_if_present(
+            {}, "pr_grl_logits", ref,
+            lambda value: self.fail("loss function should not be called"))
+        self.assertEqual(0.0, float(loss))
+        self.assertEqual(ref.dtype, loss.dtype)
+        self.assertEqual(ref.device, loss.device)
+
+    def test_present_optional_adversary_output_calls_loss(self):
+        dis_dir = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(dis_dir))
+        from msp.train import _loss_if_present
+
+        ref = torch.tensor(3.0)
+        out = {"pr_grl_logits": torch.tensor([2.0, 4.0])}
+        loss = _loss_if_present(out, "pr_grl_logits", ref, lambda value: value.mean())
+        self.assertEqual(3.0, float(loss))
 
 
 if __name__ == "__main__":
