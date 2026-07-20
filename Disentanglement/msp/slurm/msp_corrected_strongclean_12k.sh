@@ -40,7 +40,14 @@ export HF_HUB_CACHE="${DIS_DIR}/../Probing/data/hub_cache"
 mkdir -p "${DIS_DIR}/msp/logs"
 cd "${DIS_DIR}"
 
-RUN_NAME=msp_hardqfreeze4000_sc_optfix_aux64_gn0004_grlp025_dann12000_12k_s42
+# The companion no-balance control overrides only these two variables before
+# executing this common recipe.
+RUN_NAME="${MSP_RUN_NAME:-msp_hardqfreeze4000_sc_optfix_aux64_gn0004_grlp025_dann12000_12k_s42}"
+PCGRAD_BALANCE="${MSP_PCGRAD_BALANCE:-unit}"
+case "${PCGRAD_BALANCE}" in
+  unit|none) ;;
+  *) echo "Unsupported MSP_PCGRAD_BALANCE=${PCGRAD_BALANCE}; expected unit or none" >&2; exit 2 ;;
+esac
 CHECKPOINT_DIR="${DIS_DIR}/msp/checkpoints/${RUN_NAME}"
 
 MANIFEST="${DIS_DIR}/data/msp_subset"
@@ -96,7 +103,7 @@ echo "started     : $(date)"
 echo "gpu         : $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "run_name    : ${RUN_NAME}"
 echo "schedule    : total=${STEPS} freeze=${FREEZE_STEP} DANN=${DANN_RAMP_STEPS}"
-echo "optimization: separate_disc=yes separate_clip=yes PCGrad=${PCGRAD_TASKS} balance=unit"
+echo "optimization: separate_disc=yes separate_clip=yes PCGrad=${PCGRAD_TASKS} balance=${PCGRAD_BALANCE}"
 echo "positive    : recon=${RECON_WEIGHT} pr=${PR_WEIGHT} sid=${SID_WEIGHT} pros=${PROSODY_WEIGHT} emo=${EMOTION_WEIGHT}"
 echo "adversarial : speaker=${SPEAKER_GRL_WEIGHT}/GN${SPEAKER_GRL_NORM_TARGET} phone=${PHONEME_GRL_WEIGHT} pros=${PROSODY_GRL_WEIGHT} emo=${EMOTION_GRL_WEIGHT}"
 echo "dead revival: AuxK=${AUX_K} coef=${AUX_K_COEF} threshold=${DEAD_STEPS_THRESHOLD} valid_frames=yes"
@@ -117,7 +124,7 @@ COMMON_ARGS=(
   --separate_discriminator_optimizer --separate_grad_clip
   --routing_init_std "${ROUTING_INIT_STD}"
   --routing_spec_weight "${ROUTING_SPEC_WEIGHT}" --routing_tau "${ROUTING_TAU}"
-  --pcgrad_tasks "${PCGRAD_TASKS}" --pcgrad_balance unit
+  --pcgrad_tasks "${PCGRAD_TASKS}" --pcgrad_balance "${PCGRAD_BALANCE}"
   --recon_weight "${RECON_WEIGHT}" --alpha "${PR_WEIGHT}" --beta "${SID_WEIGHT}"
   --grl_weight "${SPEAKER_GRL_WEIGHT}"
   --grl_phoneme_weight "${PHONEME_GRL_WEIGHT}"
