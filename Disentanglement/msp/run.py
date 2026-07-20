@@ -61,6 +61,23 @@ def main() -> None:
     # gradient-conflict
     p.add_argument("--no_pcgrad", action="store_true", help="disable PCGrad surgery")
     p.add_argument("--pcgrad_tasks", default=d.pcgrad_tasks)
+    p.add_argument("--pcgrad_balance", choices=("none", "unit"),
+                   default=d.pcgrad_balance,
+                   help="balance cooperative SAE gradient norms before PCGrad")
+    p.add_argument("--separate_discriminator_optimizer",
+                   action=argparse.BooleanOptionalAction,
+                   default=d.separate_discriminator_optimizer,
+                   help="update discriminator heads only with a detached-representation optimizer")
+    p.add_argument("--separate_grad_clip", action=argparse.BooleanOptionalAction,
+                   default=d.separate_grad_clip,
+                   help="clip SAE, routing, positive-head, and discriminator groups separately")
+    p.add_argument("--aux_k", type=int, default=d.aux_k,
+                   help="number of dead SAE units used for residual reconstruction (0 disables)")
+    p.add_argument("--aux_k_coef", type=float, default=d.aux_k_coef)
+    p.add_argument("--dead_steps_threshold", type=int, default=d.dead_steps_threshold)
+    p.add_argument("--valid_frame_dead_count", action=argparse.BooleanOptionalAction,
+                   default=d.valid_frame_dead_count,
+                   help="exclude padded frames when updating SAE dead-unit counters")
     p.add_argument("--grl_grad_norm", action=argparse.BooleanOptionalAction,
                    default=d.grl_grad_norm,
                    help="normalize the z_L speaker-GRL gradient per frame")
@@ -118,6 +135,12 @@ def main() -> None:
         freeze_route_topk_on_resume=a.freeze_route_topk_on_resume,
         route_topk_calib_batches=a.route_topk_calib_batches,
         pcgrad=not a.no_pcgrad, pcgrad_tasks=a.pcgrad_tasks,
+        pcgrad_balance=a.pcgrad_balance,
+        separate_discriminator_optimizer=a.separate_discriminator_optimizer,
+        separate_grad_clip=a.separate_grad_clip,
+        aux_k=a.aux_k, aux_k_coef=a.aux_k_coef,
+        dead_steps_threshold=a.dead_steps_threshold,
+        valid_frame_dead_count=a.valid_frame_dead_count,
         grl_grad_norm=a.grl_grad_norm,
         grl_grad_norm_target=a.grl_grad_norm_target,
         grl_emotion_grad_norm=a.grl_emotion_grad_norm,
@@ -163,6 +186,12 @@ def main() -> None:
         p.error("--freeze_route_topk_on_resume requires --freeze_learned_routing_on_resume")
     if cfg.route_topk_calib_batches <= 0:
         p.error("--route_topk_calib_batches must be positive")
+    if cfg.aux_k < 0:
+        p.error("--aux_k must be non-negative")
+    if cfg.aux_k_coef < 0:
+        p.error("--aux_k_coef must be non-negative")
+    if cfg.dead_steps_threshold < 0:
+        p.error("--dead_steps_threshold must be non-negative")
     print(f"=== MSP run '{a.run_name}'  pcgrad={cfg.pcgrad}  routing={'hard' if m.hard_routing else 'soft'} ===")
     train.run(cfg, stage1_ckpt=a.stage1_ckpt)
 

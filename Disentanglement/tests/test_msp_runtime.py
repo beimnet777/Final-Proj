@@ -71,6 +71,20 @@ class MSPGradientDiagnosticsTests(unittest.TestCase):
         self.assertEqual(1, diagnostics["coop_conflicts"])
         self.assertIn("external_bundle", diagnostics["norms"])
 
+    def test_unit_balance_applies_weights_after_normalization(self):
+        gradients = {
+            "recon": torch.tensor([3.0, 4.0]),
+            "emotion": torch.tensor([0.0, 20.0]),
+            "inactive": torch.zeros(2),
+        }
+        balanced, scales = PCGrad.unit_balance(
+            gradients, {"recon": 1.0, "emotion": 0.5, "inactive": 0.25})
+        self.assertAlmostEqual(1.0, float(balanced["recon"].norm()), places=6)
+        self.assertAlmostEqual(0.5, float(balanced["emotion"].norm()), places=6)
+        self.assertEqual(0.0, float(balanced["inactive"].norm()))
+        self.assertAlmostEqual(0.2, scales["recon"], places=6)
+        self.assertAlmostEqual(0.025, scales["emotion"], places=6)
+
 
 class MSPOptionalAdversaryTests(unittest.TestCase):
     def test_missing_optional_adversary_output_is_zero_loss(self):
@@ -95,6 +109,39 @@ class MSPOptionalAdversaryTests(unittest.TestCase):
         out = {"pr_grl_logits": torch.tensor([2.0, 4.0])}
         loss = _loss_if_present(out, "pr_grl_logits", ref, lambda value: value.mean())
         self.assertEqual(3.0, float(loss))
+
+
+class MSPSeparatedOptimizerTests(unittest.TestCase):
+    def test_frozen_discriminator_still_backpropagates_to_representation(self):
+        dis_dir = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(dis_dir))
+        from msp.train import _set_requires_grad
+
+        discriminator = torch.nn.Linear(3, 2)
+        representation = torch.randn(4, 3, requires_grad=True)
+        _set_requires_grad(discriminator.parameters(), False)
+        discriminator(representation).square().mean().backward()
+        self.assertIsNotNone(representation.grad)
+        self.assertGreater(float(representation.grad.norm()), 0.0)
+        self.assertTrue(all(param.grad is None for param in discriminator.parameters()))
+
+    def test_group_clipping_does_not_scale_another_group(self):
+        dis_dir = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(dis_dir))
+        from msp.train import _clip_group
+
+        small = torch.nn.Parameter(torch.zeros(1))
+        large = torch.nn.Parameter(torch.zeros(1))
+        small.grad = torch.tensor([0.5])
+        large.grad = torch.tensor([100.0])
+        small_norm, small_scale = _clip_group([small], 1.0)
+        large_norm, large_scale = _clip_group([large], 1.0)
+        self.assertAlmostEqual(0.5, small_norm, places=6)
+        self.assertEqual(1.0, small_scale)
+        self.assertAlmostEqual(0.5, float(small.grad), places=6)
+        self.assertAlmostEqual(100.0, large_norm, places=4)
+        self.assertAlmostEqual(0.01, large_scale, places=6)
+        self.assertAlmostEqual(1.0, float(large.grad), places=6)
 
 
 if __name__ == "__main__":

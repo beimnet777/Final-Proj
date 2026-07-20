@@ -34,6 +34,23 @@ class MSPConfig:
     pcgrad:        bool = True
     # cooperative tasks PCGrad de-conflicts (adversaries excluded on purpose)
     pcgrad_tasks:  str  = "recon,pr,sid,prosody,emotion"
+    # Optional unit-norm balancing on each cooperative SAE gradient before
+    # applying its task weight and PCGrad.  ``none`` preserves historical MSP
+    # runs; corrected runs select ``unit`` explicitly.
+    pcgrad_balance: str = "none"
+
+    # Corrected optimizer controls.  Historical MSP runs used one optimizer and
+    # one global clip.  Keep that reproducible by default; corrected experiment
+    # scripts explicitly enable the separated discriminator and group clipping.
+    separate_discriminator_optimizer: bool = False
+    separate_grad_clip:               bool = False
+
+    # Dead-latent revival.  MSP previously updated dead counters but omitted the
+    # AuxK residual loss.  Values remain off here so old named runs are stable.
+    aux_k:                  int   = 0
+    aux_k_coef:             float = 0.03125
+    dead_steps_threshold:   int   = 256
+    valid_frame_dead_count: bool  = False
 
     # Optional per-frame normalization of the reversed speaker gradient entering
     # z_L. Experiments enable it and select its target in their Slurm script.
@@ -154,6 +171,10 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.freeze_learned_routing_on_resume = m.freeze_learned_routing_on_resume
     c.freeze_route_topk_on_resume = m.freeze_route_topk_on_resume
     c.route_topk_calib_batches = m.route_topk_calib_batches
+    c.aux_k = m.aux_k
+    c.aux_k_coef = m.aux_k_coef
+    c.dead_steps_threshold = m.dead_steps_threshold
+    c.valid_frame_dead_count = m.valid_frame_dead_count
     # ---- MSP data paths (read by msp.data.make_msp_dataloaders) ----
     c.msp_manifest = m.manifest
     c.msp_audio_root = m.audio_root
@@ -162,6 +183,9 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     # ---- gradient-conflict controls (read by msp.train) ----
     c.pcgrad = m.pcgrad
     c.pcgrad_tasks = tuple(t.strip() for t in m.pcgrad_tasks.split(",") if t.strip())
+    c.pcgrad_balance = m.pcgrad_balance
+    c.separate_discriminator_optimizer = m.separate_discriminator_optimizer
+    c.separate_grad_clip = m.separate_grad_clip
     c.grl_grad_norm = m.grl_grad_norm
     c.grl_grad_norm_target = m.grl_grad_norm_target
     c.grl_emotion_grad_norm = m.grl_emotion_grad_norm

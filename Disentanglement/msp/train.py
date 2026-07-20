@@ -63,6 +63,21 @@ def _loss_if_present(out: dict, key: str, reference: torch.Tensor, fn):
     return fn(out[key])
 
 
+def _set_requires_grad(params, enabled: bool) -> None:
+    """Toggle a parameter group without changing optimizer membership."""
+    for param in params:
+        param.requires_grad_(enabled)
+
+
+def _clip_group(params, max_norm: float) -> tuple[float, float]:
+    """Clip one logical parameter group and return (pre-norm, scale)."""
+    active = [param for param in params if param.grad is not None]
+    if not active:
+        return 0.0, 1.0
+    pre_norm = float(nn.utils.clip_grad_norm_(active, max_norm))
+    return pre_norm, min(1.0, max_norm / max(pre_norm, 1e-12))
+
+
 def _gumbel_tau(step: int, total: int, tau_start: float, tau_end: float) -> float:
     """Geometric anneal of the Gumbel temperature (matches legacy)."""
     return tau_start * (tau_end / tau_start) ** (step / max(1, total))
@@ -339,12 +354,22 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         head = getattr(model, optional_head, None)
         if head is not None:
             disc_params += list(head.parameters())
-    optimizer = torch.optim.AdamW([
+    separate_disc = bool(getattr(cfg, "separate_discriminator_optimizer", False))
+    separate_clip = bool(getattr(cfg, "separate_grad_clip", False))
+    main_groups = [
         {"params": sae_params,  "lr": cfg.lr},
         {"params": rout_params, "lr": cfg.lr_routing},
         {"params": head_params, "lr": cfg.lr_heads},
-        {"params": disc_params, "lr": cfg.lr_disc},
-    ], betas=(0.9, 0.95), weight_decay=0.0)
+    ]
+    if not separate_disc:
+        main_groups.append({"params": disc_params, "lr": cfg.lr_disc})
+    optimizer = torch.optim.AdamW(
+        main_groups, betas=(0.9, 0.95), weight_decay=0.0)
+    disc_optimizer = (
+        torch.optim.AdamW(disc_params, lr=cfg.lr_disc,
+                          betas=(0.9, 0.95), weight_decay=0.0)
+        if separate_disc else None
+    )
     lr_at = _make_lr(cfg)
     scaler = torch.amp.GradScaler("cuda", enabled=(amp_dtype == torch.float16))
     all_params = sae_params + rout_params + head_params + disc_params
@@ -359,6 +384,9 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     print(f"[msp] steps={cfg.stage2_steps} microbatch={cfg.batch_size} "
           f"accumulation={accumulation} effective_batch={effective_batch} pcgrad={cfg.pcgrad} "
           f"({sorted(coop_names)})  device={device} amp={amp_dtype}")
+    print(f"[msp] optimization: discriminator_optimizer={'separate' if separate_disc else 'shared'} "
+          f"gradient_clip={'per-group' if separate_clip else 'global'} "
+          f"pcgrad_balance={getattr(cfg, 'pcgrad_balance', 'none')}")
     print(f"[msp] weights recon={getattr(cfg, 'recon_weight', 1.0)} "
           f"α(pr)={cfg.alpha} β(sid)={cfg.beta} grl={cfg.grl_weight} "
           f"grl_p={cfg.grl_phoneme_weight} pros={cfg.prosody_weight}/{cfg.grl_prosody_weight} "
@@ -368,6 +396,10 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     emo_frame = (float(getattr(cfg, "grl_emotion_grad_norm_target", float("nan")))
                  if getattr(cfg, "grl_emotion_grad_norm", False) else float("nan"))
     print(f"[msp] per-frame GRL targets: speaker={spk_frame:.2e} emotion={emo_frame:.2e}")
+    if model.sae.aux_k > 0:
+        print(f"[msp] AuxK on: aux_k={model.sae.aux_k} coef={cfg.aux_k_coef:g} "
+              f"dead_thresh={model.sae.dead_threshold} "
+              f"valid_frames={getattr(cfg, 'valid_frame_dead_count', False)}")
     pure_recon_only = (
         float(getattr(cfg, "recon_weight", 1.0)) > 0.0
         and cfg.alpha == 0.0 and cfg.beta == 0.0
@@ -392,6 +424,12 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         validate_resume(saved, dataset_hash=str(getattr(cfg, "dataset_fingerprint", "")),
                         preset=str(getattr(cfg, "experiment_preset", "")), cfg=cfg)
         step, best = restore_training_state(saved, model=model, optimizer=optimizer, scaler=scaler)
+        if disc_optimizer is not None:
+            disc_state = saved.get("auxiliary", {}).get("disc_optimizer")
+            if disc_state is None:
+                raise ValueError(
+                    "resume checkpoint lacks the separate discriminator optimizer state")
+            disc_optimizer.load_state_dict(disc_state)
         restored_from_resume = True
         if pcgrad is not None:
             pcgrad.load_state_dict(saved.get("auxiliary", {}).get("pcgrad", {}))
@@ -432,6 +470,9 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             best_metric=best, cfg=cfg, dataset_hash=str(getattr(cfg, "dataset_fingerprint", "")),
             preset=str(getattr(cfg, "experiment_preset", "")), kind=kind,
             auxiliary={"pcgrad": pcgrad.state_dict() if pcgrad is not None else {},
+                       "disc_optimizer": (disc_optimizer.state_dict()
+                                          if kind == "resume" and disc_optimizer is not None
+                                          else None),
                        "train_sampler": (train_dl.sampler.state_dict()
                                          if hasattr(train_dl.sampler, "state_dict") else {}),
                        "val": val or {}},
@@ -457,6 +498,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         grad_every = max(1, int(getattr(cfg, "grad_log_every", cfg.log_every)))
         grad_now = boundary and (next_step % grad_every == 0 or next_step == 1)
         grad_diag = None
+        raw_coop_grad_norms = None
+        pcgrad_balance_scales = None
         adv_sae_grad_norms = None
         lr_now = lr_at(next_step)
         optimizer.param_groups[0]["lr"] = lr_now          # SAE follows the cosine
@@ -469,10 +512,20 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         if pure_recon_only:
             with _autocast(amp_dtype):
                 out = model(audios, alen, stage=1)
-                model.sae.update_dead(out["z_t"])
                 olen = out["out_lengths"]
+                model.sae.update_dead(
+                    out["z_t"],
+                    olen if getattr(cfg, "valid_frame_dead_count", False) else None,
+                )
                 l_recon = recon_loss(out["h_t"], out["h_hat"], olen)
-                total = float(getattr(cfg, "recon_weight", 1.0)) * l_recon
+                l_aux = l_recon.new_zeros(())
+                if model.sae.aux_k > 0:
+                    e_hat = model.sae.aux_reconstruct(out["z_pre"])
+                    if e_hat is not None:
+                        residual = (out["h_t"] - out["h_hat"]).detach()
+                        l_aux = recon_loss(residual, e_hat, olen)
+                total = (float(getattr(cfg, "recon_weight", 1.0)) * l_recon
+                         + float(getattr(cfg, "aux_k_coef", 0.0)) * l_aux)
             if micro_index == 1:
                 optimizer.zero_grad(set_to_none=True)
             scaled_total = total / accumulation
@@ -506,6 +559,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                     dead_frac = n_dead / cfg.K
                 print(f"\n[train {step:05d}/{cfg.stage2_steps}] "
                       f"lr={lr_now:.2e} recon={l_recon.item():.4f} "
+                      f"aux={l_aux.item():.4f} "
                       f"dead={100*dead_frac:.1f}% active={active:.0f} "
                       f"clip main={main_pre_clip:.2e}->{main_clip_scale:.2e}",
                       flush=True)
@@ -513,6 +567,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                     append_metrics(metrics_path, {
                         "step": step, "split": "train", "lr": lr_now,
                         "recon": float(l_recon), "active": active,
+                        "aux": float(l_aux),
                         "dead_fraction": dead_frac,
                     })
 
@@ -542,15 +597,29 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         if pert is not None:
             pert = pert.to(device)
 
+        # With a separate optimizer the discriminator acts as a fixed function
+        # during the representation update: gradients still flow through it into
+        # z_L/z_P, but its parameters are updated only on detached features below.
+        if separate_disc:
+            _set_requires_grad(disc_params, False)
         with _autocast(amp_dtype):
             out = model(audios, alen, stage=2,
                         grl_lambda=ramp, grl_p_lambda=ramp,
                         grl_prosody_lambda=ramp, grl_emotion_lambda=ramp,
                         emit_emotion=True)
-            model.sae.update_dead(out["z_t"])
             olen = out["out_lengths"]
+            model.sae.update_dead(
+                out["z_t"],
+                olen if getattr(cfg, "valid_frame_dead_count", False) else None,
+            )
             # cooperative tasks
             l_recon = recon_loss(out["h_t"], out["h_hat"], olen)
+            l_aux = l_recon.new_zeros(())
+            if model.sae.aux_k > 0:
+                e_hat = model.sae.aux_reconstruct(out["z_pre"])
+                if e_hat is not None:
+                    residual = (out["h_t"] - out["h_hat"]).detach()
+                    l_aux = recon_loss(residual, e_hat, olen)
             l_pr    = ctc_pr_loss(out["pr_logits"], tgt, olen, tlen)
             l_sid   = sid_ce_loss(out["sid_logits"], spk)
             p_f0, p_v, p_e = U.prosody_targets_fast(audios, alen, olen)
@@ -576,14 +645,25 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             l_route   = route_loss(out["routing_logits"])
             l_spec    = routing_spec_loss(out["routing_logits"])
 
-        coop = {
-            "recon":   float(getattr(cfg, "recon_weight", 1.0)) * l_recon,
-            "pr":      cfg.alpha * l_pr,
-            "sid":     cfg.beta * l_sid,
-            "prosody": cfg.prosody_weight * l_pros,
-            "emotion": cfg.emotion_weight * l_emo,
-            "inv":     cfg.inv_weight * l_inv,
+        coop_raw = {
+            "recon": l_recon,
+            "pr": l_pr,
+            "sid": l_sid,
+            "prosody": l_pros,
+            "emotion": l_emo,
+            "inv": l_inv,
+            "aux": l_aux,
         }
+        coop_weights = {
+            "recon": float(getattr(cfg, "recon_weight", 1.0)),
+            "pr": float(cfg.alpha),
+            "sid": float(cfg.beta),
+            "prosody": float(cfg.prosody_weight),
+            "emotion": float(cfg.emotion_weight),
+            "inv": float(cfg.inv_weight),
+            "aux": float(getattr(cfg, "aux_k_coef", 0.0)),
+        }
+        coop = {name: coop_weights[name] * loss for name, loss in coop_raw.items()}
         adv = (cfg.grl_weight * l_grl + cfg.grl_phoneme_weight * l_grl_p
                + cfg.grl_prosody_weight * l_prosgrl + cfg.grl_emotion_weight * l_emogrl
                + cfg.routing_spec_weight * l_spec + cfg.rho * l_route)
@@ -635,7 +715,9 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             router_grad_diag = named_gradient_diagnostics(
                 {**coop, **adversary_losses}, rout_params, reference=active_p_soft)
         if pcgrad is not None:
-            managed = {k: v for k, v in coop.items() if k in coop_names}
+            balance_mode = str(getattr(cfg, "pcgrad_balance", "none"))
+            managed_source = coop_raw if balance_mode == "unit" else coop
+            managed = {k: v for k, v in managed_source.items() if k in coop_names}
             unmanaged = [v for k, v in coop.items() if k not in coop_names]
             shared_extra = adv + sum(unmanaged) if unmanaged else adv
             current = {name: pcgrad.flat_grad(loss).detach() / accumulation
@@ -664,17 +746,44 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         if scaler.is_enabled():
             scaler.unscale_(optimizer)
         if pcgrad is not None:
-            projected_coop = pcgrad.project_vectors(task_grad_sums)
+            projected_inputs = task_grad_sums
+            if str(getattr(cfg, "pcgrad_balance", "none")) == "unit":
+                raw_coop_grad_norms = {
+                    name: float(grad.detach().float().norm().item())
+                    for name, grad in task_grad_sums.items()
+                }
+                projected_inputs, pcgrad_balance_scales = pcgrad.unit_balance(
+                    task_grad_sums,
+                    {name: coop_weights[name] for name in task_grad_sums},
+                )
+            projected_coop = pcgrad.project_vectors(projected_inputs)
             if grad_now:
                 grad_diag = pcgrad.vector_diagnostics(
-                    task_grad_sums, projected_coop, extra_grad_sum)
+                    projected_inputs, projected_coop, extra_grad_sum)
             pcgrad.write_(projected_coop + extra_grad_sum)
-        main_pre_clip = float(nn.utils.clip_grad_norm_(all_params, cfg.grad_clip))
-        main_clip_scale = min(1.0, cfg.grad_clip / max(main_pre_clip, 1e-12))
+        if separate_clip:
+            sae_pre_clip, sae_clip_scale = _clip_group(sae_params, cfg.grad_clip)
+            route_pre_clip, route_clip_scale = _clip_group(rout_params, cfg.grad_clip)
+            head_pre_clip, head_clip_scale = _clip_group(head_params, cfg.grad_clip)
+            if separate_disc:
+                main_disc_pre_clip, main_disc_clip_scale = 0.0, 1.0
+            else:
+                main_disc_pre_clip, main_disc_clip_scale = _clip_group(
+                    disc_params, cfg.grad_clip)
+            # Retain these names for the compact legacy log, where "main" now
+            # denotes the shared SAE group. Detailed group values follow it.
+            main_pre_clip, main_clip_scale = sae_pre_clip, sae_clip_scale
+        else:
+            main_pre_clip = float(nn.utils.clip_grad_norm_(all_params, cfg.grad_clip))
+            main_clip_scale = min(1.0, cfg.grad_clip / max(main_pre_clip, 1e-12))
+            sae_pre_clip = route_pre_clip = head_pre_clip = main_disc_pre_clip = main_pre_clip
+            sae_clip_scale = route_clip_scale = head_clip_scale = main_disc_clip_scale = main_clip_scale
         if scaler.is_enabled():
             scaler.step(optimizer); scaler.update()
         else:
             optimizer.step()
+        if separate_disc:
+            _set_requires_grad(disc_params, True)
         if grad_now and active_freq_for_router is not None and not model.routing.dynamic:
             with torch.no_grad():
                 route_p_after = torch.softmax(model.routing.logits, dim=-1)[:, 1]
@@ -689,9 +798,11 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         adversaries_on = any(weight > 0 for weight in (
             cfg.grl_weight, cfg.grl_phoneme_weight,
             cfg.grl_prosody_weight, cfg.grl_emotion_weight))
-        if cfg.n_disc_steps > 1 and adversaries_on:
-            for _ in range(cfg.n_disc_steps - 1):
-                optimizer.zero_grad(set_to_none=True)
+        disc_updates = cfg.n_disc_steps if separate_disc else max(0, cfg.n_disc_steps - 1)
+        if disc_updates > 0 and adversaries_on:
+            active_disc_optimizer = disc_optimizer if disc_optimizer is not None else optimizer
+            for _ in range(disc_updates):
+                active_disc_optimizer.zero_grad(set_to_none=True)
                 for (zL_d, zP_d, lens_d, spk_d, tgt_d, tlen_d,
                      pf0_d, pv_d, pe_d, emo_d) in disc_micro_batches:
                     with _autocast(amp_dtype):
@@ -713,14 +824,16 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                         ld = sum(terms) if terms else zL_d.sum() * 0.0
                     if scaler.is_enabled(): scaler.scale(ld / accumulation).backward()
                     else: (ld / accumulation).backward()
-                if scaler.is_enabled(): scaler.unscale_(optimizer)
-                disc_norm = float(nn.utils.clip_grad_norm_(disc_params, cfg.grad_clip))
+                if scaler.is_enabled(): scaler.unscale_(active_disc_optimizer)
+                disc_norm, current_disc_scale = _clip_group(disc_params, cfg.grad_clip)
                 if disc_norm > disc_pre_clip:
                     disc_pre_clip = disc_norm
-                    disc_clip_scale = min(1.0, cfg.grad_clip / max(disc_norm, 1e-12))
-                if scaler.is_enabled(): scaler.step(optimizer); scaler.update()
-                else: optimizer.step()
+                    disc_clip_scale = current_disc_scale
+                if scaler.is_enabled(): scaler.step(active_disc_optimizer); scaler.update()
+                else: active_disc_optimizer.step()
             optimizer.zero_grad(set_to_none=True)
+            if disc_optimizer is not None:
+                disc_optimizer.zero_grad(set_to_none=True)
         micro_index = 0
         task_grad_sums = None
         extra_grad_sum = None
@@ -773,7 +886,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             print(f"\n[train {step:05d}/{cfg.stage2_steps}] "
                   f"lr={lr_now:.2e} dann={ramp:.2f} "
                   f"zL_frame={zL_grl_frame:.2e} emo_frame={zL_emo_frame:.2e} "
-                  f"recon={l_recon.item():.4f} dead={100*dead_frac:.1f}% "
+                  f"recon={l_recon.item():.4f} aux={l_aux.item():.4f} "
+                  f"dead={100*dead_frac:.1f}% "
                   f"active L/P={act_L:.0f}/{act_P:.0f} ({100*act_P/active_total:.1f}% P) "
                   f"assigned L/P={n_L}/{n_P}", flush=True)
             print(f"  content: z_L PER={pr_n/max(pr_d,1):.3f} | z_P adv PER={gp_n/max(gp_d,1):.3f}    "
@@ -786,6 +900,13 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                   f"margin={route_diag['top1_top2_margin']:.3f} tau={model.routing.tau:.3f}    "
                   f"clip main={main_pre_clip:.2e}->{main_clip_scale:.2e} "
                   f"disc={disc_pre_clip:.2e}->{disc_clip_scale:.2e}", flush=True)
+            if separate_clip:
+                print("  clip groups: "
+                      f"SAE={sae_pre_clip:.2e}->{sae_clip_scale:.2e} "
+                      f"routing={route_pre_clip:.2e}->{route_clip_scale:.2e} "
+                      f"positive_heads={head_pre_clip:.2e}->{head_clip_scale:.2e} "
+                      f"main_disc={main_disc_pre_clip:.2e}->{main_disc_clip_scale:.2e}",
+                      flush=True)
             if log_now:
                 append_metrics(metrics_path, {
                     "step": step, "split": "train", "lr": lr_now,
@@ -793,6 +914,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                     "grl": float(l_grl), "grl_p": float(l_grl_p),
                     "prosody": float(l_pros), "prosody_grl": float(l_prosgrl),
                     "emotion": float(l_emo), "emotion_grl": float(l_emogrl),
+                    "aux": float(l_aux),
                     "invariance": float(l_inv), "route_tau": float(model.routing.tau),
                     "active_L": act_L, "active_P": act_P, "dead_fraction": dead_frac,
                     "speaker_grl_frame": float(zL_grl_frame),
@@ -802,7 +924,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             def _norm_row(norms, names):
                 return "  ".join(f"{name}={norms.get(name, 0.0):.2e}" for name in names)
 
-            coop_order = ("recon", "pr", "sid", "prosody", "emotion", "inv")
+            coop_order = ("recon", "pr", "sid", "prosody", "emotion", "inv", "aux")
             adv_order = ("grl", "grl_p", "pros_grl", "emo_grl", "route_spec")
             if grad_now and grad_diag is not None:
                 coop_cos = grad_diag["coop_cosines"]
@@ -812,6 +934,11 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                     sae_min_pair, sae_min_cos = "n/a", float("nan")
                 print("  SAE gradients (weighted, before clipping)", flush=True)
                 print(f"    cooperative: {_norm_row(grad_diag['norms'], coop_order)}", flush=True)
+                if raw_coop_grad_norms is not None:
+                    print(f"    cooperative raw before unit balance: "
+                          f"{_norm_row(raw_coop_grad_norms, coop_order)}", flush=True)
+                    print("    unit-balance scales: "
+                          f"{_norm_row(pcgrad_balance_scales or {}, coop_order)}", flush=True)
                 print(f"    adversarial: {_norm_row(grad_diag['norms'], ('external_bundle',))}",
                       flush=True)
                 if adv_sae_grad_norms is not None:

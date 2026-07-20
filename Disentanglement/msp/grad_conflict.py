@@ -125,6 +125,32 @@ class PCGrad:
         return torch.stack(self._project(grads)).sum(0)
 
     @staticmethod
+    def unit_balance(
+        named_gradients: Dict[str, torch.Tensor],
+        weights: Dict[str, float],
+        eps: float = 1e-12,
+    ) -> tuple[Dict[str, torch.Tensor], Dict[str, float]]:
+        """Normalize raw task gradients, then apply the configured task weights.
+
+        PCGrad only changes conflicting directions; without this step a task with
+        a much larger raw norm can still dominate the shared SAE update.  Zero
+        gradients remain zero (important while AuxK has not activated yet).
+        """
+        balanced: Dict[str, torch.Tensor] = {}
+        scales: Dict[str, float] = {}
+        for name, grad in named_gradients.items():
+            norm = grad.detach().float().norm()
+            weight = float(weights.get(name, 1.0))
+            if float(norm) <= eps or weight == 0.0:
+                scale = 0.0
+                balanced[name] = grad * 0.0
+            else:
+                scale = weight / float(norm)
+                balanced[name] = grad * scale
+            scales[name] = scale
+        return balanced, scales
+
+    @staticmethod
     def vector_diagnostics(
         named_gradients: Dict[str, torch.Tensor],
         projected: torch.Tensor,

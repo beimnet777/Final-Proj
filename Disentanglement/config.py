@@ -80,6 +80,15 @@ class DISConfig:
     gradnorm_tasks:  str   = "recon,pr,sid"   # which loss terms GradNorm manages (comma-sep)
     gradnorm_every:  int   = 1       # update the weights every N steps (amortize cost)
 
+    # MSP-only cooperative-gradient/optimizer controls.  They live on the shared
+    # dataclass so exact-resume checkpoints record them; the legacy Libri trainer
+    # does not consume them.
+    pcgrad:        bool = False
+    pcgrad_tasks:  tuple[str, ...] = ()
+    pcgrad_balance: str = "none"
+    separate_discriminator_optimizer: bool = False
+    separate_grad_clip:               bool = False
+
     # ---------------------------------------------------------------- Loss weights  (stage 2)
     alpha:      float = 1.0     # PR (CTC) weight          — calibrated from grad norms (or GradNorm)
     beta:       float = 1.0     # SID (CE) weight           — calibrated from grad norms (or GradNorm)

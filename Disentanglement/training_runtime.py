@@ -316,6 +316,21 @@ def validate_resume(checkpoint: Mapping[str, Any], *, dataset_hash: str,
                 "adversarial_task_grad_cap"):
         if key in old and key in now and old[key] != now[key]:
             raise ValueError(f"resume configuration mismatch for {key}: {old[key]!r} != {now[key]!r}")
+    # These MSP options change the optimizer or SAE update rule.  Missing keys
+    # in older checkpoints mean the historical disabled behavior.
+    for key, historical_default in (
+        ("pcgrad_balance", "none"),
+        ("separate_discriminator_optimizer", False),
+        ("separate_grad_clip", False),
+        ("valid_frame_dead_count", False),
+        ("aux_k", 0),
+        ("aux_k_coef", 0.03125),
+        ("dead_steps_threshold", 256),
+    ):
+        if key in now and old.get(key, historical_default) != now[key]:
+            raise ValueError(
+                f"resume configuration mismatch for {key}: "
+                f"{old.get(key, historical_default)!r} != {now[key]!r}")
     # Absence of this newly introduced flag in an older checkpoint means the
     # standalone branch was off.  Never enable a different adversary architecture
     # silently halfway through an exact-resume run.
