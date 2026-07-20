@@ -47,6 +47,8 @@ PLOT_CAPTIONS = {
     "route_phone_representation_umap": "Supplementary cosine-UMAP of exactly the same held-out phone observations used by PCA. UMAP preserves local neighbourhoods but can exaggerate visual gaps; quantitative claims use probes and full-space geometry.",
     "route_speaker_representation_umap": "Supplementary cosine-UMAP of exactly the same held-out speaker observations used by PCA. Parameters are n_neighbors=30, min_dist=0.1 and seed=42.",
     "latent_swap_outcomes": "Feature-level intervention, not generated audio. P-swap combines recipient L with donor P; L-swap is the complementary control. Bars report recipient-phone preservation and whether the reconstructed SPEAR features match donor or recipient speaker identity. Evaluators are calibrated only on unswapped SAE reconstructions. The shuffled-mask diagnostic can overlap true P units—especially in learned models with roughly half their capacity assigned to P—so it is not a clean negative control.",
+    "latent_swap_paired_effects": "Mode-minus-baseline effects computed within the same recipient–donor pair. Intervals use a two-way cluster bootstrap over recipient and donor speakers. The matched non-P control is disjoint from P and matched by activity frequency and decoder-column norm.",
+    "latent_swap_interpolation": "Feature-level speaker interpolation from recipient P (alpha=0) to donor P (alpha=1). Content preservation should remain stable while donor-speaker evidence rises and recipient-speaker evidence falls.",
     "route_selectivity_composition": "Fractions use observed-active units as the denominator; assigned-capacity fractions remain in the CSV tables.",
     "route_factor_information": "Whole-subspace information on identical held-out phone segments. Each line joins z_L and z_P for the same factor. Route-MIG uses normalized mutual information in held-out nonlinear predictions, SAP uses a linear classifier, and DCI informativeness uses a nonlinear classifier.",
     "route_factor_contrasts": "Desired-route minus other-route contrasts. Positive values mean phone information favours z_L or speaker information favours z_P. Circles use every observed route unit; diamonds equalize the number of active units in the two routes. Horizontal intervals show repeated grouped-split stability.",
@@ -68,6 +70,8 @@ PLOT_TITLES = {
     "route_phone_representation_umap": "Supplementary UMAP: Held-Out Phone Vectors",
     "route_speaker_representation_umap": "Supplementary UMAP: Held-Out Speaker Vectors",
     "latent_swap_outcomes": "Latent Swap: Content Retention and Speaker Transfer",
+    "latent_swap_paired_effects": "Paired Causal Effects of Route Interventions",
+    "latent_swap_interpolation": "Continuous P-Route Speaker Interpolation",
     "route_factor_information": "Route-Subspace Information: MIG, SAP and DCI",
     "route_factor_contrasts": "Route Disentanglement Contrasts and Capacity Control",
     "route_factor_information_matrix": "Phone–Speaker Information by Complete Route",
@@ -1192,6 +1196,117 @@ def make_plots(output: Path, tables: dict[str, pd.DataFrame]) -> list[Path]:
                 ax.legend(loc="upper center", ncol=max(1, len(metrics)), frameon=False)
             _plot(path, draw, figsize=(10.4, 5.6)); made.append(path.with_suffix(".png"))
 
+        interpolation = swap_summary.dropna(subset=["interpolation_alpha"]).copy() \
+            if "interpolation_alpha" in swap_summary.columns else pd.DataFrame()
+        interpolation_metrics = [metric for metric in (
+            "phone_recipient_accuracy", "donor_speaker_probability",
+            "recipient_speaker_probability", "donor_speaker_match",
+            "recipient_speaker_match",
+        ) if metric in interpolation.columns]
+        if len(interpolation) and interpolation_metrics:
+            interpolation = interpolation.sort_values("interpolation_alpha")
+            _save_plot_data(output, "latent_swap_interpolation", interpolation)
+            path = output / "plots" / "latent_swap_interpolation"
+            def draw_interpolation(fig):
+                axes = fig.subplots(1, 2)
+                content_metrics = [m for m in interpolation_metrics if m == "phone_recipient_accuracy"]
+                probability_metrics = [m for m in (
+                    "donor_speaker_probability", "recipient_speaker_probability",
+                ) if m in interpolation_metrics]
+                speaker_metrics = probability_metrics or [m for m in (
+                    "donor_speaker_match", "recipient_speaker_match",
+                ) if m in interpolation_metrics]
+                labels = {
+                    "phone_recipient_accuracy": "recipient phone accuracy",
+                    "donor_speaker_probability": "donor speaker probability",
+                    "recipient_speaker_probability": "recipient speaker probability",
+                    "donor_speaker_match": "donor speaker match",
+                    "recipient_speaker_match": "recipient speaker match",
+                }
+                colors = {
+                    "phone_recipient_accuracy": ROUTE_COLORS["L"],
+                    "donor_speaker_probability": ROUTE_COLORS["P"],
+                    "recipient_speaker_probability": "#275dad",
+                    "donor_speaker_match": "#f08c00",
+                    "recipient_speaker_match": "#5c7cfa",
+                }
+                for ax, metrics_here, title in (
+                    (axes[0], content_metrics, "Content should remain stable"),
+                    (axes[1], speaker_metrics, "Identity should move toward donor"),
+                ):
+                    for metric in metrics_here:
+                        ax.plot(
+                            interpolation["interpolation_alpha"], interpolation[metric],
+                            marker="o", linewidth=2.2, label=labels[metric], color=colors[metric],
+                        )
+                        low_column, high_column = f"{metric}_ci95_low", f"{metric}_ci95_high"
+                        if {low_column, high_column} <= set(interpolation.columns):
+                            ax.fill_between(
+                                interpolation["interpolation_alpha"].to_numpy(dtype=float),
+                                interpolation[low_column].to_numpy(dtype=float),
+                                interpolation[high_column].to_numpy(dtype=float),
+                                color=colors[metric], alpha=.12, linewidth=0,
+                            )
+                    ax.set(xlabel=r"donor interpolation $\alpha$", ylabel="held-out score",
+                           ylim=(0, 1.03), title=title)
+                    if metrics_here:
+                        ax.legend(frameon=False, fontsize=8)
+                fig.suptitle("Continuous P-route intervention", y=1.02)
+            _plot(path, draw_interpolation, figsize=(11.2, 4.7))
+            made.append(path.with_suffix(".png"))
+
+    swap_contrasts = tables.get("swap_contrasts")
+    if swap_contrasts is not None and len(swap_contrasts):
+        primary_modes = [
+            "P_from_donor", "L_from_donor", "matched_P_subset_from_donor",
+            "matched_nonP_from_donor",
+            "P_same_speaker", "P_zero", "P_time_shuffled_from_donor",
+        ]
+        primary_metrics = [
+            "phone_recipient_accuracy", "donor_speaker_probability",
+            "recipient_speaker_probability",
+        ]
+        effects = swap_contrasts[
+            swap_contrasts["mode"].isin(primary_modes)
+            & swap_contrasts["metric"].isin(primary_metrics)
+        ].copy()
+        if len(effects):
+            effects["effect_label"] = effects["mode"].str.replace("_", " ", regex=False)
+            effects["effect_label"] += " · " + effects["metric"].map({
+                "phone_recipient_accuracy": "recipient phone",
+                "donor_speaker_probability": "donor probability",
+                "recipient_speaker_probability": "recipient probability",
+            })
+            _save_plot_data(output, "latent_swap_paired_effects", effects)
+            path = output / "plots" / "latent_swap_paired_effects"
+            def draw_effects(fig):
+                ax = fig.subplots()
+                effects_plot = effects.iloc[::-1].reset_index(drop=True)
+                y = np.arange(len(effects_plot))
+                values = effects_plot["paired_effect"].to_numpy(dtype=float)
+                low = effects_plot["ci95_low"].to_numpy(dtype=float)
+                high = effects_plot["ci95_high"].to_numpy(dtype=float)
+                colors = effects_plot["metric"].map({
+                    "phone_recipient_accuracy": ROUTE_COLORS["L"],
+                    "donor_speaker_probability": ROUTE_COLORS["P"],
+                    "recipient_speaker_probability": "#275dad",
+                }).tolist()
+                for index, (value, lower, upper, color) in enumerate(
+                    zip(values, low, high, colors)
+                ):
+                    ax.errorbar(
+                        value, y[index],
+                        xerr=np.asarray([[value-lower], [upper-value]]),
+                        fmt="o", color=color, ecolor=color,
+                        elinewidth=1.8, capsize=3, markersize=6,
+                    )
+                ax.axvline(0, color="black", lw=.9)
+                ax.set(yticks=y, yticklabels=effects_plot["effect_label"],
+                       xlabel="paired mode-minus-baseline effect",
+                       title="Route interventions with crossed-speaker uncertainty")
+            _plot(path, draw_effects, figsize=(11.2, max(5.4, .35 * len(effects))))
+            made.append(path.with_suffix(".png"))
+
     # Reports are regenerated in-place.  Remove plots and their backing CSVs
     # from older report layouts so a focused phone/speaker run does not retain
     # misleading, unlinked artifacts from a previous broad run.
@@ -1642,20 +1757,51 @@ def build_report(
             "donor_speaker_probability", "recipient_speaker_probability",
             "reconstruction_shift_mse",
         ) if c in swap_summary.columns]
+        contrast_html = ""
+        swap_contrasts = tables.get("swap_contrasts", pd.DataFrame())
+        if len(swap_contrasts):
+            contrast_rows = swap_contrasts[
+                swap_contrasts["mode"].isin([
+                    "P_from_donor", "L_from_donor", "matched_P_subset_from_donor",
+                    "matched_nonP_from_donor",
+                    "P_same_speaker", "P_zero", "P_time_shuffled_from_donor",
+                ])
+                & swap_contrasts["metric"].isin([
+                    "phone_recipient_accuracy", "donor_speaker_probability",
+                    "recipient_speaker_probability",
+                ])
+            ].copy()
+            contrast_show = [column for column in (
+                "mode", "metric", "pairs", "baseline_mean", "mode_mean",
+                "paired_effect", "ci95_low", "ci95_high",
+            ) if column in contrast_rows.columns]
+            contrast_html = (
+                "<h3>Paired intervention effects</h3>"
+                "<p class='muted'>Effects are computed within recipient–donor pairs. "
+                "Intervals resample recipient and donor speakers independently, so repeated "
+                "use of the same identities is not treated as independent evidence.</p>"
+                "<div class='scroll'>" + contrast_rows[contrast_show].to_html(
+                    index=False, escape=True, classes="tight") + "</div>"
+            )
         swap_html = (
             "<h2>Feature-level latent swapping</h2>"
             "<p class='muted'>These are interventions on SAE latents reconstructed back into "
             "SPEAR feature space; they are not waveform or listening tests. The main intervention "
             "combines recipient L with donor P. Recipient-phone accuracy measures content "
             "preservation, while donor- and recipient-speaker scores measure identity transfer. "
-            "The complementary donor-L/recipient-P swap is the main control. The shuffled-route "
-            "mask diagnostic is retained, but it can overlap true P units—especially when a learned "
-            "model assigns about half its capacity to P—so it must not be treated as a clean negative control. "
+            "The complementary donor-L/recipient-P swap is the main control. Identity-P, same-speaker, "
+            "zero/mean-P and time-shuffle test alternative explanations. The matched-P-subset and "
+            "non-overlapping non-P interventions contain the same number of units and are matched on "
+            "activity and decoder-column norm; this remains valid when learned routing gives P more "
+            "units than its complement. The old shuffled-route diagnostic is retained for provenance "
+            "but can overlap true P and is not a clean negative control. "
             "The independent phone and speaker evaluators are trained on unswapped SAE "
             "reconstructions from their fitting partition, never on swapped examples. Baseline "
-            "performance therefore remains the required validity check.</p>"
+            "performance therefore remains the required validity check. Test speakers are unseen by "
+            "SAE training, although this feature-space speaker evaluator is enrolled on separate "
+            "utterances from those identities; waveform validation should use an external verifier.</p>"
             "<div class='scroll'>" + swap_summary[show].to_html(
-                index=False, escape=True, classes="tight") + "</div>"
+                index=False, escape=True, classes="tight") + "</div>" + contrast_html
         )
     unit_section_title = "Unit atlas" if has_unit_pages else "Unit table"
     unit_section_note = (

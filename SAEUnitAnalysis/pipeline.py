@@ -63,6 +63,8 @@ def run_analysis(
     score_splits: str = "train,validation",
     threshold_percentile: float = 0.90,
     split_limits: str | dict[str, int] | None = None,
+    persist_cache: bool = True,
+    swap_pair_manifest: str | Path | None = None,
 ) -> AnalysisResult:
     set_seed(seed)
     selected = _expand(analyses)
@@ -121,7 +123,7 @@ def run_analysis(
         resolved, bundle, model, cache_dir, device, profile, seed,
         split_limits=parsed_split_limits,
         compute_acoustics=factor_scope == "broad",
-        persist_cache=selected != ["deadness"],
+        persist_cache=bool(persist_cache) and selected != ["deadness"],
     )
     write_json(output / "resolved_model.json", {
         "checkpoint": str(resolved.checkpoint), "format": resolved.source_format,
@@ -214,10 +216,14 @@ def run_analysis(
             cache, bundle, resolved, suite, profiles, output, seed, profile == "quick")
         tables["causal"] = causal_table
     if "swap" in selected:
-        swaps, swap_summary, summaries["swap"] = swap_analysis(
-            cache, bundle, resolved, suite, output, seed, profile == "quick")
+        swaps, swap_summary, swap_contrasts, swap_grid, summaries["swap"] = swap_analysis(
+            cache, bundle, resolved, suite, output, seed, profile == "quick",
+            pair_manifest=Path(swap_pair_manifest) if swap_pair_manifest else None,
+        )
         tables["swap"] = swaps
         tables["swap_summary"] = swap_summary
+        tables["swap_contrasts"] = swap_contrasts
+        tables["swap_grid"] = swap_grid
     if "atlas" in selected and atlas_asset_set:
         examples = top_examples(cache, bundle)
         build_atlas(
@@ -242,6 +248,8 @@ def run_analysis(
         "score_splits": score_splits,
         "threshold_percentile": float(threshold_percentile),
         "split_limits": parsed_split_limits,
+        "persist_cache_requested": bool(persist_cache),
+        "swap_pair_manifest": str(Path(swap_pair_manifest).resolve()) if swap_pair_manifest else None,
         "python": platform.python_version(), "torch": torch.__version__,
         "cache": str(cache.path) if cache.path.exists() else None,
         "cache_persisted": bool(cache.path.exists()), "report": str(report),

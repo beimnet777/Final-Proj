@@ -58,6 +58,23 @@ def _parser() -> argparse.ArgumentParser:
             "train=3000,validation=1000,test=1000."
         ),
     )
+    p.add_argument(
+        "--no-persist-cache",
+        action="store_true",
+        help=(
+            "Use extracted features only for this process and do not write the "
+            "large feature NPZ. Existing compatible smaller caches may still be reused."
+        ),
+    )
+    p.add_argument(
+        "--swap-pair-manifest",
+        type=Path,
+        default=None,
+        help=(
+            "Optional tables/swap_pairs.csv from another compatible run. "
+            "This forces identical intervention utterances across checkpoints."
+        ),
+    )
     return p
 
 
@@ -73,6 +90,8 @@ def main() -> None:
             score_splits=args.score_splits,
             threshold_percentile=args.threshold_percentile,
             split_limits=args.split_limits,
+            persist_cache=not args.no_persist_cache,
+            swap_pair_manifest=args.swap_pair_manifest,
         )
     except AnalysisError as exc:
         print(f"[SAEUnitAnalysis] ERROR: {exc}", file=sys.stderr)

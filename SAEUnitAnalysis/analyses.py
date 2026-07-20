@@ -253,14 +253,27 @@ def deadness_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path
 
 def health_analysis(cache: FeatureCache, resolved: ResolvedModel, output: Path) -> tuple[pd.DataFrame, dict]:
     K = cache.K
-    flat_idx = cache.indices.reshape(-1)
-    flat_val = cache.values.astype(np.float32).reshape(-1)
-    count = np.bincount(flat_idx, minlength=K)
-    pos = np.bincount(flat_idx, weights=(flat_val > 0), minlength=K)
-    neg = np.bincount(flat_idx, weights=(flat_val < 0), minlength=K)
-    total = np.bincount(flat_idx, weights=flat_val, minlength=K)
-    abs_total = np.bincount(flat_idx, weights=np.abs(flat_val), minlength=K)
-    sq = np.bincount(flat_idx, weights=flat_val ** 2, minlength=K)
+    # Aggregate in frame chunks. A 12k run has about 1.8 billion sparse slots;
+    # converting the complete value array to float32 creates a needless >7 GB
+    # temporary and can force the Mac into memory compression. Chunking is
+    # mathematically identical and keeps peak working memory bounded.
+    count = np.zeros(K, dtype=np.int64)
+    pos = np.zeros(K, dtype=np.float64)
+    neg = np.zeros(K, dtype=np.float64)
+    total = np.zeros(K, dtype=np.float64)
+    abs_total = np.zeros(K, dtype=np.float64)
+    sq = np.zeros(K, dtype=np.float64)
+    frame_chunk = 65_536
+    for start in range(0, cache.n_frames, frame_chunk):
+        stop = min(start + frame_chunk, cache.n_frames)
+        flat_idx = cache.indices[start:stop].reshape(-1)
+        flat_val = cache.values[start:stop].reshape(-1).astype(np.float32)
+        count += np.bincount(flat_idx, minlength=K)
+        pos += np.bincount(flat_idx, weights=(flat_val > 0), minlength=K)
+        neg += np.bincount(flat_idx, weights=(flat_val < 0), minlength=K)
+        total += np.bincount(flat_idx, weights=flat_val, minlength=K)
+        abs_total += np.bincount(flat_idx, weights=np.abs(flat_val), minlength=K)
+        sq += np.bincount(flat_idx, weights=flat_val * flat_val, minlength=K)
     utterance_count = np.zeros(K, dtype=np.int64)
     for i in range(len(cache.utterance_ids)):
         sl = cache.utterance_slice(i)
@@ -628,7 +641,9 @@ def selectivity_analysis(
         phones = np.asarray(cache.phones).astype("U32")
         aligned = (np.char.upper(phones) != "<UNALIGNED>") & frame_mask
         phone_idx = cache.indices[aligned]
-        phone_val = cache.values[aligned].astype(np.float32)
+        # Keep the cached float16 representation here. np.bincount promotes
+        # weighted sums internally, avoiding a multi-gigabyte full-array copy.
+        phone_val = cache.values[aligned]
         phone_labels = phones[aligned]
         rows += _categorical_scores(phone_idx, phone_val, phone_labels,
                                     cache.K, "phone", "linguistic", min_count=20)
@@ -667,7 +682,7 @@ def selectivity_analysis(
     for local, ui in enumerate(scored_utt_ids):
         sl = cache.utterance_slice(int(ui))
         if sl.stop > sl.start:
-            pooled_active[local, np.unique(cache.indices[sl].reshape(-1).astype(int))] = True
+            pooled_active[local, cache.indices[sl].reshape(-1)] = True
     for factor in bundle.spec.factors:
         if factor.level != "utterance" or factor.source.startswith("computed:"):
             continue

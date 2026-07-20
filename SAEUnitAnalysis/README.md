@@ -59,6 +59,11 @@ and avoids writing another large feature cache. This is a frozen-checkpoint,
 valid-frame analogue of the trainer counter, not a reconstruction of its
 unsaved historical state.
 
+For a one-off large full-suite run, add `--no-persist-cache` to reuse any
+compatible smaller cache during extraction without retaining the expanded
+multi-gigabyte feature NPZ afterward. The report tables and figures are still
+written normally.
+
 The unit atlas is table-only by default: it writes the main report and CSV
 tables, but does not generate thousands of low-information per-unit HTML pages,
 per-example spectrogram PNGs, activation-trace PNG/CSVs, or audio controls.
@@ -211,18 +216,129 @@ python -m SAEUnitAnalysis.compare_factor_metrics
 These remain labelled post-hoc metrics. Controlled geometry and latent swapping
 provide the classifier-free and intervention evidence.
 
-The `swap` analysis is currently a feature-space intervention, not an audio
-generation or listening experiment. Its main condition combines recipient L
-with donor P, reconstructs frozen SPEAR features, and measures recipient-phone
-retention plus donor/recipient speaker evidence. Donor-L/recipient-P is the
-main complementary control. The exported shuffled-route mask is only a
-diagnostic because it can overlap true P units, particularly when learned
-routing assigns roughly half the SAE capacity to P; it is not a clean negative
-control. Independent phone and speaker evaluators are
-fit on unswapped SAE reconstructions only, with disjoint fitting/evaluation
+The `swap` analysis is a feature-space intervention. Its main condition combines
+recipient L with donor P, reconstructs frozen SPEAR features, and measures
+recipient-phone retention plus donor/recipient speaker evidence. Donor-L /
+recipient-P is the complementary intervention. Identity-P, same-speaker,
+zero/mean-P and time-shuffled P provide controls. A P subset and a disjoint
+non-P subset are paired one-to-one by unit activity and decoder-column norm.
+This remains capacity-matched when learned routing assigns more than half of
+the dictionary to P. The earlier shuffled-route
+mask is retained as a diagnostic because it can overlap true P units; it is not
+a clean negative control. Continuous P interpolation is evaluated at
+`alpha=0,.25,.5,.75,1`.
+
+The analysis writes `tables/swap_pairs.csv`. Supply that file to subsequent
+checkpoints to force exactly the same intervention design:
+
+```bash
+python -m SAEUnitAnalysis \
+  --checkpoint /path/to/another.pt \
+  --data /path/to/analysis_bundle \
+  --analysis swap \
+  --split-limits train=3000,validation=1000,test=1000 \
+  --swap-pair-manifest /path/to/reference/tables/swap_pairs.csv
+```
+
+Primary uncertainty is computed from paired mode-minus-baseline effects with a
+two-way cluster bootstrap over recipient and donor speakers. Independent phone
+and speaker feature evaluators are fit on unswapped SAE reconstructions only,
+with disjoint fitting/evaluation
 utterances; swapped examples are never used for fitting. Baseline reconstruction
-scores must be inspected before interpreting any transfer. Waveform synthesis is
-a later, separate validation step.
+scores must be inspected before interpreting any transfer.
+
+After the fixed, post-GP and ramp-5k reports have been recomputed with the same
+pair manifest, create the registered cross-checkpoint comparison with:
+
+```bash
+python -m SAEUnitAnalysis.compare_swap_protocols
+```
+
+This writes a double-dissociation profile and an equal-unit-count P-subset versus
+non-P control figure to `results/swap_protocol_comparison_5k/`.
+
+## Waveform conversion
+
+Waveform validation is deliberately separate from `swap`: the SAE checkpoint is
+never trained or edited. A single bridge is trained on ordinary unswapped pairs
+from the bundle's training split:
+
+```text
+original SPEAR h -> predicted log-mel -> frozen vocoder -> waveform
+```
+
+The fixed, post-GP and ramp-5k Libri checkpoints share the same SPEAR revision,
+layer-normalisation setting and 1280-dimensional feature domain, so one bridge
+can be reused. Train it on CUDA for the scientific run:
+
+```bash
+python -m SAEUnitAnalysis.train_audio_bridge \
+  --checkpoint /path/to/reference-final.pt \
+  --data data/sae_analysis/librispeech_bundle_12k_mfa \
+  --output-dir SAEUnitAnalysis/audio_models/spear_bigvgan_bridge \
+  --device cuda --epochs 8 --batch-size 4
+```
+
+For an MPS wiring test, bound the data and model size:
+
+```bash
+python -m SAEUnitAnalysis.train_audio_bridge \
+  --checkpoint /path/to/reference-final.pt \
+  --data data/sae_analysis/librispeech_bundle_12k_mfa \
+  --output-dir SAEUnitAnalysis/audio_models/smoke \
+  --device mps --epochs 1 --batch-size 1 \
+  --max-train-utterances 8 --max-validation-utterances 4 \
+  --hidden-dim 64 --residual-layers 2
+```
+
+Render a bounded evidence set after re-running the upgraded feature swap:
+
+```bash
+git clone https://github.com/NVIDIA/BigVGAN.git /path/to/BigVGAN
+
+python -m SAEUnitAnalysis.render_audio_swaps \
+  --result-dir /path/to/SAEUnitAnalysis/result \
+  --bridge SAEUnitAnalysis/audio_models/spear_bigvgan_bridge/best.pt \
+  --device cuda --vocoder bigvgan --bigvgan-repo /path/to/BigVGAN \
+  --max-pairs 24 \
+  --interpolation-pairs 5 --grid-size 5
+```
+
+This saves recipient/donor references and the three reconstruction gates before
+the route interventions. Only the requested demonstration pairs are persisted;
+no spectrogram images or full-dataset waveform dump is produced. `griffinlim`
+is available for a dependency-light diagnostic smoke test but is explicitly
+marked unsuitable for audio-quality claims.
+
+Finally, run independent ASR and open-set speaker evaluation. Enrollment uses
+original utterances that exclude both members of each intervention pair:
+
+```bash
+python -m SAEUnitAnalysis.audio_evaluation \
+  --audio-dir /path/to/result/audio_conversion \
+  --data data/sae_analysis/librispeech_bundle_12k_mfa \
+  --device cuda
+```
+
+The renderer creates an audio HTML report and links it from the main unit report.
+The evaluator writes per-pair WER/CER, donor and recipient speaker cosine scores,
+paired two-way-clustered contrasts, and a separate evaluation report. Objective
+scores do not replace a blinded naturalness and speaker-similarity listening
+study.
+
+Once all reconstruction gates pass, prepare (but do not execute) a blinded
+listening-study pack:
+
+```bash
+python -m SAEUnitAnalysis.prepare_listening_study \
+  --audio-dir /path/to/result/audio_conversion \
+  --max-pairs 24
+```
+
+The pack copies clips to neutral filenames, randomizes trials, separates the
+private condition key, and provides naturalness and donor-versus-recipient ABX
+forms. Human recruitment still requires the appropriate ethics approval and
+consent; the command does not collect or invent participant data.
 
 ## Analysis bundle version 1
 

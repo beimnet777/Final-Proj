@@ -25,6 +25,7 @@ from SAEUnitAnalysis.analyses import (
     _load_umap,
     _paired_cosines,
     clustering_analysis,
+    deadness_analysis,
     disentanglement_tables,
     geometry_analysis,
     health_analysis,
@@ -32,7 +33,21 @@ from SAEUnitAnalysis.analyses import (
     phone_speaker_unit_scores,
     selectivity_analysis,
 )
-from SAEUnitAnalysis.causal import _bootstrap_mode_summary
+from SAEUnitAnalysis.audio_bridge import (
+    BridgeConfig,
+    MelConfig,
+    SpearMelBridge,
+    load_bridge,
+    masked_bridge_loss,
+    save_bridge,
+)
+from SAEUnitAnalysis.audio_evaluation import reconstruction_gates
+from SAEUnitAnalysis.causal import (
+    _bootstrap_mode_summary,
+    _matched_non_p_units,
+    _resample,
+    paired_swap_contrasts,
+)
 from SAEUnitAnalysis.bundle import AnalysisBundle
 from SAEUnitAnalysis.build_librispeech_bundle import build_bundle as build_librispeech_bundle
 from SAEUnitAnalysis.build_timit_bundle import build_bundle
@@ -102,6 +117,50 @@ class FakeAutoModel:
 
 
 class CoreTests(unittest.TestCase):
+    def test_audio_bridge_shapes_masks_and_round_trip(self):
+        config = BridgeConfig(
+            input_dim=8, hidden_dim=12, residual_layers=2,
+            mel=MelConfig(sample_rate=16000, n_fft=32, win_length=32,
+                          hop_length=8, n_mels=5, f_max=8000),
+        )
+        model = SpearMelBridge(config).eval()
+        h = torch.randn(2, 7, 8)
+        prediction = model(h, 19)
+        self.assertEqual(tuple(prediction.shape), (2, 5, 19))
+        target = torch.randn_like(prediction)
+        loss, pieces = masked_bridge_loss(
+            prediction, target, torch.tensor([19, 13]),
+        )
+        self.assertTrue(torch.isfinite(loss))
+        self.assertIn("mel_l1", pieces)
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "bridge.pt"
+            save_bridge(path, model, training={"test": True})
+            loaded, payload = load_bridge(path)
+            self.assertEqual(payload["format"], "spear_logmel_bridge_v1")
+            with torch.no_grad():
+                np.testing.assert_allclose(
+                    loaded(h, 19).numpy(), prediction.detach().numpy(), atol=1e-6,
+                )
+
+    def test_audio_reconstruction_gates_block_bad_bridge(self):
+        rows = []
+        for pair in range(4):
+            rows.extend([
+                {"pair": pair, "mode": "recipient_source", "wer": 0.02,
+                 "recipient_similarity": .90},
+                {"pair": pair, "mode": "oracle_mel_vocoder", "wer": 0.03,
+                 "recipient_similarity": .87},
+                {"pair": pair, "mode": "original_spear_bridge", "wer": 0.75,
+                 "recipient_similarity": .40},
+                {"pair": pair, "mode": "sae_baseline", "wer": 0.80,
+                 "recipient_similarity": .35},
+            ])
+        gates, passed = reconstruction_gates(pd.DataFrame(rows))
+        self.assertFalse(passed)
+        self.assertTrue(bool(gates.loc[gates.gate == "oracle_mel_vocoder", "gate_pass"].iloc[0]))
+        self.assertFalse(bool(gates.loc[gates.gate == "original_spear_bridge", "gate_pass"].iloc[0]))
+
     def test_speech_factor_metrics_compare_full_L_and_P(self):
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
@@ -234,6 +293,40 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(len(geometry), K * min(5, K - 1))
             cache.save(); loaded=FeatureCache.load(cache.path)
             np.testing.assert_array_equal(loaded.indices,cache.indices)
+
+    def test_deadness_analysis_requires_two_windows_and_writes_compact_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            indices = np.asarray([[0], [0], [1], [0]], dtype=np.uint16)
+            cache = FeatureCache(
+                root / "unused.npz",
+                np.asarray(["u0", "u1", "u2", "u3"]),
+                np.arange(4, dtype=np.int64),
+                np.ones(4, dtype=np.int32),
+                indices,
+                np.ones_like(indices, dtype=np.float16),
+                np.asarray(["AA"] * 4),
+                np.zeros(4), np.zeros(4), np.zeros(4),
+                np.ones((4, 3)), np.ones((4, 8)), np.ones((4, 4)),
+                np.arange(4), np.asarray([0, 0, 1]), np.ones(3), 3, 4,
+            )
+            resolved = ResolvedModel(
+                Path("x"), _state(3, 4),
+                {"K": 3, "D": 4, "batch_size": 1, "dead_steps_threshold": 2,
+                 "analysis_deadness_replays": 3, "seed": 42},
+                "raw", {"unit_routes": True},
+            )
+            out = root / "out"
+            (out / "tables").mkdir(parents=True)
+            table, summary = deadness_analysis(cache, resolved, out)
+            self.assertTrue(summary["deadness_comparable_to_training"])
+            self.assertEqual(summary["deadness_analysis_batches"], 4)
+            self.assertEqual(summary["deadness_replays"], 3)
+            self.assertEqual(summary["deadness_scope"], "frozen_checkpoint_valid_frames")
+            self.assertFalse(summary["historical_training_counter_reconstructable"])
+            self.assertEqual(float(table.loc[table.unit == 2, "train_like_dead_probability"].iloc[0]), 1.0)
+            self.assertTrue((out / "deadness.json").exists())
+            self.assertTrue((out / "tables" / "deadness.csv").exists())
 
     def test_phone_speaker_scores_do_not_label_zero_evidence_units(self):
         with tempfile.TemporaryDirectory() as td:
@@ -456,6 +549,77 @@ class CoreTests(unittest.TestCase):
             (summary["phone_recipient_accuracy"]
              <= summary["phone_recipient_accuracy_ci95_high"]).all()
         )
+
+    def test_swap_contrasts_are_paired_and_clustered_by_both_speakers(self):
+        rows = []
+        for pair in range(12):
+            common = {
+                "pair": pair,
+                "recipient": f"r{pair}",
+                "donor": f"d{pair}",
+                "recipient_speaker": f"rs{pair % 4}",
+                "donor_speaker": f"ds{pair % 3}",
+            }
+            rows.append({"mode": "baseline", "phone_recipient_accuracy": .7, **common})
+            rows.append({"mode": "P_from_donor", "phone_recipient_accuracy": .69, **common})
+        contrasts = paired_swap_contrasts(
+            pd.DataFrame(rows), seed=42, repetitions=100,
+        )
+        row = contrasts.iloc[0]
+        self.assertAlmostEqual(float(row["paired_effect"]), -.01, places=7)
+        self.assertEqual(
+            row["interval_method"],
+            "paired_two_way_recipient_donor_speaker_bootstrap",
+        )
+        self.assertAlmostEqual(float(row["ci95_low"]), -.01, places=7)
+        self.assertAlmostEqual(float(row["ci95_high"]), -.01, places=7)
+
+    def test_matched_swap_control_never_overlaps_p_route(self):
+        K, D = 6, 4
+        indices = np.asarray([[0, 2], [1, 3], [0, 4], [1, 5]], dtype=np.uint16)
+        cache = FeatureCache(
+            Path("unused.npz"), np.asarray(["u0"]), np.asarray([0]), np.asarray([4]),
+            indices, np.ones_like(indices, dtype=np.float16), np.asarray(["AA"] * 4),
+            np.zeros(4), np.zeros(4), np.zeros(4), np.ones((1, K)), np.ones((1, D)),
+            np.ones((4, D)), np.arange(4), np.asarray([1, 1, 0, 0, 0, 0]),
+            np.ones(K), K, D,
+        )
+        target, matched, summary = _matched_non_p_units(
+            cache, np.arange(D * K, dtype=np.float32).reshape(D, K) + 1,
+        )
+        self.assertEqual(len(target), 2)
+        self.assertEqual(len(matched), 2)
+        self.assertEqual(summary["overlap"], 0)
+        self.assertTrue(summary["full_p_capacity_match"])
+        self.assertEqual(summary["target_p_fraction"], 1.0)
+        self.assertTrue(np.all(cache.route[target] == 1))
+        self.assertTrue(np.all(cache.route[matched] != 1))
+
+    def test_matched_swap_control_uses_explicit_p_subset_when_p_is_larger(self):
+        K, D = 6, 4
+        indices = np.asarray([[0, 2], [1, 3], [0, 4], [1, 5]], dtype=np.uint16)
+        cache = FeatureCache(
+            Path("unused.npz"), np.asarray(["u0"]), np.asarray([0]), np.asarray([4]),
+            indices, np.ones_like(indices, dtype=np.float16), np.asarray(["AA"] * 4),
+            np.zeros(4), np.zeros(4), np.zeros(4), np.ones((1, K)), np.ones((1, D)),
+            np.ones((4, D)), np.arange(4), np.asarray([1, 1, 1, 1, 0, 0]),
+            np.ones(K), K, D,
+        )
+        target, matched, summary = _matched_non_p_units(
+            cache, np.arange(D * K, dtype=np.float32).reshape(D, K) + 1,
+        )
+        self.assertEqual(len(target), 2)
+        self.assertEqual(len(matched), 2)
+        self.assertFalse(summary["full_p_capacity_match"])
+        self.assertEqual(summary["target_p_fraction"], .5)
+        self.assertTrue(np.all(cache.route[target] == 1))
+        self.assertTrue(np.all(cache.route[matched] == 0))
+
+    def test_swap_resampling_preserves_feature_dtype(self):
+        source = np.arange(15, dtype=np.float32).reshape(5, 3)
+        resized = _resample(source, 9)
+        self.assertEqual(resized.dtype, np.float32)
+        self.assertEqual(resized.shape, (9, 3))
 
     def test_phone_confusion_selects_positive_unique_diagonal_units(self):
         with tempfile.TemporaryDirectory() as td:

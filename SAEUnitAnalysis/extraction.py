@@ -640,7 +640,7 @@ def extract(
     else:
         print(
             f"[SAEUnitAnalysis] using transient feature arrays: {cache.n_frames} frames "
-            "(deadness-only run; no large cache written)",
+            "(cache persistence disabled; no large feature NPZ written)",
             flush=True,
         )
     return cache
