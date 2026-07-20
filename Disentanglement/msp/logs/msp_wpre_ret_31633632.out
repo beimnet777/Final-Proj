@@ -1,0 +1,1036 @@
+=== MSP weak-pre / retain-max qfreeze 20k ===
+started    : Mon 20 Jul 14:50:24 BST 2026
+gpu        : NVIDIA A100-SXM4-80GB
+run_name   : msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42
+steps      : 20000
+dann_ramp  : 12000
+routing    : hard binary L/P, tau=1.0, init_std=0.5, spec=0.01
+learn/freeze: yes  freeze_step=4000  quota_batches=20
+learning   : sae=1e-4 heads=1e-4 disc=1e-3 routing=1e-3 min=1e-5
+disc       : steps=3 grad_clip=1.0
+positive   : recon=1.0 pr=0.8 sid=1.0 prosody=0.75 emotion=1.0
+speaker GN : grl=1.0 target=0.0004
+pre adv    : grl_p=0.10 pros=0.10 emo=0.10
+post adv   : grl_p=0.25 pros=0.15 emo=0.15
+pcgrad     : recon,pr,sid,prosody,emotion
+logs       : compact_every=500 grad_every=1000
+[phase 1] learn routing until step 4000 with moderate pre-freeze adversaries
+=== MSP run 'msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42'  pcgrad=True  routing=hard ===
+[dis_data] loaded lexicon: 200,000 entries
+[msp_data] manifest=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/data/msp_subset/manifest.csv
+[msp_data] speakers=700  vocab=74  emotions=('neutral', 'happy', 'sad', 'angry')
+[msp_data]  train        41067  {'neutral': 18380, 'happy': 11373, 'sad': 6128, 'angry': 5186}
+[msp_data]  val           4975  {'neutral': 2282, 'happy': 1402, 'sad': 710, 'angry': 581}
+[msp_data]  test          4975  {'neutral': 2282, 'happy': 1402, 'sad': 710, 'angry': 581}
+[msp_data] preloaded 51017 transcripts from Transcripts.zip
+[msp_data] dropped 33 rows with empty/non-verbal transcript
+[msp_data] dropped 3 rows with empty/non-verbal transcript
+[msp_data] dropped 7 rows with empty/non-verbal transcript
+[msp] training from scratch (SAE/routing/heads from init)
+[msp] speaker adversary: GELUSpeakerGRLHead (GELU projector, per-frame grad norm target=0.0004)
+[msp] emotion adversary: GELUEmotionGRLHead (mean+std, plain gradient reversal)
+[msp] emotion class weights [0.44, 0.71, 1.31, 1.55] for ('neutral', 'happy', 'sad', 'angry')
+[msp] steps=20000 microbatch=16 accumulation=1 effective_batch=16 pcgrad=True (['emotion', 'pr', 'prosody', 'recon', 'sid'])  device=cuda amp=torch.bfloat16
+[msp] weights recon=1.0 α(pr)=0.8 β(sid)=1.0 grl=1.0 grl_p=0.1 pros=0.75/0.1 emo=1.0/0.1 inv=0.0
+[msp] per-frame GRL targets: speaker=4.00e-04 emotion=nan
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[train 00001/20000] lr=2.00e-07 dann=0.00 zL_frame=1.67e-07 emo_frame=nan recon=0.3727 dead=0.0% active L/P=127/129 (50.4% P) assigned L/P=2531/2589
+  content: z_L PER=3.225 | z_P adv PER=2.891    speaker: z_P acc=0.000 | z_L adv acc=0.000
+  affect:  z_P emo acc=0.312 | z_L emo-adv acc=0.375    pros loss P/Ladv=34.079/32.896
+  route: Hbal=0.693 Hunit=0.641 spec=0.05 margin=0.260 tau=1.000    clip main=2.31e+01->4.33e-02 disc=2.56e+01->3.91e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=1.49e-01  pr=3.51e+00  sid=8.14e-01  prosody=9.93e+00  emotion=3.70e-01  inv=0.00e+00
+    adversarial: external_bundle=1.10e-03
+    adversarial factors: grl=1.06e-03  grl_p=6.04e-05  pros_grl=2.72e-04  emo_grl=7.54e-06  route_spec=0.00e+00
+    PCGrad: raw=1.06e+01  projected=1.06e+01  adversary_bundle=1.10e-03
+    cooperative conflicts=3/10  strongest=recon|emotion:-0.00
+  router gradients (weighted, before clipping)
+    cooperative: recon=3.59e-10  pr=1.91e-02  sid=3.61e-03  prosody=4.74e-02  emotion=1.62e-03  inv=0.00e+00
+    adversarial: grl=4.79e-06  grl_p=3.27e-07  pros_grl=1.33e-06  emo_grl=3.26e-08  route_spec=2.61e-05
+    paired cosines: pr<->grl_p=+0.02  sid<->grl=+0.06  pros<->pros_grl=-0.01  emo<->emo_grl=-0.03
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.02  sid=+0.04  prosody=-0.01  emotion=-0.03  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=+0.01  pr=+0.00  sid=+0.01  prosody=-0.04  emotion=-0.02  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.08  pros_grl=-0.03  emo_grl=-0.04  route_spec=+0.01
+      combined=-0.04  first_order=-1.03e-05
+      actual optimizer step: soft_active_P 0.502536 -> 0.502536  delta=+4.77e-07
+    all-pair negative=21/55  strongest=pr|sid:-0.07
+
+[train 00500/20000] lr=1.00e-04 dann=0.21 zL_frame=8.21e-05 emo_frame=nan recon=0.2105 dead=0.0% active L/P=168/88 (34.4% P) assigned L/P=2694/2426
+  content: z_L PER=1.000 | z_P adv PER=0.558    speaker: z_P acc=0.000 | z_L adv acc=0.250
+  affect:  z_P emo acc=0.188 | z_L emo-adv acc=0.438    pros loss P/Ladv=1.815/1.559
+  route: Hbal=0.693 Hunit=0.630 spec=0.08 margin=0.287 tau=0.944    clip main=8.75e+00->1.14e-01 disc=1.33e+01->7.53e-02
+
+[train 01000/20000] lr=9.99e-05 dann=0.39 zL_frame=1.58e-04 emo_frame=nan recon=0.1189 dead=0.0% active L/P=188/68 (26.7% P) assigned L/P=2677/2443
+  content: z_L PER=0.814 | z_P adv PER=0.513    speaker: z_P acc=0.062 | z_L adv acc=0.188
+  affect:  z_P emo acc=0.750 | z_L emo-adv acc=0.812    pros loss P/Ladv=1.645/1.411
+  route: Hbal=0.693 Hunit=0.621 spec=0.10 margin=0.307 tau=0.891    clip main=7.76e+00->1.29e-01 disc=7.21e+00->1.39e-01
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=3.10e-02  pr=7.61e-01  sid=1.52e+00  prosody=4.83e+00  emotion=3.50e+00  inv=0.00e+00
+    adversarial: external_bundle=8.08e-01
+    adversarial factors: grl=7.20e-01  grl_p=1.47e-01  pros_grl=2.58e-01  emo_grl=2.30e-01  route_spec=0.00e+00
+    PCGrad: raw=6.60e+00  projected=6.63e+00  adversary_bundle=8.08e-01
+    cooperative conflicts=5/10  strongest=pr|prosody:-0.02
+  router gradients (weighted, before clipping)
+    cooperative: recon=2.57e-11  pr=4.37e-03  sid=6.92e-03  prosody=2.24e-02  emotion=1.60e-02  inv=0.00e+00
+    adversarial: grl=3.66e-03  grl_p=7.39e-04  pros_grl=1.17e-03  emo_grl=1.14e-03  route_spec=2.87e-05
+    paired cosines: pr<->grl_p=+0.36  sid<->grl=+0.09  pros<->pros_grl=+0.19  emo<->emo_grl=+0.29
+    cooperative vs adversary bundle: recon=-0.00  pr=+0.03  sid=+0.09  prosody=+0.07  emotion=+0.16  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=+0.00  pr=-0.48  sid=-0.16  prosody=-0.55  emotion=+0.11  inv=-0.00
+      adversarial: grl=+0.00  grl_p=-0.30  pros_grl=-0.05  emo_grl=+0.08  route_spec=-0.39
+      combined=-0.43  first_order=-6.98e-05
+      actual optimizer step: soft_active_P 0.389345 -> 0.389305  delta=-4.08e-05
+    all-pair negative=18/55  strongest=pr|emo_grl:-0.09
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=01000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.770              z_P PER=0.598
+  speaker     z_P acc=0.104              z_L acc=0.248
+  emotion     z_P UAR=0.608 acc=0.478    z_L UAR=0.623
+  prosody     z_P loss=4.706           z_L loss=1.712
+  checkpoint score=3.331
+  [best] disent=3.331 -> /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/checkpoints/msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42/best.pt
+
+[train 01500/20000] lr=9.94e-05 dann=0.55 zL_frame=2.22e-04 emo_frame=nan recon=0.1148 dead=0.0% active L/P=193/63 (24.7% P) assigned L/P=2429/2691
+  content: z_L PER=0.653 | z_P adv PER=0.519    speaker: z_P acc=0.125 | z_L adv acc=0.250
+  affect:  z_P emo acc=0.438 | z_L emo-adv acc=0.562    pros loss P/Ladv=2.022/1.697
+  route: Hbal=0.693 Hunit=0.612 spec=0.12 margin=0.329 tau=0.841    clip main=1.20e+01->8.30e-02 disc=1.29e+01->7.74e-02
+
+[train 02000/20000] lr=9.87e-05 dann=0.68 zL_frame=2.73e-04 emo_frame=nan recon=0.1207 dead=0.0% active L/P=197/59 (22.9% P) assigned L/P=2213/2907
+  content: z_L PER=0.562 | z_P adv PER=0.474    speaker: z_P acc=0.062 | z_L adv acc=0.125
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.625    pros loss P/Ladv=1.568/1.373
+  route: Hbal=0.692 Hunit=0.597 spec=0.17 margin=0.361 tau=0.794    clip main=1.83e+01->5.48e-02 disc=1.40e+01->7.14e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=4.18e-02  pr=1.12e+00  sid=6.58e+00  prosody=9.57e+00  emotion=1.19e+01  inv=0.00e+00
+    adversarial: external_bundle=1.98e+00
+    adversarial factors: grl=1.59e+00  grl_p=5.46e-01  pros_grl=8.29e-01  emo_grl=7.71e-01  route_spec=0.00e+00
+    PCGrad: raw=1.53e+01  projected=1.76e+01  adversary_bundle=1.98e+00
+    cooperative conflicts=6/10  strongest=pr|sid:-0.30
+  router gradients (weighted, before clipping)
+    cooperative: recon=2.93e-11  pr=5.09e-03  sid=1.51e-02  prosody=3.31e-02  emotion=3.76e-02  inv=0.00e+00
+    adversarial: grl=8.28e-03  grl_p=1.60e-03  pros_grl=2.63e-03  emo_grl=3.03e-03  route_spec=3.14e-05
+    paired cosines: pr<->grl_p=+0.16  sid<->grl=+0.23  pros<->pros_grl=+0.22  emo<->emo_grl=+0.38
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.05  sid=+0.29  prosody=+0.01  emotion=+0.11  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=+0.00  pr=-0.45  sid=-0.62  prosody=+0.21  emotion=+0.04  inv=-0.00
+      adversarial: grl=-0.11  grl_p=-0.02  pros_grl=-0.30  emo_grl=+0.02  route_spec=-0.33
+      combined=-0.09  first_order=-3.06e-05
+      actual optimizer step: soft_active_P 0.351424 -> 0.351421  delta=-2.59e-06
+    all-pair negative=16/55  strongest=sid|prosody:-0.15
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+
+[val step=02000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.589              z_P PER=0.545
+  speaker     z_P acc=0.186              z_L acc=0.241
+  emotion     z_P UAR=0.653 acc=0.583    z_L UAR=0.646
+  prosody     z_P loss=5.803           z_L loss=1.934
+  checkpoint score=3.093
+  [best] disent=3.093 -> /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/checkpoints/msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42/best.pt
+
+[train 02500/20000] lr=9.77e-05 dann=0.78 zL_frame=3.11e-04 emo_frame=nan recon=0.1235 dead=0.0% active L/P=194/62 (24.2% P) assigned L/P=2004/3116
+  content: z_L PER=0.621 | z_P adv PER=0.550    speaker: z_P acc=0.062 | z_L adv acc=0.188
+  affect:  z_P emo acc=0.875 | z_L emo-adv acc=0.812    pros loss P/Ladv=1.775/1.466
+  route: Hbal=0.687 Hunit=0.576 spec=0.24 margin=0.401 tau=0.750    clip main=2.05e+01->4.88e-02 disc=1.45e+01->6.91e-02
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+
+
+[train 03000/20000] lr=9.64e-05 dann=0.85 zL_frame=3.39e-04 emo_frame=nan recon=0.1344 dead=0.0% active L/P=198/58 (22.5% P) assigned L/P=1850/3270
+  content: z_L PER=0.574 | z_P adv PER=0.576    speaker: z_P acc=0.188 | z_L adv acc=0.250
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.438    pros loss P/Ladv=2.254/2.059
+  route: Hbal=0.679 Hunit=0.545 spec=0.33 margin=0.452 tau=0.708    clip main=2.84e+01->3.52e-02 disc=4.58e+00->2.18e-01
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=6.21e-02  pr=1.52e+00  sid=4.44e+00  prosody=9.01e+00  emotion=2.45e+01  inv=0.00e+00
+    adversarial: external_bundle=4.46e+00
+    adversarial factors: grl=1.72e+00  grl_p=3.43e+00  pros_grl=9.83e-01  emo_grl=1.73e+00  route_spec=0.00e+00
+    PCGrad: raw=2.70e+01  projected=2.84e+01  adversary_bundle=4.46e+00
+    cooperative conflicts=6/10  strongest=pr|emotion:-0.16
+  router gradients (weighted, before clipping)
+    cooperative: recon=5.55e-11  pr=4.93e-03  sid=1.89e-02  prosody=4.92e-02  emotion=6.02e-02  inv=0.00e+00
+    adversarial: grl=1.04e-02  grl_p=2.85e-03  pros_grl=3.58e-03  emo_grl=8.57e-03  route_spec=3.38e-05
+    paired cosines: pr<->grl_p=-0.08  sid<->grl=+0.19  pros<->pros_grl=+0.28  emo<->emo_grl=+0.38
+    cooperative vs adversary bundle: recon=+0.01  pr=-0.02  sid=+0.14  prosody=-0.03  emotion=+0.18  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=+0.01  pr=-0.23  sid=+0.22  prosody=+0.48  emotion=-0.11  inv=-0.00
+      adversarial: grl=+0.06  grl_p=+0.15  pros_grl=+0.03  emo_grl=-0.17  route_spec=-0.25
+      combined=+0.22  first_order=+1.34e-04
+      actual optimizer step: soft_active_P 0.331672 -> 0.331715  delta=+4.26e-05
+    all-pair negative=23/55  strongest=pr|prosody:-0.15
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=03000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.529              z_P PER=0.738
+  speaker     z_P acc=0.175              z_L acc=0.241
+  emotion     z_P UAR=0.631 acc=0.654    z_L UAR=0.648
+  prosody     z_P loss=3.918           z_L loss=1.919
+  checkpoint score=2.873
+  [best] disent=2.873 -> /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/checkpoints/msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42/best.pt
+
+[train 03500/20000] lr=9.48e-05 dann=0.90 zL_frame=3.59e-04 emo_frame=nan recon=0.1338 dead=0.2% active L/P=205/51 (19.9% P) assigned L/P=1705/3415
+  content: z_L PER=0.504 | z_P adv PER=0.559    speaker: z_P acc=0.125 | z_L adv acc=0.062
+  affect:  z_P emo acc=0.812 | z_L emo-adv acc=0.750    pros loss P/Ladv=1.919/1.555
+  route: Hbal=0.666 Hunit=0.510 spec=0.42 margin=0.504 tau=0.668    clip main=2.70e+01->3.70e-02 disc=6.57e+00->1.52e-01
+
+[train 04000/20000] lr=9.30e-05 dann=0.93 zL_frame=3.72e-04 emo_frame=nan recon=0.1370 dead=0.4% active L/P=205/51 (20.0% P) assigned L/P=1574/3546
+  content: z_L PER=0.490 | z_P adv PER=0.570    speaker: z_P acc=0.375 | z_L adv acc=0.375
+  affect:  z_P emo acc=0.625 | z_L emo-adv acc=0.562    pros loss P/Ladv=2.145/2.301
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.631    clip main=3.72e+01->2.69e-02 disc=1.12e+01->8.96e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=7.75e-02  pr=1.83e+00  sid=8.68e+00  prosody=1.90e+01  emotion=2.63e+01  inv=0.00e+00
+    adversarial: external_bundle=6.13e+00
+    adversarial factors: grl=2.98e+00  grl_p=2.49e+00  pros_grl=4.24e+00  emo_grl=1.29e+00  route_spec=0.00e+00
+    PCGrad: raw=3.31e+01  projected=3.60e+01  adversary_bundle=6.13e+00
+    cooperative conflicts=4/10  strongest=prosody|emotion:-0.09
+  router gradients (weighted, before clipping)
+    cooperative: recon=6.74e-11  pr=5.17e-03  sid=2.17e-02  prosody=4.60e-02  emotion=3.48e-02  inv=0.00e+00
+    adversarial: grl=1.20e-02  grl_p=4.24e-03  pros_grl=1.36e-02  emo_grl=4.01e-03  route_spec=3.41e-05
+    paired cosines: pr<->grl_p=+0.34  sid<->grl=+0.43  pros<->pros_grl=+0.17  emo<->emo_grl=+0.45
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.05  sid=+0.28  prosody=+0.09  emotion=+0.16  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.13  sid=+0.21  prosody=+0.44  emotion=-0.04  inv=-0.00
+      adversarial: grl=+0.11  grl_p=-0.41  pros_grl=-0.09  emo_grl=+0.07  route_spec=-0.25
+      combined=+0.31  first_order=+1.46e-04
+      actual optimizer step: soft_active_P 0.296020 -> 0.296043  delta=+2.24e-05
+    all-pair negative=19/55  strongest=prosody|grl_p:-0.39
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=04000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.463              z_P PER=0.798
+  speaker     z_P acc=0.183              z_L acc=0.200
+  emotion     z_P UAR=0.622 acc=0.639    z_L UAR=0.637
+  prosody     z_P loss=3.060           z_L loss=2.279
+  checkpoint score=2.697
+  [best] disent=2.697 -> /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/checkpoints/msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42/best.pt
+[msp] segment complete at step 4000; resume from latest-resume.pt
+[phase 2] freeze learned routes + quota TopK, then continue with retention-dominant cleanup
+=== MSP run 'msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42'  pcgrad=True  routing=hard ===
+[dis_data] loaded lexicon: 200,000 entries
+[msp_data] manifest=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/data/msp_subset/manifest.csv
+[msp_data] speakers=700  vocab=74  emotions=('neutral', 'happy', 'sad', 'angry')
+[msp_data]  train        41067  {'neutral': 18380, 'happy': 11373, 'sad': 6128, 'angry': 5186}
+[msp_data]  val           4975  {'neutral': 2282, 'happy': 1402, 'sad': 710, 'angry': 581}
+[msp_data]  test          4975  {'neutral': 2282, 'happy': 1402, 'sad': 710, 'angry': 581}
+[msp_data] preloaded 51017 transcripts from Transcripts.zip
+[msp_data] dropped 33 rows with empty/non-verbal transcript
+[msp_data] dropped 3 rows with empty/non-verbal transcript
+[msp_data] dropped 7 rows with empty/non-verbal transcript
+[msp] training from scratch (SAE/routing/heads from init)
+[msp] speaker adversary: GELUSpeakerGRLHead (GELU projector, per-frame grad norm target=0.0004)
+[msp] emotion adversary: GELUEmotionGRLHead (mean+std, plain gradient reversal)
+[msp] emotion class weights [0.44, 0.71, 1.31, 1.55] for ('neutral', 'happy', 'sad', 'angry')
+[msp] steps=20000 microbatch=16 accumulation=1 effective_batch=16 pcgrad=True (['emotion', 'pr', 'prosody', 'recon', 'sid'])  device=cuda amp=torch.bfloat16
+[msp] weights recon=1.0 α(pr)=0.8 β(sid)=1.0 grl=1.0 grl_p=0.25 pros=0.75/0.15 emo=1.0/0.15 inv=0.0
+[msp] per-frame GRL targets: speaker=4.00e-04 emotion=nan
+[msp] exact resume from /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/checkpoints/msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42/latest-resume.pt: step=4000 best=2.6966
+[msp] learned routing FROZEN after resume: counts L/P/U=1574/3546/0
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[msp] learned-route TopK calibrated: batches=20 avg_active=[208.24, 47.76] quotas=[208, 48] route_counts=[1574, 3546] sum=256
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[train 04500/20000] lr=9.10e-05 dann=0.95 zL_frame=3.82e-04 emo_frame=nan recon=0.1396 dead=7.4% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.440 | z_P adv PER=0.742    speaker: z_P acc=0.188 | z_L adv acc=0.375
+  affect:  z_P emo acc=0.812 | z_L emo-adv acc=0.750    pros loss P/Ladv=1.510/3.848
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.596    clip main=5.65e+01->1.77e-02 disc=1.76e+01->5.67e-02
+
+[train 05000/20000] lr=8.87e-05 dann=0.97 zL_frame=3.88e-04 emo_frame=nan recon=0.1512 dead=7.1% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.434 | z_P adv PER=0.989    speaker: z_P acc=0.000 | z_L adv acc=0.125
+  affect:  z_P emo acc=0.500 | z_L emo-adv acc=0.562    pros loss P/Ladv=1.716/3.275
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.562    clip main=3.60e+01->2.78e-02 disc=1.03e+01->9.75e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=9.55e-02  pr=3.93e+00  sid=7.58e+00  prosody=1.53e+01  emotion=2.74e+01  inv=0.00e+00
+    adversarial: external_bundle=1.30e+01
+    adversarial factors: grl=1.28e+00  grl_p=1.10e+01  pros_grl=4.09e+00  emo_grl=3.06e+00  route_spec=0.00e+00
+    PCGrad: raw=3.08e+01  projected=3.59e+01  adversary_bundle=1.30e+01
+    cooperative conflicts=4/10  strongest=sid|emotion:-0.24
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.292690 -> 0.292690  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=05000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.475              z_P PER=0.978
+  speaker     z_P acc=0.197              z_L acc=0.208
+  emotion     z_P UAR=0.651 acc=0.575    z_L UAR=0.581
+  prosody     z_P loss=1.804           z_L loss=3.369
+  checkpoint score=2.438
+  [best] disent=2.438 -> /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/checkpoints/msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42/best.pt
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[train 05500/20000] lr=8.62e-05 dann=0.98 zL_frame=3.92e-04 emo_frame=nan recon=0.1607 dead=7.0% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.428 | z_P adv PER=0.975    speaker: z_P acc=0.125 | z_L adv acc=0.188
+  affect:  z_P emo acc=0.812 | z_L emo-adv acc=0.750    pros loss P/Ladv=1.724/2.921
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.531    clip main=3.79e+01->2.64e-02 disc=6.69e+00->1.50e-01
+
+[train 06000/20000] lr=8.35e-05 dann=0.99 zL_frame=3.95e-04 emo_frame=nan recon=0.1621 dead=6.8% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.535 | z_P adv PER=0.937    speaker: z_P acc=0.312 | z_L adv acc=0.312
+  affect:  z_P emo acc=0.312 | z_L emo-adv acc=0.250    pros loss P/Ladv=1.544/3.272
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.501    clip main=5.29e+01->1.89e-02 disc=8.26e+00->1.21e-01
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=9.32e-02  pr=1.91e+00  sid=1.06e+01  prosody=1.29e+01  emotion=4.75e+01  inv=0.00e+00
+    adversarial: external_bundle=1.00e+01
+    adversarial factors: grl=1.87e+00  grl_p=9.28e+00  pros_grl=5.72e+00  emo_grl=3.28e+00  route_spec=0.00e+00
+    PCGrad: raw=5.03e+01  projected=5.27e+01  adversary_bundle=1.00e+01
+    cooperative conflicts=3/10  strongest=sid|emotion:-0.14
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.308780 -> 0.308780  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=06000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.438              z_P PER=0.924
+  speaker     z_P acc=0.192              z_L acc=0.189
+  emotion     z_P UAR=0.624 acc=0.591    z_L UAR=0.587
+  prosody     z_P loss=1.787           z_L loss=3.541
+  checkpoint score=2.473
+
+[train 06500/20000] lr=8.06e-05 dann=0.99 zL_frame=3.96e-04 emo_frame=nan recon=0.1850 dead=7.4% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.434 | z_P adv PER=0.875    speaker: z_P acc=0.188 | z_L adv acc=0.125
+  affect:  z_P emo acc=0.375 | z_L emo-adv acc=0.312    pros loss P/Ladv=1.492/3.045
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.473    clip main=7.97e+01->1.25e-02 disc=7.73e+00->1.29e-01
+
+[train 07000/20000] lr=7.75e-05 dann=0.99 zL_frame=3.98e-04 emo_frame=nan recon=0.1760 dead=8.1% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.542 | z_P adv PER=0.857    speaker: z_P acc=0.250 | z_L adv acc=0.250
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.688    pros loss P/Ladv=1.780/3.665
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.447    clip main=7.22e+01->1.38e-02 disc=8.93e+00->1.12e-01
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=1.18e-01  pr=4.63e+00  sid=9.88e+00  prosody=1.51e+01  emotion=6.57e+01  inv=0.00e+00
+    adversarial: external_bundle=1.70e+01
+    adversarial factors: grl=1.36e+00  grl_p=1.35e+01  pros_grl=7.23e+00  emo_grl=1.76e+00  route_spec=0.00e+00
+    PCGrad: raw=6.76e+01  projected=7.13e+01  adversary_bundle=1.70e+01
+    cooperative conflicts=5/10  strongest=sid|prosody:-0.24
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.325115 -> 0.325115  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=07000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.439              z_P PER=0.835
+  speaker     z_P acc=0.216              z_L acc=0.203
+  emotion     z_P UAR=0.626 acc=0.604    z_L UAR=0.558
+  prosody     z_P loss=1.780           z_L loss=3.603
+  checkpoint score=2.524
+
+[train 07500/20000] lr=7.43e-05 dann=1.00 zL_frame=3.98e-04 emo_frame=nan recon=0.1683 dead=9.3% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.511 | z_P adv PER=0.885    speaker: z_P acc=0.188 | z_L adv acc=0.125
+  affect:  z_P emo acc=0.812 | z_L emo-adv acc=0.562    pros loss P/Ladv=1.435/3.060
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.422    clip main=5.54e+01->1.81e-02 disc=1.28e+01->7.81e-02
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[train 08000/20000] lr=7.10e-05 dann=1.00 zL_frame=3.99e-04 emo_frame=nan recon=0.1686 dead=11.1% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.464 | z_P adv PER=0.824    speaker: z_P acc=0.312 | z_L adv acc=0.312
+  affect:  z_P emo acc=0.375 | z_L emo-adv acc=0.750    pros loss P/Ladv=1.615/2.857
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.398    clip main=9.93e+01->1.01e-02 disc=1.21e+01->8.27e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=9.10e-02  pr=4.36e+00  sid=1.92e+01  prosody=2.08e+01  emotion=8.09e+01  inv=0.00e+00
+    adversarial: external_bundle=7.75e+00
+    adversarial factors: grl=2.10e+00  grl_p=6.38e+00  pros_grl=3.64e+00  emo_grl=2.00e+00  route_spec=0.00e+00
+    PCGrad: raw=9.85e+01  projected=9.85e+01  adversary_bundle=7.75e+00
+    cooperative conflicts=1/10  strongest=recon|emotion:-0.00
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.331071 -> 0.331071  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=08000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.435              z_P PER=0.802
+  speaker     z_P acc=0.227              z_L acc=0.246
+  emotion     z_P UAR=0.650 acc=0.610    z_L UAR=0.566
+  prosody     z_P loss=1.745           z_L loss=3.218
+  checkpoint score=2.569
+
+[train 08500/20000] lr=6.75e-05 dann=1.00 zL_frame=3.99e-04 emo_frame=nan recon=0.1672 dead=12.0% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.375 | z_P adv PER=0.795    speaker: z_P acc=0.062 | z_L adv acc=0.188
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.500    pros loss P/Ladv=1.600/2.667
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.376    clip main=8.65e+01->1.16e-02 disc=1.06e+01->9.46e-02
+
+[train 09000/20000] lr=6.40e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1601 dead=12.7% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.363 | z_P adv PER=0.777    speaker: z_P acc=0.250 | z_L adv acc=0.062
+  affect:  z_P emo acc=0.500 | z_L emo-adv acc=0.438    pros loss P/Ladv=1.516/2.597
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.355    clip main=8.55e+01->1.17e-02 disc=8.73e+00->1.15e-01
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=8.27e-02  pr=1.50e+00  sid=1.15e+01  prosody=1.66e+01  emotion=8.12e+01  inv=0.00e+00
+    adversarial: external_bundle=1.39e+01
+    adversarial factors: grl=2.12e+00  grl_p=9.01e+00  pros_grl=1.05e+01  emo_grl=3.06e+00  route_spec=0.00e+00
+    PCGrad: raw=8.10e+01  projected=8.58e+01  adversary_bundle=1.39e+01
+    cooperative conflicts=5/10  strongest=prosody|emotion:-0.46
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.330983 -> 0.330983  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=09000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.397              z_P PER=0.788
+  speaker     z_P acc=0.229              z_L acc=0.265
+  emotion     z_P UAR=0.656 acc=0.620    z_L UAR=0.554
+  prosody     z_P loss=1.774           z_L loss=3.118
+  checkpoint score=2.543
+
+[train 09500/20000] lr=6.04e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1590 dead=13.8% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.364 | z_P adv PER=0.828    speaker: z_P acc=0.312 | z_L adv acc=0.375
+  affect:  z_P emo acc=0.500 | z_L emo-adv acc=0.562    pros loss P/Ladv=1.752/2.796
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.335    clip main=5.25e+01->1.90e-02 disc=1.48e+01->6.76e-02
+
+[train 10000/20000] lr=5.68e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1636 dead=14.0% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.401 | z_P adv PER=0.793    speaker: z_P acc=0.375 | z_L adv acc=0.438
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.438    pros loss P/Ladv=2.351/3.516
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.316    clip main=9.23e+01->1.08e-02 disc=1.11e+01->9.04e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=7.94e-02  pr=2.49e+00  sid=1.20e+01  prosody=1.52e+01  emotion=8.41e+01  inv=0.00e+00
+    adversarial: external_bundle=9.14e+00
+    adversarial factors: grl=1.97e+00  grl_p=7.61e+00  pros_grl=3.97e+00  emo_grl=2.64e+00  route_spec=0.00e+00
+    PCGrad: raw=8.96e+01  projected=9.16e+01  adversary_bundle=9.14e+00
+    cooperative conflicts=3/10  strongest=pr|prosody:-0.23
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.334225 -> 0.334225  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=10000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.411              z_P PER=0.813
+  speaker     z_P acc=0.252              z_L acc=0.308
+  emotion     z_P UAR=0.661 acc=0.613    z_L UAR=0.560
+  prosody     z_P loss=1.799           z_L loss=2.868
+  checkpoint score=2.554
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[train 10500/20000] lr=5.32e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1669 dead=14.2% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.451 | z_P adv PER=0.797    speaker: z_P acc=0.312 | z_L adv acc=0.500
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.438    pros loss P/Ladv=1.649/2.531
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.299    clip main=9.14e+01->1.09e-02 disc=9.41e+00->1.06e-01
+
+[train 11000/20000] lr=4.96e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1672 dead=14.7% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.359 | z_P adv PER=0.783    speaker: z_P acc=0.188 | z_L adv acc=0.312
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.500    pros loss P/Ladv=1.752/2.363
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.282    clip main=1.49e+02->6.72e-03 disc=1.02e+01->9.81e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=7.63e-02  pr=1.45e+00  sid=1.82e+01  prosody=1.46e+01  emotion=1.44e+02  inv=0.00e+00
+    adversarial: external_bundle=1.08e+01
+    adversarial factors: grl=1.88e+00  grl_p=7.89e+00  pros_grl=3.80e+00  emo_grl=6.88e+00  route_spec=0.00e+00
+    PCGrad: raw=1.47e+02  projected=1.47e+02  adversary_bundle=1.08e+01
+    cooperative conflicts=3/10  strongest=recon|pr:-0.02
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.332602 -> 0.332602  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=11000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.404              z_P PER=0.795
+  speaker     z_P acc=0.262              z_L acc=0.324
+  emotion     z_P UAR=0.671 acc=0.626    z_L UAR=0.569
+  prosody     z_P loss=1.859           z_L loss=2.659
+  checkpoint score=2.568
+
+[train 11500/20000] lr=4.60e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1580 dead=14.7% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.477 | z_P adv PER=0.788    speaker: z_P acc=0.250 | z_L adv acc=0.375
+  affect:  z_P emo acc=0.500 | z_L emo-adv acc=0.562    pros loss P/Ladv=2.107/3.123
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.266    clip main=9.18e+01->1.09e-02 disc=1.94e+01->5.14e-02
+
+[train 12000/20000] lr=4.25e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1636 dead=15.2% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.373 | z_P adv PER=0.757    speaker: z_P acc=0.250 | z_L adv acc=0.312
+  affect:  z_P emo acc=0.500 | z_L emo-adv acc=0.250    pros loss P/Ladv=1.908/2.563
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.251    clip main=1.48e+02->6.74e-03 disc=9.28e+00->1.08e-01
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=7.69e-02  pr=1.55e+00  sid=1.31e+01  prosody=9.65e+00  emotion=1.47e+02  inv=0.00e+00
+    adversarial: external_bundle=1.35e+01
+    adversarial factors: grl=2.02e+00  grl_p=1.13e+01  pros_grl=4.77e+00  emo_grl=7.03e+00  route_spec=0.00e+00
+    PCGrad: raw=1.46e+02  projected=1.48e+02  adversary_bundle=1.35e+01
+    cooperative conflicts=5/10  strongest=sid|emotion:-0.17
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.334509 -> 0.334509  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=12000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.377              z_P PER=0.755
+  speaker     z_P acc=0.262              z_L acc=0.336
+  emotion     z_P UAR=0.670 acc=0.614    z_L UAR=0.569
+  prosody     z_P loss=1.934           z_L loss=2.434
+  checkpoint score=2.594
+
+[train 12500/20000] lr=3.90e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1628 dead=15.1% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.334 | z_P adv PER=0.714    speaker: z_P acc=0.062 | z_L adv acc=0.188
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.562    pros loss P/Ladv=2.403/3.153
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.237    clip main=6.40e+01->1.56e-02 disc=8.55e+00->1.17e-01
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[train 13000/20000] lr=3.57e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1634 dead=15.2% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.444 | z_P adv PER=0.776    speaker: z_P acc=0.250 | z_L adv acc=0.562
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.562    pros loss P/Ladv=1.634/1.905
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.224    clip main=1.36e+02->7.38e-03 disc=7.74e+00->1.29e-01
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=8.75e-02  pr=1.64e+00  sid=2.81e+01  prosody=1.83e+01  emotion=1.26e+02  inv=0.00e+00
+    adversarial: external_bundle=1.61e+01
+    adversarial factors: grl=1.78e+00  grl_p=9.27e+00  pros_grl=6.97e+00  emo_grl=7.33e+00  route_spec=0.00e+00
+    PCGrad: raw=1.24e+02  projected=1.33e+02  adversary_bundle=1.61e+01
+    cooperative conflicts=6/10  strongest=sid|prosody:-0.61
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.335082 -> 0.335082  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=13000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.381              z_P PER=0.758
+  speaker     z_P acc=0.266              z_L acc=0.368
+  emotion     z_P UAR=0.674 acc=0.636    z_L UAR=0.583
+  prosody     z_P loss=1.981           z_L loss=2.289
+  checkpoint score=2.634
+
+[train 13500/20000] lr=3.25e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1675 dead=15.6% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.343 | z_P adv PER=0.754    speaker: z_P acc=0.125 | z_L adv acc=0.250
+  affect:  z_P emo acc=0.500 | z_L emo-adv acc=0.375    pros loss P/Ladv=1.966/2.058
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.211    clip main=8.10e+01->1.23e-02 disc=9.74e+00->1.03e-01
+
+[train 14000/20000] lr=2.94e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1662 dead=16.0% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.389 | z_P adv PER=0.715    speaker: z_P acc=0.250 | z_L adv acc=0.188
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.562    pros loss P/Ladv=3.005/3.504
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.200    clip main=1.06e+02->9.46e-03 disc=1.50e+01->6.66e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=7.86e-02  pr=1.20e+00  sid=2.24e+01  prosody=3.37e+01  emotion=8.26e+01  inv=0.00e+00
+    adversarial: external_bundle=2.55e+01
+    adversarial factors: grl=1.91e+00  grl_p=1.04e+01  pros_grl=1.95e+01  emo_grl=3.70e+00  route_spec=0.00e+00
+    PCGrad: raw=9.40e+01  projected=1.01e+02  adversary_bundle=2.55e+01
+    cooperative conflicts=1/10  strongest=sid|emotion:-0.19
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.334236 -> 0.334236  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=14000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.364              z_P PER=0.736
+  speaker     z_P acc=0.273              z_L acc=0.374
+  emotion     z_P UAR=0.674 acc=0.644    z_L UAR=0.587
+  prosody     z_P loss=2.049           z_L loss=2.233
+  checkpoint score=2.643
+
+[train 14500/20000] lr=2.65e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1672 dead=16.2% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.365 | z_P adv PER=0.755    speaker: z_P acc=0.375 | z_L adv acc=0.375
+  affect:  z_P emo acc=0.688 | z_L emo-adv acc=0.438    pros loss P/Ladv=1.999/2.186
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.188    clip main=7.07e+01->1.42e-02 disc=1.69e+01->5.91e-02
+
+[train 15000/20000] lr=2.38e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1716 dead=16.1% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.443 | z_P adv PER=0.757    speaker: z_P acc=0.250 | z_L adv acc=0.438
+  affect:  z_P emo acc=0.688 | z_L emo-adv acc=0.562    pros loss P/Ladv=1.934/1.851
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.178    clip main=7.39e+01->1.35e-02 disc=1.13e+01->8.85e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=9.18e-02  pr=1.84e+00  sid=3.29e+01  prosody=1.76e+01  emotion=4.27e+01  inv=0.00e+00
+    adversarial: external_bundle=1.59e+01
+    adversarial factors: grl=2.16e+00  grl_p=8.28e+00  pros_grl=1.04e+01  emo_grl=3.83e+00  route_spec=0.00e+00
+    PCGrad: raw=6.79e+01  projected=6.93e+01  adversary_bundle=1.59e+01
+    cooperative conflicts=2/10  strongest=prosody|emotion:-0.04
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.333488 -> 0.333488  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=15000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.387              z_P PER=0.723
+  speaker     z_P acc=0.278              z_L acc=0.398
+  emotion     z_P UAR=0.666 acc=0.650    z_L UAR=0.576
+  prosody     z_P loss=2.089           z_L loss=2.130
+  checkpoint score=2.693
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[train 15500/20000] lr=2.13e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1721 dead=16.5% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.406 | z_P adv PER=0.778    speaker: z_P acc=0.500 | z_L adv acc=0.562
+  affect:  z_P emo acc=0.688 | z_L emo-adv acc=0.375    pros loss P/Ladv=1.883/1.845
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.168    clip main=1.26e+02->7.91e-03 disc=1.08e+01->9.28e-02
+
+[train 16000/20000] lr=1.90e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1683 dead=16.7% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.362 | z_P adv PER=0.728    speaker: z_P acc=0.312 | z_L adv acc=0.562
+  affect:  z_P emo acc=0.500 | z_L emo-adv acc=0.688    pros loss P/Ladv=1.865/1.954
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.158    clip main=6.46e+01->1.55e-02 disc=1.67e+01->5.98e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=7.97e-02  pr=2.67e+00  sid=2.16e+01  prosody=2.02e+01  emotion=3.68e+01  inv=0.00e+00
+    adversarial: external_bundle=2.75e+01
+    adversarial factors: grl=2.69e+00  grl_p=1.20e+01  pros_grl=2.54e+01  emo_grl=2.89e+00  route_spec=0.00e+00
+    PCGrad: raw=5.19e+01  projected=5.70e+01  adversary_bundle=2.75e+01
+    cooperative conflicts=4/10  strongest=pr|sid:-0.33
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.333750 -> 0.333750  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=16000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.398              z_P PER=0.760
+  speaker     z_P acc=0.276              z_L acc=0.395
+  emotion     z_P UAR=0.666 acc=0.653    z_L UAR=0.569
+  prosody     z_P loss=2.114           z_L loss=2.028
+  checkpoint score=2.660
+
+[train 16500/20000] lr=1.70e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1697 dead=17.2% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.450 | z_P adv PER=0.769    speaker: z_P acc=0.312 | z_L adv acc=0.312
+  affect:  z_P emo acc=0.625 | z_L emo-adv acc=0.562    pros loss P/Ladv=2.168/1.809
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.150    clip main=9.86e+01->1.01e-02 disc=1.23e+01->8.14e-02
+
+[train 17000/20000] lr=1.52e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1675 dead=17.7% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.459 | z_P adv PER=0.788    speaker: z_P acc=0.188 | z_L adv acc=0.312
+  affect:  z_P emo acc=0.688 | z_L emo-adv acc=0.562    pros loss P/Ladv=2.449/2.259
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.141    clip main=1.02e+02->9.82e-03 disc=2.46e+01->4.06e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=8.60e-02  pr=2.51e+00  sid=4.23e+01  prosody=4.59e+01  emotion=3.50e+01  inv=0.00e+00
+    adversarial: external_bundle=3.36e+01
+    adversarial factors: grl=1.46e+00  grl_p=9.83e+00  pros_grl=2.99e+01  emo_grl=4.31e+00  route_spec=0.00e+00
+    PCGrad: raw=7.50e+01  projected=8.60e+01  adversary_bundle=3.36e+01
+    cooperative conflicts=5/10  strongest=pr|sid:-0.35
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.333867 -> 0.333867  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=17000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.403              z_P PER=0.760
+  speaker     z_P acc=0.285              z_L acc=0.406
+  emotion     z_P UAR=0.679 acc=0.641    z_L UAR=0.575
+  prosody     z_P loss=2.170           z_L loss=2.062
+  checkpoint score=2.661
+
+[train 17500/20000] lr=1.36e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1730 dead=18.2% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.430 | z_P adv PER=0.764    speaker: z_P acc=0.188 | z_L adv acc=0.500
+  affect:  z_P emo acc=0.625 | z_L emo-adv acc=0.750    pros loss P/Ladv=2.223/2.134
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.133    clip main=1.05e+02->9.51e-03 disc=1.12e+01->8.89e-02
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[train 18000/20000] lr=1.23e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1692 dead=18.4% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.373 | z_P adv PER=0.763    speaker: z_P acc=0.312 | z_L adv acc=0.500
+  affect:  z_P emo acc=0.812 | z_L emo-adv acc=0.625    pros loss P/Ladv=2.159/1.882
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.126    clip main=9.52e+01->1.05e-02 disc=1.83e+01->5.45e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=8.24e-02  pr=1.11e+00  sid=3.26e+01  prosody=2.76e+01  emotion=7.21e+01  inv=0.00e+00
+    adversarial: external_bundle=2.30e+01
+    adversarial factors: grl=2.38e+00  grl_p=8.52e+00  pros_grl=6.21e+00  emo_grl=1.48e+01  route_spec=0.00e+00
+    PCGrad: raw=7.63e+01  projected=8.84e+01  adversary_bundle=2.30e+01
+    cooperative conflicts=5/10  strongest=prosody|emotion:-0.20
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.334124 -> 0.334124  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=18000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.381              z_P PER=0.725
+  speaker     z_P acc=0.291              z_L acc=0.429
+  emotion     z_P UAR=0.672 acc=0.653    z_L UAR=0.578
+  prosody     z_P loss=2.211           z_L loss=1.906
+  checkpoint score=2.700
+
+[train 18500/20000] lr=1.13e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1728 dead=18.5% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.499 | z_P adv PER=0.772    speaker: z_P acc=0.312 | z_L adv acc=0.562
+  affect:  z_P emo acc=0.625 | z_L emo-adv acc=0.688    pros loss P/Ladv=2.144/1.789
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.119    clip main=1.09e+02->9.20e-03 disc=1.55e+01->6.43e-02
+
+[train 19000/20000] lr=1.06e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1741 dead=19.2% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.440 | z_P adv PER=0.751    speaker: z_P acc=0.375 | z_L adv acc=0.562
+  affect:  z_P emo acc=0.812 | z_L emo-adv acc=0.625    pros loss P/Ladv=3.194/2.853
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.112    clip main=6.11e+01->1.64e-02 disc=1.22e+01->8.19e-02
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=7.56e-02  pr=4.59e+00  sid=2.86e+01  prosody=2.19e+01  emotion=2.83e+01  inv=0.00e+00
+    adversarial: external_bundle=2.29e+01
+    adversarial factors: grl=2.81e+00  grl_p=2.73e+01  pros_grl=2.72e+00  emo_grl=8.65e+00  route_spec=0.00e+00
+    PCGrad: raw=5.19e+01  projected=5.31e+01  adversary_bundle=2.29e+01
+    cooperative conflicts=5/10  strongest=pr|emotion:-0.12
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.333995 -> 0.333995  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words[dis_data] g2p_en loaded for OOV words
+
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=19000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.360              z_P PER=0.725
+  speaker     z_P acc=0.292              z_L acc=0.448
+  emotion     z_P UAR=0.677 acc=0.652    z_L UAR=0.575
+  prosody     z_P loss=2.251           z_L loss=1.862
+  checkpoint score=2.688
+
+[train 19500/20000] lr=1.01e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1694 dead=19.4% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.363 | z_P adv PER=0.755    speaker: z_P acc=0.312 | z_L adv acc=0.688
+  affect:  z_P emo acc=0.625 | z_L emo-adv acc=0.562    pros loss P/Ladv=2.210/1.873
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.106    clip main=9.78e+01->1.02e-02 disc=1.21e+01->8.24e-02
+
+[train 20000/20000] lr=1.00e-05 dann=1.00 zL_frame=4.00e-04 emo_frame=nan recon=0.1695 dead=19.3% active L/P=208/48 (18.8% P) assigned L/P=1574/3546
+  content: z_L PER=0.314 | z_P adv PER=0.705    speaker: z_P acc=0.188 | z_L adv acc=0.312
+  affect:  z_P emo acc=0.562 | z_L emo-adv acc=0.625    pros loss P/Ladv=2.581/1.903
+  route: Hbal=0.652 Hunit=0.472 spec=0.50 margin=0.555 tau=0.100    clip main=7.54e+01->1.33e-02 disc=8.81e+00->1.14e-01
+  SAE gradients (weighted, before clipping)
+    cooperative: recon=6.77e-02  pr=1.30e+00  sid=2.10e+01  prosody=1.53e+01  emotion=6.22e+01  inv=0.00e+00
+    adversarial: external_bundle=8.57e+00
+    adversarial factors: grl=2.70e+00  grl_p=8.62e+00  pros_grl=2.34e+00  emo_grl=5.13e+00  route_spec=0.00e+00
+    PCGrad: raw=5.93e+01  projected=7.45e+01  adversary_bundle=8.57e+00
+    cooperative conflicts=4/10  strongest=sid|emotion:-0.29
+  router gradients (weighted, before clipping)
+    cooperative: recon=0.00e+00  pr=0.00e+00  sid=0.00e+00  prosody=0.00e+00  emotion=0.00e+00  inv=0.00e+00
+    adversarial: grl=0.00e+00  grl_p=0.00e+00  pros_grl=0.00e+00  emo_grl=0.00e+00  route_spec=0.00e+00
+    paired cosines: pr<->grl_p=+0.00  sid<->grl=+0.00  pros<->pros_grl=+0.00  emo<->emo_grl=+0.00
+    cooperative vs adversary bundle: recon=+0.00  pr=+0.00  sid=+0.00  prosody=+0.00  emotion=+0.00  inv=+0.00
+    active-P push cosine (+ toward P, - toward L)
+      cooperative: recon=-0.00  pr=-0.00  sid=-0.00  prosody=-0.00  emotion=-0.00  inv=-0.00
+      adversarial: grl=-0.00  grl_p=-0.00  pros_grl=-0.00  emo_grl=-0.00  route_spec=-0.00
+      combined=-0.00  first_order=-0.00e+00
+      actual optimizer step: soft_active_P 0.334404 -> 0.334404  delta=+0.00e+00
+    all-pair negative=0/55  strongest=recon|pr:+0.00
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+
+[val step=20000]
+  factor      kept representation       leakage representation
+  phoneme     z_L PER=0.381              z_P PER=0.752
+  speaker     z_P acc=0.298              z_L acc=0.429
+  emotion     z_P UAR=0.682 acc=0.638    z_L UAR=0.556
+  prosody     z_P loss=2.300           z_L loss=1.814
+  checkpoint score=2.635
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[dis_data] g2p_en loaded for OOV words
+[test] final.pt: z_L PER=0.383 z_P SID=0.303 z_L SID=0.433 z_P emo UAR=0.671 z_L emo UAR=0.551
+[msp] done. best disent=2.438  ckpts in /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/checkpoints/msp_hardqfreeze4000_weakpre_retainmax_gn0004_grlp010to025_advpe010to015_20k_s42
+finished   : Mon 20 Jul 19:55:02 BST 2026
