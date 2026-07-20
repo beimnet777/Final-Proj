@@ -24,6 +24,7 @@ class DISConfig:
     # most latents otherwise die (never selected → never updated → dead forever).
     aux_k:                int   = 0        # # dead latents the aux loss reconstructs the residual with (0 = off; ~D/2 when on)
     aux_k_coef:           float = 0.03125  # 1/32 — weight on the aux loss
+    aux_k_adaptive:       bool  = False    # use min(aux_k, n_dead), rather than waiting for n_dead >= aux_k
     dead_steps_threshold: int   = 256      # a latent is "dead" if it hasn't fired in this many steps
     valid_frame_dead_count: bool = False   # legacy False: count padded z_t frames too; True: count only t < out_lengths
     geom_median_bias:     bool  = False    # init b_pre to the geometric median of a data sample

@@ -212,6 +212,7 @@ def save_bridge(
     model: SpearMelBridge,
     *,
     training: dict[str, Any] | None = None,
+    optimizer_state: dict[str, Any] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save({
@@ -220,6 +221,7 @@ def save_bridge(
         "state_dict": model.state_dict(),
         "domain_signature": bridge_domain_signature(model.config),
         "training": training or {},
+        "optimizer_state": optimizer_state,
     }, path)
 
 

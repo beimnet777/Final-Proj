@@ -340,6 +340,95 @@ private condition key, and provides naturalness and donor-versus-recipient ABX
 forms. Human recruitment still requires the appropriate ethics approval and
 consent; the command does not collect or invent participant data.
 
+### Direct SPEAR-conditioned HiFi-GAN
+
+The direct path is a separate experiment and does not replace or overwrite the
+mel bridge above:
+
+```text
+original or SAE-reconstructed SPEAR h (50 Hz, 1280-D)
+    -> HiFi-GAN V1 generator (320x)
+    -> 16 kHz waveform
+```
+
+The total upsampling is 320 samples per SPEAR frame, matching the
+frozen encoder exactly. The full generator is compatible with the public
+kNN-VC WavLM HiFi-GAN: 235/236 parameter tensors are warm-started, while only
+the input projection changes from 1024-D WavLM to 1280-D SPEAR. Training begins
+with a short mel-only alignment phase, then uses the standard HiFi-GAN
+least-squares adversarial, feature-matching, and `45 * log-mel L1` losses.
+
+First cache frozen SPEAR features once. The cache contains train and validation
+only, is stored as one float16 binary array plus an index, and is reusable by
+all SAE checkpoints sharing the same SPEAR domain:
+
+```bash
+python -m SAEUnitAnalysis.cache_spear_audio_features \
+  --checkpoint /path/to/reference-final.pt \
+  --data data/sae_analysis/librispeech_bundle_12k_mfa \
+  --output-dir SAEUnitAnalysis/audio_models/spear_direct_cache \
+  --device cuda --batch-size 4 \
+  --max-validation-utterances 1000
+```
+
+Then train the full direct vocoder:
+
+```bash
+python -m SAEUnitAnalysis.train_direct_hifigan \
+  --cache SAEUnitAnalysis/audio_models/spear_direct_cache \
+  --data-root data/sae_analysis/librispeech_bundle_12k_mfa \
+  --output-dir SAEUnitAnalysis/audio_models/spear_direct_hifigan \
+  --device cuda --model-size full --max-steps 250000 \
+  --batch-size 16 --segment-frames 24
+```
+
+`last.pt` contains optimizers and resumes training; `best.pt` is the
+validation-mel-selected inference checkpoint. Only three numbered recovery
+checkpoints are retained. Validation previews are placed under `samples/`; no
+spectrogram images or full waveform dump is produced.
+
+Once the original-SPEAR and SAE-baseline reconstruction gates are intelligible,
+render the same registered route interventions without the mel bridge:
+
+```bash
+python -m SAEUnitAnalysis.render_audio_swaps \
+  --result-dir /path/to/SAEUnitAnalysis/result \
+  --direct-hifigan SAEUnitAnalysis/audio_models/spear_direct_hifigan/best.pt \
+  --device cuda --max-pairs 24 --interpolation-pairs 5 --grid-size 5
+```
+
+The Blackwell job performs both phases, validates the repository data paths,
+downloads the published 63 MiB warm start once, and resumes if `last.pt`
+exists. After reaching `MAX_STEPS`, it automatically renders ten held-out,
+speaker-diverse registered pairs. Each report row contains recipient and donor
+references, original-SPEAR reconstruction, SAE reconstruction, recipient-L +
+donor-P swapping, and the complementary L swap:
+
+```bash
+sbatch SAEUnitAnalysis/slurm/train_direct_hifigan_blackwell.sh
+```
+
+The final listening page is written to:
+
+```text
+SAEUnitAnalysis/audio_models/spear_direct_hifigan_knnvc_init/
+  final_demo_10_pairs/report/index.html
+```
+
+A bounded local wiring test uses the explicitly reduced model; its sound is not
+an audio-quality result:
+
+```bash
+python -m SAEUnitAnalysis.train_direct_hifigan \
+  --cache SAEUnitAnalysis/audio_models/spear_direct_cache_smoke \
+  --data-root data/sae_analysis/librispeech_bundle_12k_mfa \
+  --output-dir SAEUnitAnalysis/audio_models/spear_direct_hifigan_smoke \
+  --device mps --model-size smoke --max-steps 2 --batch-size 1 \
+  --segment-frames 4 --adversarial-start-step 1 \
+  --validation-interval 1 --checkpoint-interval 2 \
+  --validation-batches 1 --num-workers 0 --pretrained-generator none
+```
+
 ## Analysis bundle version 1
 
 An analysis bundle is deliberately independent of MSP-Podcast's original archive

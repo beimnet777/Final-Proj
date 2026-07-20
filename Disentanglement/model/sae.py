@@ -130,8 +130,11 @@ class SparseAutoencoder(nn.Module):
         # Dead-latent revival (Gao AuxK).  steps_since_fired is a transient training
         # counter (not checkpointed); aux_k>0 turns the mechanism on.
         self.aux_k          = int(getattr(cfg, 'aux_k', 0))
+        self.aux_k_adaptive = bool(getattr(cfg, 'aux_k_adaptive', False))
         self.dead_threshold = int(getattr(cfg, 'dead_steps_threshold', 256))
         self.register_buffer('steps_since_fired', torch.zeros(K), persistent=False)
+        self.last_dead_stats = {"fired": 0, "new_dead": 0, "revived": 0}
+        self.last_aux_stats = {}
 
     @torch.no_grad()
     def set_route_topk(self, route_idx: torch.Tensor, route_quotas: torch.Tensor) -> None:
@@ -182,21 +185,76 @@ class SparseAutoencoder(nn.Module):
                     < lengths.to(device=z_t.device).long().unsqueeze(1))
             active = active & mask.unsqueeze(-1)
         fired = active.any(dim=tuple(range(z_t.dim() - 1)))   # (K,)
+        was_dead = self.steps_since_fired > self.dead_threshold
         self.steps_since_fired += 1
         self.steps_since_fired[fired] = 0
+        is_dead = self.steps_since_fired > self.dead_threshold
+        self.last_dead_stats = {
+            "fired": int(fired.sum().item()),
+            "new_dead": int((~was_dead & is_dead).sum().item()),
+            "revived": int((was_dead & fired).sum().item()),
+        }
 
-    def aux_reconstruct(self, z_pre: torch.Tensor):
+    def aux_reconstruct(
+        self,
+        z_pre: torch.Tensor,
+        *,
+        lengths: torch.Tensor | None = None,
+        route_idx: torch.Tensor | None = None,
+        collect_stats: bool = False,
+    ):
         """AuxK: reconstruct the main recon's residual using the top-aux_k among
         currently-DEAD latents — giving them gradient so they revive.
-        Returns ê (B,T,D) or None if there aren't aux_k dead latents yet."""
+        With adaptive AuxK, use every available dead latent up to aux_k instead
+        of waiting for a full aux_k-sized dead pool. Returns ê (B,T,D), or None
+        when no eligible dead latents exist."""
         if self.aux_k <= 0:
             return None
         dead = self.steps_since_fired > self.dead_threshold        # (K,)
-        if int(dead.sum()) < self.aux_k:
+        n_dead = int(dead.sum().item())
+        if n_dead == 0:
+            if collect_stats:
+                self.last_aux_stats = {
+                    "k_eff": 0, "n_dead": 0, "unique": 0,
+                    "unique_by_route": (), "selections_by_route": (),
+                }
             return None
+        if not self.aux_k_adaptive and n_dead < self.aux_k:
+            if collect_stats:
+                self.last_aux_stats = {
+                    "k_eff": 0, "n_dead": n_dead, "unique": 0,
+                    "unique_by_route": (), "selections_by_route": (),
+                }
+            return None
+        k_eff = min(self.aux_k, n_dead)
         masked = z_pre.masked_fill(~dead, -1e30)                   # keep only dead latents
-        vals, idx = masked.topk(self.aux_k, dim=-1)
+        vals, idx = masked.topk(k_eff, dim=-1)
         z_aux = torch.zeros_like(z_pre).scatter_(-1, idx, vals)
+        if collect_stats:
+            selected = idx
+            if lengths is not None:
+                B, T = idx.shape[:2]
+                valid = (torch.arange(T, device=idx.device).unsqueeze(0)
+                         < lengths.to(device=idx.device).long().unsqueeze(1))
+                selected = idx[valid]
+            selected = selected.reshape(-1)
+            unique = torch.unique(selected) if selected.numel() else selected
+            unique_by_route = []
+            selections_by_route = []
+            if route_idx is not None:
+                routes = route_idx.to(device=idx.device, dtype=torch.long)
+                n_routes = int(routes.max().item()) + 1 if routes.numel() else 0
+                for route in range(n_routes):
+                    route_mask = routes == route
+                    unique_by_route.append(int(route_mask[unique].sum().item()))
+                    selections_by_route.append(int(route_mask[selected].sum().item()))
+            self.last_aux_stats = {
+                "k_eff": k_eff,
+                "n_dead": n_dead,
+                "unique": int(unique.numel()),
+                "unique_by_route": tuple(unique_by_route),
+                "selections_by_route": tuple(selections_by_route),
+            }
         return F.linear(z_aux, self.dec_weight)                    # residual recon — no b_pre
 
     @torch.no_grad()

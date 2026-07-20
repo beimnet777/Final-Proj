@@ -42,6 +42,7 @@ from SAEUnitAnalysis.audio_bridge import (
     save_bridge,
 )
 from SAEUnitAnalysis.audio_evaluation import reconstruction_gates
+from SAEUnitAnalysis.cache_spear_audio_features import SpearAudioFeatureCache
 from SAEUnitAnalysis.causal import (
     _bootstrap_mode_summary,
     _matched_non_p_units,
@@ -57,6 +58,18 @@ from SAEUnitAnalysis.extraction import (
     _speaker_balanced_sample, parse_split_limits,
 )
 from SAEUnitAnalysis.factor_metrics import speech_factor_metrics
+from SAEUnitAnalysis.direct_hifigan import (
+    DirectHiFiGANConfig,
+    DirectSpearHiFiGenerator,
+    MultiPeriodDiscriminator,
+    MultiScaleDiscriminator,
+    discriminator_loss,
+    feature_matching_loss,
+    generator_adversarial_loss,
+    load_direct_hifigan,
+    load_pretrained_knnvc_generator,
+    save_direct_hifigan,
+)
 from SAEUnitAnalysis.import_mfa_alignments import import_alignments, parse_textgrid
 from SAEUnitAnalysis.pipeline import run_analysis
 from SAEUnitAnalysis.prepare_librispeech_mfa_corpus import prepare_corpus
@@ -160,6 +173,74 @@ class CoreTests(unittest.TestCase):
         self.assertFalse(passed)
         self.assertTrue(bool(gates.loc[gates.gate == "oracle_mel_vocoder", "gate_pass"].iloc[0]))
         self.assertFalse(bool(gates.loc[gates.gate == "original_spear_bridge", "gate_pass"].iloc[0]))
+
+    def test_direct_hifigan_shapes_losses_warm_start_and_round_trip(self):
+        source_config = DirectHiFiGANConfig.smoke(input_dim=16)
+        target_config = DirectHiFiGANConfig.smoke(input_dim=24)
+        source = DirectSpearHiFiGenerator(source_config)
+        target = DirectSpearHiFiGenerator(target_config)
+        features = torch.randn(1, 2, target_config.input_dim)
+        generated = target(features)
+        self.assertEqual(tuple(generated.shape), (1, 1, 640))
+        mpd = MultiPeriodDiscriminator(target_config)
+        msd = MultiScaleDiscriminator(target_config)
+        real = torch.randn_like(generated).clamp(-1, 1)
+        mpd_real, mpd_fake, mpd_real_maps, mpd_fake_maps = mpd(real, generated)
+        msd_real, msd_fake, msd_real_maps, msd_fake_maps = msd(real, generated)
+        losses = (
+            discriminator_loss(mpd_real, mpd_fake),
+            discriminator_loss(msd_real, msd_fake),
+            generator_adversarial_loss(mpd_fake),
+            feature_matching_loss(mpd_real_maps, mpd_fake_maps),
+            feature_matching_loss(msd_real_maps, msd_fake_maps),
+        )
+        self.assertTrue(all(torch.isfinite(loss) for loss in losses))
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            warm_start = td / "knn.pt"
+            torch.save({"generator": source.state_dict()}, warm_start)
+            report = load_pretrained_knnvc_generator(target, warm_start)
+            self.assertEqual(set(report["incompatible_shapes"]), {"lin_pre.weight"})
+            self.assertGreater(report["loaded_tensors"], 10)
+            checkpoint = td / "direct.pt"
+            save_direct_hifigan(checkpoint, target, step=3, training={"test": True})
+            loaded, payload = load_direct_hifigan(checkpoint)
+            self.assertEqual(payload["format"], "direct_spear_hifigan_v1")
+            with torch.no_grad():
+                np.testing.assert_allclose(
+                    loaded(features).numpy(), target(features).detach().numpy(), atol=1e-6,
+                )
+
+    def test_direct_hifigan_cache_is_memmapped_and_split_safe(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            data = root / "data"
+            (data / "audio").mkdir(parents=True)
+            _wav(data / "audio" / "train.wav")
+            _wav(data / "audio" / "val.wav")
+            cache_root = root / "cache"
+            cache_root.mkdir()
+            values = np.arange(10 * 4, dtype="<f2").reshape(10, 4)
+            values.tofile(cache_root / "features.f16")
+            pd.DataFrame([
+                {"utterance_id": "train", "logical_split": "train", "speaker_id": "s1",
+                 "offset_frames": 0, "n_frames": 5, "audio_samples": 3200,
+                 "audio_path": "audio/train.wav"},
+                {"utterance_id": "val", "logical_split": "validation", "speaker_id": "s2",
+                 "offset_frames": 5, "n_frames": 5, "audio_samples": 3200,
+                 "audio_path": "audio/val.wav"},
+            ]).to_csv(cache_root / "index.csv", index=False)
+            (cache_root / "manifest.json").write_text(json.dumps({
+                "format": "spear_audio_feature_cache_v1", "feature_file": "features.f16",
+                "index_file": "index.csv", "input_dim": 4, "total_frames": 10,
+                "sample_rate": 16000, "spear_hop_samples": 320, "data": str(data),
+                "test_utterances": 0,
+            }))
+            cache = SpearAudioFeatureCache(cache_root)
+            self.assertIsInstance(cache.features, np.memmap)
+            self.assertEqual(len(cache.split("train")), 1)
+            self.assertEqual(len(cache.split("validation")), 1)
+            self.assertEqual(cache.feature(cache.split("validation").iloc[0])[0, 0], 20)
 
     def test_speech_factor_metrics_compare_full_L_and_P(self):
         with tempfile.TemporaryDirectory() as td:

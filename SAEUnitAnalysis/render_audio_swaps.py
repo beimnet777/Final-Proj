@@ -18,6 +18,7 @@ from .audio_vocoder import load_vocoder, save_waveform
 from .bundle import AnalysisBundle
 from .causal import _decode, _matched_non_p_units, _resample
 from .checkpoint import load_checkpoint
+from .direct_hifigan import load_direct_hifigan
 from .extraction import FeatureCache, _read_audio, calibrate
 from .utils import AnalysisError, write_json
 
@@ -91,13 +92,26 @@ def _generate(
     return waveform[0], log_mel[0]
 
 
+def _generate_direct(
+    h: np.ndarray | torch.Tensor,
+    *,
+    generator,
+    device: str,
+) -> torch.Tensor:
+    if not isinstance(h, torch.Tensor):
+        h = torch.from_numpy(np.asarray(h, dtype=np.float32))
+    with torch.inference_mode():
+        waveform = generator(h[None].to(device))
+    return waveform[0, 0].float().clamp(-1, 1)
+
+
 def _audio_report(output_dir: Path, manifest: pd.DataFrame) -> Path:
     cards = []
     labels = {
         "recipient_source": "Recipient source",
         "donor_source": "Donor reference",
         "oracle_mel_vocoder": "Oracle mel → vocoder",
-        "original_spear_bridge": "Original SPEAR → bridge",
+        "original_spear_bridge": "Original SPEAR reconstruction",
         "sae_baseline": "SAE reconstruction",
         "P_from_donor": "Recipient L + donor P",
         "L_from_donor": "Donor L + recipient P",
@@ -177,7 +191,7 @@ def _audio_report(output_dir: Path, manifest: pd.DataFrame) -> Path:
     .clip{display:flex;flex-direction:column;gap:.35rem}audio{width:100%}.warn{background:#fff3bf;padding:1rem;border-radius:8px}
     table{border-collapse:collapse;width:100%}th,td{padding:.5rem;border:1px solid #e5e9f2;vertical-align:top}</style>
     </head><body><h1>Waveform latent-swap evidence</h1>
-    <p class='warn'>The oracle, original-SPEAR and SAE-baseline clips are reconstruction gates. Route swaps are interpretable only if these controls preserve intelligibility and identity. Griffin-Lim output is diagnostic only.</p>
+    <p class='warn'>The available oracle, original-SPEAR and SAE-baseline clips are reconstruction gates. Route swaps are interpretable only if these controls preserve intelligibility and identity. Griffin-Lim output is diagnostic only.</p>
     """ + grid_html + "".join(cards) + "</body></html>"
     report = output_dir / "report" / "index.html"
     report.parent.mkdir(parents=True, exist_ok=True)
@@ -213,8 +227,9 @@ def _attach_main_report(result_dir: Path, audio_report: Path) -> None:
 
 def render_audio_swaps(
     result_dir: Path,
-    bridge_checkpoint: Path,
+    bridge_checkpoint: Path | None = None,
     *,
+    direct_hifigan_checkpoint: Path | None = None,
     output_dir: Path | None = None,
     device: str | None = None,
     vocoder_backend: str = "bigvgan",
@@ -231,13 +246,43 @@ def render_audio_swaps(
     checkpoint = Path(run_manifest["checkpoint"])
     bundle = AnalysisBundle(Path(run_manifest["data"]))
     resolved = load_checkpoint(checkpoint)
-    bridge, bridge_payload = load_bridge(bridge_checkpoint, device)
-    validate_bridge_domain(bridge.config, resolved.config)
-    vocoder = load_vocoder(
-        vocoder_backend, bridge.config.mel, device=device, model_id=vocoder_model_id,
-        bigvgan_repo=bigvgan_repo,
-    )
-    frontend = LogMelFrontend(bridge.config.mel).to(device)
+    if (bridge_checkpoint is None) == (direct_hifigan_checkpoint is None):
+        raise AnalysisError("Choose exactly one of --bridge or --direct-hifigan.")
+    bridge = bridge_payload = vocoder = frontend = direct_generator = direct_payload = None
+    if direct_hifigan_checkpoint is not None:
+        direct_generator, direct_payload = load_direct_hifigan(direct_hifigan_checkpoint, device)
+        direct_config = direct_generator.config
+        mismatches = {}
+        expected_domain = dict(direct_payload.get("training", {}).get("spear_domain", {}))
+        actual_domain = {
+            "input_dim": int(resolved.config.get("D", -1)),
+            "sample_rate": int(resolved.config.get("sample_rate", bundle.spec.sample_rate)),
+            "spear_hop_samples": 320,
+            "spear_model_id": str(resolved.config.get("spear_model_id", "")),
+            "spear_revision": str(resolved.config.get("spear_revision", "")),
+            "spear_layernorm": bool(resolved.config.get("spear_layernorm", False)),
+        }
+        if not expected_domain:
+            expected_domain = {
+                "input_dim": int(direct_config.input_dim),
+                "sample_rate": int(direct_config.sample_rate),
+                "spear_hop_samples": int(direct_config.spear_hop_samples),
+            }
+        for key, expected in expected_domain.items():
+            if key in actual_domain and actual_domain[key] != expected:
+                mismatches[key] = {"vocoder": expected, "checkpoint": actual_domain[key]}
+        if mismatches:
+            raise AnalysisError(f"Direct HiFi-GAN/checkpoint feature-domain mismatch: {mismatches}")
+        output_sample_rate = int(direct_config.sample_rate)
+    else:
+        bridge, bridge_payload = load_bridge(bridge_checkpoint, device)
+        validate_bridge_domain(bridge.config, resolved.config)
+        vocoder = load_vocoder(
+            vocoder_backend, bridge.config.mel, device=device, model_id=vocoder_model_id,
+            bigvgan_repo=bigvgan_repo,
+        )
+        frontend = LogMelFrontend(bridge.config.mel).to(device)
+        output_sample_rate = int(vocoder.sample_rate)
     encoder_model = calibrate(resolved, bundle, device).eval()
     decoder_weight = resolved.state["sae.dec_weight"].detach().float().cpu().numpy()
     matched_p, matched_non_p, matching_summary = _matched_non_p_units(cache, decoder_weight)
@@ -287,60 +332,59 @@ def render_audio_swaps(
         zero_p_h = baseline_h + (0.0 - za[:, p_units]) @ decoder_weight[:, p_units].T
 
         target_audio = _resample_audio(
-            recipient_audio, bundle.spec.sample_rate, bridge.config.mel.sample_rate,
+            recipient_audio, bundle.spec.sample_rate, output_sample_rate,
         )
-        with torch.inference_mode():
-            target_log_mel = frontend(torch.from_numpy(target_audio)[None].to(device))
-            oracle_waveform = vocoder(target_log_mel)[0]
-        target_frames = int(target_log_mel.shape[-1])
         generated = {
             "recipient_source": torch.from_numpy(target_audio),
             "donor_source": torch.from_numpy(_resample_audio(
-                donor_audio, bundle.spec.sample_rate, bridge.config.mel.sample_rate,
+                donor_audio, bundle.spec.sample_rate, output_sample_rate,
             )),
-            "oracle_mel_vocoder": oracle_waveform,
-            "original_spear_bridge": _generate(
-                original_h, bridge=bridge, vocoder=vocoder,
-                target_mel_frames=target_frames, device=device,
-            )[0],
-            "sae_baseline": _generate(
-                baseline_h, bridge=bridge, vocoder=vocoder,
-                target_mel_frames=target_frames, device=device,
-            )[0],
-            "P_from_donor": _generate(
-                p_h, bridge=bridge, vocoder=vocoder,
-                target_mel_frames=target_frames, device=device,
-            )[0],
-            "L_from_donor": _generate(
-                l_h, bridge=bridge, vocoder=vocoder,
-                target_mel_frames=target_frames, device=device,
-            )[0],
-            "matched_P_subset_from_donor": _generate(
-                matched_p_h, bridge=bridge, vocoder=vocoder,
-                target_mel_frames=target_frames, device=device,
-            )[0],
-            "matched_nonP_from_donor": _generate(
-                matched_h, bridge=bridge, vocoder=vocoder,
-                target_mel_frames=target_frames, device=device,
-            )[0],
-            "P_zero": _generate(
-                zero_p_h, bridge=bridge, vocoder=vocoder,
-                target_mel_frames=target_frames, device=device,
-            )[0],
         }
+        direct_inputs = {
+            "original_spear_bridge": original_h,
+            "sae_baseline": baseline_h,
+            "P_from_donor": p_h,
+            "L_from_donor": l_h,
+            "matched_P_subset_from_donor": matched_p_h,
+            "matched_nonP_from_donor": matched_h,
+            "P_zero": zero_p_h,
+        }
+        if direct_generator is not None:
+            generated.update({
+                mode: _generate_direct(value, generator=direct_generator, device=device)
+                for mode, value in direct_inputs.items()
+            })
+            target_frames = None
+        else:
+            with torch.inference_mode():
+                target_log_mel = frontend(torch.from_numpy(target_audio)[None].to(device))
+                generated["oracle_mel_vocoder"] = vocoder(target_log_mel)[0]
+            target_frames = int(target_log_mel.shape[-1])
+            generated.update({
+                mode: _generate(
+                    value, bridge=bridge, vocoder=vocoder,
+                    target_mel_frames=target_frames, device=device,
+                )[0]
+                for mode, value in direct_inputs.items()
+            })
         if pair_id < int(interpolation_pairs):
             donor_p = _resample(zb[:, p_units], len(za))
             for alpha in (0.0, .25, .5, .75, 1.0):
                 interpolated_h = baseline_h + (
                     float(alpha) * (donor_p - za[:, p_units])
                 ) @ decoder_weight[:, p_units].T
-                generated[f"P_interpolate_{alpha:.2f}"] = _generate(
-                    interpolated_h, bridge=bridge, vocoder=vocoder,
-                    target_mel_frames=target_frames, device=device,
-                )[0]
+                if direct_generator is not None:
+                    generated[f"P_interpolate_{alpha:.2f}"] = _generate_direct(
+                        interpolated_h, generator=direct_generator, device=device,
+                    )
+                else:
+                    generated[f"P_interpolate_{alpha:.2f}"] = _generate(
+                        interpolated_h, bridge=bridge, vocoder=vocoder,
+                        target_mel_frames=target_frames, device=device,
+                    )[0]
         for mode, waveform in generated.items():
             path = audio_dir / f"pair{pair_id:04d}_{mode}.wav"
-            save_waveform(path, waveform, vocoder.sample_rate)
+            save_waveform(path, waveform, output_sample_rate)
             rows.append({
                 "pair": pair_id,
                 "mode": mode,
@@ -354,7 +398,7 @@ def render_audio_swaps(
                 "recipient_speaker": str(pair["recipient_speaker"]),
                 "donor_speaker": str(pair["donor_speaker"]),
                 "transcript": str(recipient_row.get("transcript", "")),
-                "sample_rate": int(vocoder.sample_rate),
+                "sample_rate": int(output_sample_rate),
                 "samples": int(np.asarray(waveform.detach().cpu()).size),
             })
     manifest = pd.DataFrame(rows)
@@ -381,23 +425,28 @@ def render_audio_swaps(
             hybrid_h = baseline_h + (donor_p - za[:, p_units]) @ decoder_weight[:, p_units].T
             recipient_row = metadata.loc[recipient_id]
             recipient_audio = _read_audio(bundle.audio_path(recipient_row), bundle.spec.sample_rate)
-            target_audio = _resample_audio(
-                recipient_audio, bundle.spec.sample_rate, bridge.config.mel.sample_rate,
-            )
-            with torch.inference_mode():
-                target_frames = int(frontend(torch.from_numpy(target_audio)[None].to(device)).shape[-1])
-            waveform, _ = _generate(
-                hybrid_h, bridge=bridge, vocoder=vocoder,
-                target_mel_frames=target_frames, device=device,
-            )
+            if direct_generator is not None:
+                waveform = _generate_direct(
+                    hybrid_h, generator=direct_generator, device=device,
+                )
+            else:
+                target_audio = _resample_audio(
+                    recipient_audio, bundle.spec.sample_rate, bridge.config.mel.sample_rate,
+                )
+                with torch.inference_mode():
+                    target_frames = int(frontend(torch.from_numpy(target_audio)[None].to(device)).shape[-1])
+                waveform, _ = _generate(
+                    hybrid_h, bridge=bridge, vocoder=vocoder,
+                    target_mel_frames=target_frames, device=device,
+                )
             path = audio_dir / (
                 f"grid_r{int(cell['grid_row']):02d}_c{int(cell['grid_column']):02d}.wav"
             )
-            save_waveform(path, waveform, vocoder.sample_rate)
+            save_waveform(path, waveform, output_sample_rate)
             grid_rows.append({
                 **cell.to_dict(), "audio_path": str(path),
                 "transcript": str(recipient_row.get("transcript", "")),
-                "sample_rate": int(vocoder.sample_rate),
+                "sample_rate": int(output_sample_rate),
             })
     grid_manifest_path = output_dir / "audio_grid_manifest.csv"
     if grid_rows:
@@ -408,20 +457,31 @@ def render_audio_swaps(
         "format": "spear_audio_swap_render_v1",
         "source_analysis": str(result_dir),
         "source_checkpoint": str(checkpoint),
-        "bridge_checkpoint": str(bridge_checkpoint.resolve()),
-        "bridge_training": bridge_payload.get("training", {}),
-        "vocoder_backend": vocoder_backend,
-        "vocoder_model_id": vocoder_model_id if vocoder_backend == "bigvgan" else None,
-        "bigvgan_repo": str(bigvgan_repo.resolve()) if bigvgan_repo else None,
-        "sample_rate": int(vocoder.sample_rate),
+        "bridge_checkpoint": str(bridge_checkpoint.resolve()) if bridge_checkpoint else None,
+        "bridge_training": bridge_payload.get("training", {}) if bridge_payload else None,
+        "direct_hifigan_checkpoint": (
+            str(direct_hifigan_checkpoint.resolve()) if direct_hifigan_checkpoint else None
+        ),
+        "direct_hifigan_training": direct_payload.get("training", {}) if direct_payload else None,
+        "vocoder_backend": "direct_hifigan" if direct_generator is not None else vocoder_backend,
+        "vocoder_model_id": (
+            vocoder_model_id if direct_generator is None and vocoder_backend == "bigvgan" else None
+        ),
+        "bigvgan_repo": (
+            str(bigvgan_repo.resolve()) if bigvgan_repo and direct_generator is None else None
+        ),
+        "sample_rate": int(output_sample_rate),
         "pairs_rendered": int(manifest["pair"].nunique()) if len(manifest) else 0,
         "interpolation_pairs": int(min(max_pairs, interpolation_pairs)),
         "audio_grid_size": int(grid_size),
         "audio_grid_cells": int(len(grid_rows)),
-        "persisted_modes": list(PERSISTED_AUDIO_MODES),
+        "persisted_modes": [
+            mode for mode in PERSISTED_AUDIO_MODES
+            if len(manifest) and mode in set(manifest["mode"].astype(str))
+        ],
         "matched_non_p_control": matching_summary,
         "random_seed": int(seed),
-        "diagnostic_only": bool(vocoder_backend == "griffinlim"),
+        "diagnostic_only": bool(direct_generator is None and vocoder_backend == "griffinlim"),
     })
     report = _audio_report(output_dir, manifest)
     _attach_main_report(result_dir, report)
@@ -431,7 +491,12 @@ def render_audio_swaps(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Render selected SAE latent swaps as audio.")
     parser.add_argument("--result-dir", required=True, type=Path)
-    parser.add_argument("--bridge", required=True, type=Path)
+    inversion = parser.add_mutually_exclusive_group(required=True)
+    inversion.add_argument("--bridge", type=Path)
+    inversion.add_argument(
+        "--direct-hifigan", type=Path,
+        help="Direct SPEAR-conditioned HiFi-GAN checkpoint; bypasses the mel bridge.",
+    )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--vocoder", choices=("bigvgan", "griffinlim"), default="bigvgan")
@@ -456,7 +521,9 @@ def main() -> None:
     args = _parser().parse_args()
     try:
         report = render_audio_swaps(
-            args.result_dir, args.bridge, output_dir=args.output_dir,
+            args.result_dir, args.bridge,
+            direct_hifigan_checkpoint=args.direct_hifigan,
+            output_dir=args.output_dir,
             device=args.device, vocoder_backend=args.vocoder,
             vocoder_model_id=args.vocoder_model_id,
             bigvgan_repo=args.bigvgan_repo,

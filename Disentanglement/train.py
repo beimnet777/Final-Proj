@@ -764,6 +764,12 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         l_recon = recon_loss(out["h_t"], out["h_hat"], out["out_lengths"])
         l_pr    = ctc_pr_loss(out["pr_logits"], targets, out["out_lengths"], target_lengths)
         l_sid   = sid_ce_loss(out["sid_logits"], speaker_ids)
+        l_aux_gn = l_recon.new_zeros(())
+        if model.sae.aux_k > 0:
+            e_hat_gn = model.sae.aux_reconstruct(out["z_pre"])
+            if e_hat_gn is not None:
+                resid_gn = (out["h_t"] - out["h_hat"]).detach()
+                l_aux_gn = _masked_mse(resid_gn, e_hat_gn, out["out_lengths"])
         l_route = (route_loss(model.routing.logits) if _routing_active
                    else l_recon.new_zeros(()))
 
@@ -815,6 +821,8 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
             # With dann_full_discriminator the weight already lives in the lambda.
             _dann_fix = getattr(cfg, 'dann_full_discriminator', False)
             loss_terms.append(("grl_p", l_grl_p_gn if _dann_fix else _grl_p_w * l_grl_p_gn, True))
+        if model.sae.aux_k > 0 and l_aux_gn.requires_grad:
+            loss_terms.append(("aux", float(cfg.aux_k_coef) * l_aux_gn, True))
 
         # ---- probe_robust: CLUB gradient measurement on SAE encoder ----
         # Recompute the same z_L stats-pool / z_P frame batches the main loop
@@ -908,7 +916,7 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         # cos>0: tasks agree on which params to move; cos<0: they fight on the
         # same params and the sum-then-step optimizer cancels signal.
         cos_pairs: Dict[str, float] = {}
-        names_in_order = [n for n in ("recon", "pr", "sid", "grl", "grl_p",
+        names_in_order = [n for n in ("recon", "pr", "sid", "grl", "grl_p", "aux",
                                        "club", "club_phn", "route")
                           if n in flat_vecs]
         for i, a in enumerate(names_in_order):
@@ -931,6 +939,10 @@ def _log_grad_norms_stage2(model, batch, cfg, step, tb, use_bf16, grl_lam,
         norms["grl"]   = raw["grl"] * grl_w
     if _grl_p_on:
         norms["grl_p"] = raw.get("grl_p", 0.0)
+    if "aux" in raw:
+        # The weighted AuxK loss was passed into loss_terms, so this is the
+        # gradient actually delivered to the SAE by the configured coefficient.
+        norms["aux"] = raw["aux"]
     if _club_on:
         # raw["club"] already has cfg.club_weight baked in (we passed the
         # weighted loss into loss_terms above).
@@ -1279,6 +1291,7 @@ def run_stage1(cfg: DISConfig) -> Path:
         print("[stage 1] b_pre ← geometric median of a data sample")
     if model.sae.aux_k > 0:
         print(f"[stage 1] AuxK on: aux_k={model.sae.aux_k}  coef={cfg.aux_k_coef}  "
+              f"adaptive={model.sae.aux_k_adaptive}  "
               f"dead_thresh={model.sae.dead_threshold} steps  "
               f"valid_frame_dead_count={getattr(cfg,'valid_frame_dead_count',False)}  "
               f"renorm_dec={getattr(cfg,'renorm_decoder',False)}")
@@ -1512,6 +1525,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         print("[stage 2] b_pre ← geometric median of a data sample")
     if model.sae.aux_k > 0:
         print(f"[stage 2] AuxK on: aux_k={model.sae.aux_k}  coef={cfg.aux_k_coef}  "
+              f"adaptive={model.sae.aux_k_adaptive}  "
               f"dead_thresh={model.sae.dead_threshold}  "
               f"valid_frame_dead_count={getattr(cfg,'valid_frame_dead_count',False)}  "
               f"renorm_dec={getattr(cfg,'renorm_decoder',False)}")
@@ -1827,6 +1841,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     discriminator_buffer = []
     adversarial_grad_buffers = {}
     last_adversarial_cap_stats = {}
+    dead_new_since_log = 0
+    dead_revived_since_log = 0
+    dead_fired_since_log = 0
+    dead_updates_since_log = 0
     for micro_step in range(first_micro, final_micro + 1):
         step = (micro_step - 1) // accumulation + 1
         micro_in_group = (micro_step - 1) % accumulation
@@ -1979,10 +1997,27 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 out["z_t"],
                 out["out_lengths"] if getattr(cfg, "valid_frame_dead_count", False) else None,
             )
+            dead_new_since_log += model.sae.last_dead_stats["new_dead"]
+            dead_revived_since_log += model.sae.last_dead_stats["revived"]
+            dead_fired_since_log += model.sae.last_dead_stats["fired"]
+            dead_updates_since_log += 1
             # AuxK dead-latent revival (Gao): model the recon residual with dead latents
             l_aux = l_recon.new_zeros(())
             if aux_k_on:
-                e_hat = model.sae.aux_reconstruct(out["z_pre"])
+                if fixed_blocks:
+                    aux_route_idx = model.block_idx
+                elif not no_routing and not projection_mode:
+                    aux_route_idx = model.routing.logits.detach().argmax(dim=-1)
+                else:
+                    aux_route_idx = None
+                collect_aux_stats = (accumulation_boundary and
+                                     (step == 1 or step % cfg.log_every == 0))
+                e_hat = model.sae.aux_reconstruct(
+                    out["z_pre"],
+                    lengths=out["out_lengths"],
+                    route_idx=aux_route_idx,
+                    collect_stats=collect_aux_stats,
+                )
                 if e_hat is not None:
                     resid = (out["h_t"] - out["h_hat"]).detach()
                     l_aux = _masked_mse(resid, e_hat, out["out_lengths"])
@@ -2487,8 +2522,14 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                     act_L = ((z_active * (hard_idx == 0).float()).sum(-1) * fmask).sum() / n_valid
                     act_P = ((z_active * (hard_idx == 1).float()).sum(-1) * fmask).sum() / n_valid
                     act_U = ((z_active * (hard_idx == 2).float()).sum(-1) * fmask).sum() / n_valid
+                    dead_mask = model.sae.steps_since_fired > model.sae.dead_threshold
+                    dead_route_counts = tuple(
+                        int((dead_mask & (hard_idx == route)).sum().item())
+                        for route in range(3)
+                    )
                 else:
                     act_L = act_P = act_U = z_active.new_tensor(float('nan'))
+                    dead_route_counts = ()
 
                 # Adversary readouts on this batch (loss is hard to read; accuracy/PER
                 # say directly how much each adversary still extracts).
@@ -2641,10 +2682,41 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             vib_str   = f"  vib={l_vib.item():.4f}(w={eff_vib_w:.1e})" if vib_w > 0 else ""
             n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
             dead_frac = n_dead / cfg.K
-            aux_str = f"  dead={100*dead_frac:.1f}%"
+            fired_avg = dead_fired_since_log / max(1, dead_updates_since_log)
+            dead_detail = ""
+            if dead_route_counts:
+                dead_detail = ",L/P/U=" + "/".join(str(value) for value in dead_route_counts)
+                losses["dead_L"] = dead_route_counts[0]
+                losses["dead_P"] = dead_route_counts[1]
+                losses["dead_U"] = dead_route_counts[2]
+            aux_str = (f"  dead={100*dead_frac:.1f}%({n_dead}{dead_detail};"
+                       f"new/rev={dead_new_since_log}/{dead_revived_since_log};"
+                       f"fired/b={fired_avg:.1f})")
             losses["dead_frac"] = dead_frac
+            losses["dead_new"] = dead_new_since_log
+            losses["dead_revived"] = dead_revived_since_log
+            losses["dead_fired_per_batch"] = fired_avg
             if aux_k_on:
-                aux_str = f"  aux={l_aux.item():.4f}{aux_str}"
+                aux_diag = model.sae.last_aux_stats
+                aux_detail = f"k={aux_diag.get('k_eff', 0)},uniq={aux_diag.get('unique', 0)}"
+                unique_routes = aux_diag.get("unique_by_route", ())
+                if unique_routes:
+                    unique_routes = tuple(unique_routes) + (0,) * max(0, 3 - len(unique_routes))
+                    unique_routes = unique_routes[:3]
+                    aux_detail += ",uniqL/P/U=" + "/".join(str(value) for value in unique_routes)
+                    for route, value in enumerate(unique_routes):
+                        losses[f"aux_unique_route_{route}"] = value
+                selection_routes = aux_diag.get("selections_by_route", ())
+                if selection_routes:
+                    selection_routes = tuple(selection_routes) + (0,) * max(0, 3 - len(selection_routes))
+                    selection_routes = selection_routes[:3]
+                    aux_detail += ",selL/P/U=" + "/".join(str(value) for value in selection_routes)
+                    for route, value in enumerate(selection_routes):
+                        losses[f"aux_selections_route_{route}"] = value
+                losses["aux"] = l_aux.item()
+                losses["aux_k_eff"] = aux_diag.get("k_eff", 0)
+                losses["aux_unique"] = aux_diag.get("unique", 0)
+                aux_str = f"  aux={l_aux.item():.4f}({aux_detail}){aux_str}"
             gn_str = ""
             if gradnorm_on:
                 _gw = gn_ctrl.weights()
@@ -2678,6 +2750,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             append_metrics(metrics_path, {"step": step, "split": "train", **losses})
             tb.log_routing(step, n_L, n_P, n_U, entropy, routing_diag)
             tb.log_sae(step, density)
+            dead_new_since_log = 0
+            dead_revived_since_log = 0
+            dead_fired_since_log = 0
+            dead_updates_since_log = 0
 
         if step % cfg.ckpt_every == 0 or step == cfg.stage2_steps:
             val_metrics = _eval_stage2(model, val_dl, device, use_bf16)

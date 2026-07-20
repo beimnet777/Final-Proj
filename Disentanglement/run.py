@@ -75,6 +75,10 @@ def _parse_args():
     p.add_argument("--aux_k", type=int, default=cfg.aux_k,
                    help="AuxK dead-latent revival: # dead latents to model the residual (0=off, ~D/2 when scaling)")
     p.add_argument("--aux_k_coef", type=float, default=cfg.aux_k_coef)
+    p.add_argument("--aux_k_adaptive", action=argparse.BooleanOptionalAction,
+                   default=cfg.aux_k_adaptive,
+                   help="Use up to aux_k dead latents immediately: k_eff=min(aux_k,n_dead). "
+                        "Disabled by default to preserve legacy AuxK behaviour.")
     p.add_argument("--dead_steps_threshold", type=int, default=cfg.dead_steps_threshold)
     p.add_argument("--valid_frame_dead_count", action=argparse.BooleanOptionalAction,
                    default=cfg.valid_frame_dead_count,
@@ -443,6 +447,7 @@ def _parse_args():
     cfg.topk                  = args.topk
     cfg.aux_k                 = args.aux_k
     cfg.aux_k_coef            = args.aux_k_coef
+    cfg.aux_k_adaptive        = args.aux_k_adaptive
     cfg.dead_steps_threshold  = args.dead_steps_threshold
     cfg.valid_frame_dead_count = args.valid_frame_dead_count
     cfg.geom_median_bias      = args.geom_median_bias

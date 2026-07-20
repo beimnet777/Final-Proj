@@ -18,6 +18,7 @@ from .audio_bridge import (
     LogMelFrontend,
     MelConfig,
     SpearMelBridge,
+    load_bridge,
     masked_bridge_loss,
     save_bridge,
 )
@@ -174,6 +175,7 @@ def train_bridge(
     hidden_dim: int = 384,
     residual_layers: int = 6,
     mel_config: MelConfig | None = None,
+    resume: Path | None = None,
 ) -> Path:
     set_seed(seed)
     device = _device(device)
@@ -193,7 +195,16 @@ def train_bridge(
         spear_layernorm=bool(resolved.config.get("spear_layernorm", False)),
         mel=mel_config,
     )
-    bridge = SpearMelBridge(bridge_config).to(device)
+    resume_payload: dict[str, Any] | None = None
+    if resume is not None:
+        bridge, resume_payload = load_bridge(resume, device)
+        if bridge.config != bridge_config:
+            raise AnalysisError(
+                "Resume checkpoint architecture or mel configuration does not match "
+                "the requested bridge configuration."
+            )
+    else:
+        bridge = SpearMelBridge(bridge_config).to(device)
     frontend = LogMelFrontend(mel_config).to(device)
     train_rows = _rows(bundle, "train", max_train_utterances, seed)
     validation_rows = _rows(bundle, "validation", max_validation_utterances, seed + 1)
@@ -211,12 +222,34 @@ def train_bridge(
     optimizer = torch.optim.AdamW(
         bridge.parameters(), lr=float(learning_rate), weight_decay=float(weight_decay),
     )
+    optimizer_state_restored = False
+    if resume_payload is not None and resume_payload.get("optimizer_state") is not None:
+        optimizer.load_state_dict(resume_payload["optimizer_state"])
+        for state in optimizer.state.values():
+            for key, value in state.items():
+                if torch.is_tensor(value):
+                    state[key] = value.to(device)
+        optimizer_state_restored = True
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    history: list[dict[str, Any]] = []
-    best = float("inf")
+    previous_training = (
+        dict(resume_payload.get("training", {})) if resume_payload is not None else {}
+    )
+    history: list[dict[str, Any]] = list(previous_training.get("history", []))
+    completed_epoch = int(previous_training.get("epoch", len(history)))
+    start_epoch = completed_epoch + 1
+    best = min(
+        (float(row["validation_loss"]) for row in history if "validation_loss" in row),
+        default=float("inf"),
+    )
     best_path = output_dir / "best.pt"
-    for epoch in range(1, int(epochs) + 1):
+    if start_epoch > int(epochs):
+        if best_path.exists():
+            return best_path
+        raise AnalysisError(
+            f"Resume checkpoint already completed epoch {completed_epoch}, but best.pt is absent."
+        )
+    for epoch in range(start_epoch, int(epochs) + 1):
         train_metrics = _run_epoch(
             train_loader, encoder_model=model, bridge=bridge, frontend=frontend,
             optimizer=optimizer, device=device, source_sample_rate=bundle.spec.sample_rate,
@@ -251,12 +284,21 @@ def train_bridge(
             "train_utterances": int(len(train_rows)),
             "validation_utterances": int(len(validation_rows)),
             "seed": int(seed),
+            "resume_from": str(resume.resolve()) if resume is not None else None,
+            "optimizer_state_restored": bool(optimizer_state_restored),
             "history": history,
         }
-        save_bridge(output_dir / "last.pt", bridge, training=training_record)
+        save_bridge(
+            output_dir / "last.pt", bridge, training=training_record,
+            optimizer_state=optimizer.state_dict(),
+        )
         if float(validation_metrics.get("loss", float("inf"))) < best:
             best = float(validation_metrics["loss"])
-            save_bridge(best_path, bridge, training=training_record | {"best_validation_loss": best})
+            save_bridge(
+                best_path, bridge,
+                training=training_record | {"best_validation_loss": best},
+                optimizer_state=optimizer.state_dict(),
+            )
     write_json(output_dir / "training_manifest.json", {
         "format": "spear_logmel_bridge_training_v1",
         "best_checkpoint": str(best_path),
@@ -269,6 +311,8 @@ def train_bridge(
         "test_examples_used": 0,
         "train_utterances": int(len(train_rows)),
         "validation_utterances": int(len(validation_rows)),
+        "resume_from": str(resume.resolve()) if resume is not None else None,
+        "optimizer_state_restored": bool(optimizer_state_restored),
         "history": history,
     })
     return best_path
@@ -297,6 +341,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-mels", type=int, default=100)
     parser.add_argument("--f-min", type=float, default=0.0)
     parser.add_argument("--f-max", type=float, default=12_000.0)
+    parser.add_argument(
+        "--resume", type=Path,
+        help="Resume model/history from last.pt; total --epochs still names the final epoch.",
+    )
     return parser
 
 
@@ -321,6 +369,7 @@ def main() -> None:
             max_validation_utterances=args.max_validation_utterances,
             hidden_dim=args.hidden_dim, residual_layers=args.residual_layers,
             mel_config=mel,
+            resume=args.resume,
         )
     except AnalysisError as exc:
         raise SystemExit(f"[audio-bridge] ERROR: {exc}") from exc
