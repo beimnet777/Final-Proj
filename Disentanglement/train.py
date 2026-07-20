@@ -1279,7 +1279,9 @@ def run_stage1(cfg: DISConfig) -> Path:
         print("[stage 1] b_pre ← geometric median of a data sample")
     if model.sae.aux_k > 0:
         print(f"[stage 1] AuxK on: aux_k={model.sae.aux_k}  coef={cfg.aux_k_coef}  "
-              f"dead_thresh={model.sae.dead_threshold} steps  renorm_dec={getattr(cfg,'renorm_decoder',False)}")
+              f"dead_thresh={model.sae.dead_threshold} steps  "
+              f"valid_frame_dead_count={getattr(cfg,'valid_frame_dead_count',False)}  "
+              f"renorm_dec={getattr(cfg,'renorm_decoder',False)}")
 
     from datetime import datetime
     tb = DISLogger(cfg.runs_dir / "tb", run_name=f"stage1_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
@@ -1314,7 +1316,10 @@ def run_stage1(cfg: DISConfig) -> Path:
                 l_decor = decor_loss(out["z_t"], audio_lengths)
                 loss    = loss + cfg.decor_weight * l_decor
             # Track dead latents in every SAE run; AuxK is an optional intervention.
-            model.sae.update_dead(out["z_t"])
+            model.sae.update_dead(
+                out["z_t"],
+                out["out_lengths"] if getattr(cfg, "valid_frame_dead_count", False) else None,
+            )
             # AuxK dead-latent revival (Gao): model the recon residual with dead latents.
             l_aux = None
             if model.sae.aux_k > 0:
@@ -1507,7 +1512,9 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
         print("[stage 2] b_pre ← geometric median of a data sample")
     if model.sae.aux_k > 0:
         print(f"[stage 2] AuxK on: aux_k={model.sae.aux_k}  coef={cfg.aux_k_coef}  "
-              f"dead_thresh={model.sae.dead_threshold}  renorm_dec={getattr(cfg,'renorm_decoder',False)}")
+              f"dead_thresh={model.sae.dead_threshold}  "
+              f"valid_frame_dead_count={getattr(cfg,'valid_frame_dead_count',False)}  "
+              f"renorm_dec={getattr(cfg,'renorm_decoder',False)}")
     if hasattr(model, 'grl_head_u'):
         print(f"[stage 2] z_U adversaries on: grl_u={cfg.grl_u_weight}  grl_p_u={cfg.grl_phoneme_u_weight}")
     if hasattr(model, 'prosody_head'):
@@ -1968,7 +1975,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             eff_grl_pros_w   = 1.0 if grl_pros_w   > 0 else 0.0
             eff_grl_pros_u_w = 1.0 if grl_pros_u_w > 0 else 0.0
             # Track dead latents regardless of whether AuxK revival is enabled.
-            model.sae.update_dead(out["z_t"])
+            model.sae.update_dead(
+                out["z_t"],
+                out["out_lengths"] if getattr(cfg, "valid_frame_dead_count", False) else None,
+            )
             # AuxK dead-latent revival (Gao): model the recon residual with dead latents
             l_aux = l_recon.new_zeros(())
             if aux_k_on:

@@ -76,6 +76,10 @@ def _parse_args():
                    help="AuxK dead-latent revival: # dead latents to model the residual (0=off, ~D/2 when scaling)")
     p.add_argument("--aux_k_coef", type=float, default=cfg.aux_k_coef)
     p.add_argument("--dead_steps_threshold", type=int, default=cfg.dead_steps_threshold)
+    p.add_argument("--valid_frame_dead_count", action=argparse.BooleanOptionalAction,
+                   default=cfg.valid_frame_dead_count,
+                   help="Count SAE dead-latent firing only on valid frames for AuxK/dead logs. "
+                        "Default is legacy padded-frame counting for reproducibility.")
     p.add_argument("--geom_median_bias", action="store_true", default=cfg.geom_median_bias)
     p.add_argument("--renorm_decoder", action="store_true", default=cfg.renorm_decoder)
 
@@ -440,6 +444,7 @@ def _parse_args():
     cfg.aux_k                 = args.aux_k
     cfg.aux_k_coef            = args.aux_k_coef
     cfg.dead_steps_threshold  = args.dead_steps_threshold
+    cfg.valid_frame_dead_count = args.valid_frame_dead_count
     cfg.geom_median_bias      = args.geom_median_bias
     cfg.renorm_decoder        = args.renorm_decoder
     cfg.alpha                 = args.alpha

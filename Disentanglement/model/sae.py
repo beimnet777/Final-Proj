@@ -163,9 +163,25 @@ class SparseAutoencoder(nn.Module):
 
     # ---------------------------------------------------------------- dead latents / AuxK
     @torch.no_grad()
-    def update_dead(self, z_t: torch.Tensor) -> None:
-        """Increment the not-fired counter; reset latents that fired this batch."""
-        fired = (z_t != 0).any(dim=tuple(range(z_t.dim() - 1)))   # (K,)
+    def update_dead(self, z_t: torch.Tensor, lengths: torch.Tensor | None = None) -> None:
+        """Increment the not-fired counter; reset latents that fired this batch.
+
+        When ``lengths`` is provided, only valid time steps are allowed to reset
+        the counter.  Omitting it preserves the legacy behaviour used by the
+        original Libri experiments, where padded frames in ``z_t`` could also
+        mark a latent as fired.
+        """
+        active = z_t != 0
+        if lengths is not None:
+            if z_t.dim() != 3:
+                raise ValueError("valid-frame dead counting expects z_t with shape (B, T, K)")
+            B, T, _ = z_t.shape
+            if int(lengths.numel()) != B:
+                raise ValueError(f"lengths has {lengths.numel()} entries, expected batch size {B}")
+            mask = (torch.arange(T, device=z_t.device).unsqueeze(0)
+                    < lengths.to(device=z_t.device).long().unsqueeze(1))
+            active = active & mask.unsqueeze(-1)
+        fired = active.any(dim=tuple(range(z_t.dim() - 1)))   # (K,)
         self.steps_since_fired += 1
         self.steps_since_fired[fired] = 0
 
