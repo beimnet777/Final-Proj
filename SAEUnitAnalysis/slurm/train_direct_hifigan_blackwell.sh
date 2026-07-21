@@ -3,7 +3,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=100G
-#SBATCH --time=24:00:00
+#SBATCH --time=36:00:00
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
@@ -16,16 +16,16 @@
 #
 # The first invocation creates one reusable float16 SPEAR cache containing only
 # train+validation. Later invocations reuse it. Training resumes automatically
-# from last.pt, so a 24-hour allocation can safely be continued. Once max_steps
+# from last.pt, so an interrupted allocation can safely be continued. Once max_steps
 # is reached, the job renders ten held-out registered pairs with recipient/donor
 # references, original-SPEAR reconstruction, SAE baseline, P swap and L swap.
 #
 # Submit:
 #   sbatch SAEUnitAnalysis/slurm/train_direct_hifigan_blackwell.sh
 #
-# Validate the real CSD3 paths and command on a login node without
-# extracting/training. Unlike the original version, this does not bypass
-# preflight checks:
+# Validate the real CSD3 paths on a login node without extracting SPEAR
+# features or training. This also builds/validates the symlink-only bundle,
+# verifies the downloaded warm start, and loads it into the exact full model:
 #   DRY_RUN=1 bash SAEUnitAnalysis/slurm/train_direct_hifigan_blackwell.sh
 
 set -euo pipefail
@@ -46,19 +46,26 @@ PYTHON="${PYTHON:-/home/bbg25/.conda/envs/mlmi4/bin/python}"
 LIBRISPEECH_ROOT="${LIBRISPEECH_ROOT:-${REPO_ROOT}/Probing/data/LibriSpeech}"
 CHECKPOINT="${CHECKPOINT:-${REPO_ROOT}/checkpoints/blackwell/libri_advfb_prrecover_gn00015_240L16P_aux64_12k_s42/final.pt}"
 DATA_ROOT="${DATA_ROOT:-${REPO_ROOT}/SAEUnitAnalysis/audio_models/librispeech_csd3_audio_bundle_full}"
-CACHE_DIR="${CACHE_DIR:-${REPO_ROOT}/SAEUnitAnalysis/audio_models/spear_direct_cache_train10k_val1k}"
-OUTPUT_DIR="${OUTPUT_DIR:-${REPO_ROOT}/SAEUnitAnalysis/audio_models/spear_direct_hifigan_knnvc_init}"
+CACHE_DIR="${CACHE_DIR:-${REPO_ROOT}/SAEUnitAnalysis/audio_models/spear_direct_cache_trainclean100_full}"
+OUTPUT_DIR="${OUTPUT_DIR:-${REPO_ROOT}/SAEUnitAnalysis/audio_models/spear_direct_hifigan_trainclean100_full}"
 PAIR_MANIFEST="${PAIR_MANIFEST:-${REPO_ROOT}/SAEUnitAnalysis/configs/direct_hifigan_demo_pairs.csv}"
-DEMO_OUTPUT_DIR="${DEMO_OUTPUT_DIR:-${OUTPUT_DIR}/final_demo_10_pairs}"
 PRETRAINED_DIR="${PRETRAINED_DIR:-${REPO_ROOT}/SAEUnitAnalysis/audio_models/pretrained}"
 PRETRAINED_GENERATOR="${PRETRAINED_GENERATOR:-${PRETRAINED_DIR}/knnvc_regular_g_02500000.pt}"
 PRETRAINED_URL="${PRETRAINED_URL:-https://github.com/bshall/knn-vc/releases/download/v0.1/g_02500000.pt}"
 PRETRAINED_SHA256="${PRETRAINED_SHA256:-f98b760e0e5fd0019cffd3a9d22bab5c4c2fe38491532d7680a8ad07eaf3e8dd}"
 
 CACHE_BATCH_SIZE="${CACHE_BATCH_SIZE:-4}"
-MAX_TRAIN_UTTERANCES="${MAX_TRAIN_UTTERANCES:-10000}"
-MAX_VALIDATION_UTTERANCES="${MAX_VALIDATION_UTTERANCES:-1000}"
-MAX_STEPS="${MAX_STEPS:-250000}"
+# Zero means all available utterances. The production job intentionally uses
+# the complete train-clean-100 and dev-clean splits to maximize speaker and
+# phonetic coverage; reduced subsets must be requested explicitly.
+MAX_TRAIN_UTTERANCES="${MAX_TRAIN_UTTERANCES:-0}"
+MAX_VALIDATION_UTTERANCES="${MAX_VALIDATION_UTTERANCES:-0}"
+EXPECTED_TRAIN_UTTERANCES="${EXPECTED_TRAIN_UTTERANCES:-28539}"
+EXPECTED_VALIDATION_UTTERANCES="${EXPECTED_VALIDATION_UTTERANCES:-2703}"
+EXPECTED_TEST_UTTERANCES="${EXPECTED_TEST_UTTERANCES:-2620}"
+MAX_STEPS="${MAX_STEPS:-100000}"
+BEST_SNAPSHOT="${BEST_SNAPSHOT:-${OUTPUT_DIR}/best_after_step${MAX_STEPS}.pt}"
+DEMO_OUTPUT_DIR="${DEMO_OUTPUT_DIR:-${OUTPUT_DIR}/demo_after_step${MAX_STEPS}_10_pairs}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 SEGMENT_FRAMES="${SEGMENT_FRAMES:-24}"
 LEARNING_RATE="${LEARNING_RATE:-0.0002}"
@@ -120,7 +127,7 @@ demo_args=(
   -m SAEUnitAnalysis.render_direct_hifigan_demo
   --checkpoint "${CHECKPOINT}"
   --data "${DATA_ROOT}"
-  --direct-hifigan "${OUTPUT_DIR}/best.pt"
+  --direct-hifigan "${BEST_SNAPSHOT}"
   --pair-manifest "${PAIR_MANIFEST}"
   --output-dir "${DEMO_OUTPUT_DIR}"
   --device cuda
@@ -209,12 +216,8 @@ if render_demo:
     print("[preflight] final demo: 10 registered test-clean pairs passed")
 PY
 
-if [[ "${DRY_RUN}" == "1" ]]; then
-  echo "[preflight] DRY_RUN passed; extraction and training were not started."
-  exit 0
-fi
-
-"${PYTHON}" - <<'PY'
+if [[ "${DRY_RUN}" != "1" ]]; then
+  "${PYTHON}" - <<'PY'
 import torch
 
 if not torch.cuda.is_available():
@@ -226,6 +229,7 @@ x = torch.randn(256, 256, device="cuda")
 float((x @ x).mean())
 print(f"[preflight] CUDA: {properties.name}, {properties.total_memory / 2**30:.1f} GiB")
 PY
+fi
 
 mkdir -p \
   "${PRETRAINED_DIR}" "${DATA_ROOT}" "${CACHE_DIR}" "${OUTPUT_DIR}" \
@@ -243,7 +247,10 @@ if [[ ! -f "${DATA_ROOT}/dataset.yaml" || ! -f "${DATA_ROOT}/utterances.csv" ]];
     --seed "${SEED}"
 fi
 
-"${PYTHON}" - "${DATA_ROOT}" "${PAIR_MANIFEST}" "${RENDER_FINAL_DEMO}" <<'PY'
+"${PYTHON}" - \
+  "${DATA_ROOT}" "${PAIR_MANIFEST}" "${RENDER_FINAL_DEMO}" \
+  "${EXPECTED_TRAIN_UTTERANCES}" "${EXPECTED_VALIDATION_UTTERANCES}" \
+  "${EXPECTED_TEST_UTTERANCES}" <<'PY'
 import csv
 import sys
 from pathlib import Path
@@ -253,16 +260,18 @@ from SAEUnitAnalysis.bundle import AnalysisBundle
 data_root = Path(sys.argv[1]).resolve()
 pair_manifest = Path(sys.argv[2]).resolve()
 render_demo = sys.argv[3] == "1"
+expected = {
+    "train": int(sys.argv[4]),
+    "validation": int(sys.argv[5]),
+    "test": int(sys.argv[6]),
+}
 bundle = AnalysisBundle(data_root)
 counts = {name: len(bundle.split(name)) for name in ("train", "validation", "test")}
-required = {"train": 10_000, "validation": 1_000, "test": 1_000}
-short = {
-    name: (counts[name], minimum)
-    for name, minimum in required.items()
-    if counts[name] < minimum
-}
-if short:
-    raise SystemExit(f"ERROR: generated CSD3 bundle is smaller than required: {short}")
+if counts != expected:
+    raise SystemExit(
+        "ERROR: CSD3 bundle is not the complete canonical LibriSpeech selection: "
+        f"observed={counts} expected={expected}"
+    )
 
 missing_audio = []
 split_by_id = {}
@@ -280,7 +289,7 @@ if missing_audio:
 if render_demo:
     with pair_manifest.open(newline="", encoding="utf-8") as stream:
         pairs = list(csv.DictReader(stream))
-    test_split = str(bundle.spec.splits["test"])
+    test_split = str(bundle.spec.split_map.get("test", "test"))
     for pair in pairs:
         for role, speaker_key in (("recipient", "recipient_speaker"), ("donor", "donor_speaker")):
             utterance_id = str(pair[role])
@@ -291,7 +300,7 @@ if render_demo:
             if speaker_by_id[utterance_id] != str(pair[speaker_key]):
                 raise SystemExit(f"ERROR: speaker mismatch for demo {role} {utterance_id}")
 
-print(f"[preflight] generated bundle: {counts}; {len(bundle.utterances)} audio links passed")
+print(f"[preflight] full LibriSpeech bundle: {counts}; {len(bundle.utterances)} audio links passed")
 PY
 
 verify_pretrained() {
@@ -316,9 +325,79 @@ if ! verify_pretrained "${PRETRAINED_GENERATOR}"; then
   mv "${temporary}" "${PRETRAINED_GENERATOR}"
 fi
 
+"${PYTHON}" - "${PRETRAINED_GENERATOR}" "${OUTPUT_DIR}" <<'PY'
+import sys
+from pathlib import Path
+
+import torch
+
+from SAEUnitAnalysis.direct_hifigan import (
+    DirectHiFiGANConfig,
+    DirectSpearHiFiGenerator,
+    load_direct_hifigan,
+    load_pretrained_knnvc_generator,
+)
+
+pretrained = Path(sys.argv[1]).resolve()
+output_dir = Path(sys.argv[2]).resolve()
+generator = DirectSpearHiFiGenerator(DirectHiFiGANConfig(input_dim=1280))
+report = load_pretrained_knnvc_generator(generator, pretrained)
+expected_incompatible = {"lin_pre.weight"}
+actual_incompatible = set(report["incompatible_shapes"])
+if actual_incompatible != expected_incompatible:
+    raise SystemExit(
+        "ERROR: unexpected kNN-VC warm-start incompatibilities: "
+        f"expected={sorted(expected_incompatible)} actual={sorted(actual_incompatible)}"
+    )
+if int(report["loaded_tensors"]) != int(report["total_target_tensors"]) - 1:
+    raise SystemExit(
+        "ERROR: incomplete kNN-VC warm start: "
+        f"loaded={report['loaded_tensors']} total={report['total_target_tensors']}"
+    )
+with torch.inference_mode():
+    generated = generator(torch.zeros(1, 2, 1280))
+if tuple(generated.shape) != (1, 1, 640) or not bool(torch.isfinite(generated).all()):
+    raise SystemExit(
+        f"ERROR: full generator contract failed: shape={tuple(generated.shape)} "
+        f"finite={bool(torch.isfinite(generated).all())}"
+    )
+
+last = output_dir / "last.pt"
+best = output_dir / "best.pt"
+if last.exists():
+    resumed, payload = load_direct_hifigan(last)
+    if int(resumed.config.input_dim) != 1280:
+        raise SystemExit(f"ERROR: resume checkpoint has input_dim={resumed.config.input_dim}")
+    if not best.is_file():
+        raise SystemExit(f"ERROR: resume checkpoint exists but best checkpoint is missing: {best}")
+    load_direct_hifigan(best)
+    print(f"[preflight] resume: step={int(payload.get('step', 0)):,}; best.pt passed")
+
+print(
+    f"[preflight] kNN-VC warm start: SHA-256 passed; "
+    f"loaded {report['loaded_tensors']}/{report['total_target_tensors']} tensors; "
+    "full generator forward passed"
+)
+PY
+
+if [[ "${DRY_RUN}" == "1" ]]; then
+  echo "[preflight] DRY_RUN passed all CPU-side checks; extraction, CUDA, and training were not started."
+  exit 0
+fi
+
 "${PYTHON}" "${cache_args[@]}"
 "${PYTHON}" "${train_args[@]}"
 if [[ "${RENDER_FINAL_DEMO}" == "1" ]]; then
   [[ -f "${OUTPUT_DIR}/best.pt" ]] || { echo "Training completed without best.pt" >&2; exit 2; }
+  "${PYTHON}" - "${OUTPUT_DIR}/best.pt" "${BEST_SNAPSHOT}" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+source, destination = map(Path, sys.argv[1:])
+destination.parent.mkdir(parents=True, exist_ok=True)
+shutil.copy2(source, destination)
+print(f"[direct-hifigan] preserved selected checkpoint: {destination}")
+PY
   "${PYTHON}" "${demo_args[@]}"
 fi
