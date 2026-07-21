@@ -289,7 +289,7 @@ if missing_audio:
 if render_demo:
     with pair_manifest.open(newline="", encoding="utf-8") as stream:
         pairs = list(csv.DictReader(stream))
-    test_split = str(bundle.spec.split_map.get("test", "test"))
+    test_split = str(bundle.spec.split_map["test"])
     for pair in pairs:
         for role, speaker_key in (("recipient", "recipient_speaker"), ("donor", "donor_speaker")):
             utterance_id = str(pair[role])
