@@ -7,10 +7,10 @@ when two task gradients conflict (negative cosine), one is projected off the
 other's conflicting component.
 
 Important design choice for THIS setup: we de-conflict only the COOPERATIVE tasks
-(recon, pr, sid, prosody, emotion, inv).  The adversarial GRL gradients are left
-untouched and simply added — their opposition to reconstruction is the mechanism
-that strips speaker/prosody/emotion from z_L, so "fixing" that conflict would
-weaken the disentanglement.
+(recon, pr, sid, prosody, emotion, inv).  Adversarial gradients are never passed
+through conflict projection: their opposition to the cooperative objectives is
+the disentanglement mechanism.  One opt-in experiment can balance adversarial
+factor magnitudes while preserving the original adversary-bundle norm.
 
 Operates on the trainable SAE parameters. Routing and task-private heads keep their
 ordinary gradients from total.backward().
@@ -149,6 +149,38 @@ class PCGrad:
                 balanced[name] = grad * scale
             scales[name] = scale
         return balanced, scales
+
+    @staticmethod
+    def unit_balance_preserve_bundle(
+        named_gradients: Dict[str, torch.Tensor],
+        weights: Dict[str, float],
+        reference_bundle: torch.Tensor,
+        eps: float = 1e-12,
+    ) -> tuple[torch.Tensor, Dict[str, float], float]:
+        """Balance factor gradients without changing total bundle magnitude.
+
+        Each raw factor gradient is first normalized and assigned the configured
+        factor weight.  Their resulting sum is then scaled to match the norm of
+        ``reference_bundle`` (the ordinary sum of the weighted gradients).  The
+        returned per-factor scales include both operations and can therefore be
+        audited directly in logs.
+        """
+        balanced, local_scales = PCGrad.unit_balance(
+            named_gradients, weights, eps=eps)
+        if not balanced:
+            return torch.zeros_like(reference_bundle), {}, 0.0
+        balanced_bundle = torch.stack(list(balanced.values())).sum(0)
+        reference_norm = reference_bundle.detach().float().norm()
+        balanced_norm = balanced_bundle.detach().float().norm()
+        if float(reference_norm) <= eps or float(balanced_norm) <= eps:
+            bundle_scale = 0.0
+            output = balanced_bundle * 0.0
+        else:
+            bundle_scale = float(reference_norm / balanced_norm)
+            output = balanced_bundle * bundle_scale
+        scales = {name: scale * bundle_scale
+                  for name, scale in local_scales.items()}
+        return output, scales, bundle_scale
 
     @staticmethod
     def vector_diagnostics(

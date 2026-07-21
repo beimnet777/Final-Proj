@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import torch
 
 from Disentanglement.model.sae import SparseAutoencoder
+from Disentanglement.model import _u_residual_components
 
 
 def _cfg(*, adaptive: bool) -> SimpleNamespace:
@@ -72,6 +73,35 @@ class AdaptiveAuxKTests(unittest.TestCase):
         self.assertEqual(3, sae.last_aux_stats["k_eff"])
         self.assertEqual(3, sae.last_aux_stats["unique"])
         self.assertEqual((2, 1), sae.last_aux_stats["unique_by_route"])
+
+
+class UResidualReconstructionTests(unittest.TestCase):
+    def test_lp_plus_u_component_equals_full_decoder_reconstruction(self):
+        sae = SparseAutoencoder(_cfg(adaptive=True))
+        z_l = torch.randn(2, 3, 4)
+        z_p = torch.randn(2, 3, 4)
+        z_u = torch.randn(2, 3, 4)
+
+        h_lp, h_u = _u_residual_components(sae, z_l, z_p, z_u)
+
+        self.assertTrue(torch.allclose(
+            h_lp + h_u, sae.decode(z_l + z_p + z_u), atol=1e-6, rtol=1e-6))
+
+    def test_detached_residual_target_only_pushes_u_activations(self):
+        sae = SparseAutoencoder(_cfg(adaptive=True))
+        z_l = torch.randn(2, 3, 4, requires_grad=True)
+        z_p = torch.randn(2, 3, 4, requires_grad=True)
+        z_u = torch.randn(2, 3, 4, requires_grad=True)
+        target = torch.randn(2, 3, 2)
+
+        h_lp, h_u = _u_residual_components(sae, z_l, z_p, z_u)
+        loss = ((target - h_lp).detach() - h_u).square().mean()
+        loss.backward()
+
+        self.assertIsNone(z_l.grad)
+        self.assertIsNone(z_p.grad)
+        self.assertIsNotNone(z_u.grad)
+        self.assertGreater(float(z_u.grad.norm()), 0.0)
 
 
 if __name__ == "__main__":

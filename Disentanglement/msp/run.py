@@ -64,6 +64,12 @@ def main() -> None:
     p.add_argument("--pcgrad_balance", choices=("none", "unit"),
                    default=d.pcgrad_balance,
                    help="balance cooperative SAE gradient norms before PCGrad")
+    p.add_argument(
+        "--adversary_balance", choices=("none", "unit_preserve_bundle"),
+        default=d.adversary_balance,
+        help=("balance factor-level adversarial SAE gradients, while preserving "
+              "the original weighted adversary-bundle norm"),
+    )
     p.add_argument("--separate_discriminator_optimizer",
                    action=argparse.BooleanOptionalAction,
                    default=d.separate_discriminator_optimizer,
@@ -136,6 +142,7 @@ def main() -> None:
         route_topk_calib_batches=a.route_topk_calib_batches,
         pcgrad=not a.no_pcgrad, pcgrad_tasks=a.pcgrad_tasks,
         pcgrad_balance=a.pcgrad_balance,
+        adversary_balance=a.adversary_balance,
         separate_discriminator_optimizer=a.separate_discriminator_optimizer,
         separate_grad_clip=a.separate_grad_clip,
         aux_k=a.aux_k, aux_k_coef=a.aux_k_coef,
@@ -192,6 +199,8 @@ def main() -> None:
         p.error("--aux_k_coef must be non-negative")
     if cfg.dead_steps_threshold < 0:
         p.error("--dead_steps_threshold must be non-negative")
+    if cfg.adversary_balance != "none" and not cfg.pcgrad:
+        p.error("--adversary_balance requires PCGrad (remove --no_pcgrad)")
     print(f"=== MSP run '{a.run_name}'  pcgrad={cfg.pcgrad}  routing={'hard' if m.hard_routing else 'soft'} ===")
     train.run(cfg, stage1_ckpt=a.stage1_ckpt)
 

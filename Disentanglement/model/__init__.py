@@ -21,6 +21,7 @@ from typing import Dict
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .spear_encoder import SpearEncoder
 from .sae import SparseAutoencoder
@@ -59,6 +60,12 @@ def _instance_norm_time(z: torch.Tensor, lengths: torch.Tensor, eps: float = 1e-
     var  = (((z - mean.unsqueeze(1)) ** 2) * mask).sum(1) / n   # (B, C)
     z_norm = (z - mean.unsqueeze(1)) / (var.unsqueeze(1) + eps).sqrt()
     return z_norm * mask                                        # zero padding
+
+
+def _u_residual_components(sae, z_L: torch.Tensor, z_P: torch.Tensor,
+                           z_U: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return LP reconstruction and U's additive bias-free contribution."""
+    return sae.decode(z_L + z_P), F.linear(z_U, sae.dec_weight)
 
 
 # ---------------------------------------------------------------- model
@@ -327,6 +334,11 @@ class DISModel(nn.Module):
                 "sid_logits":  self.sid_head(z_P_bar_sp),
                 "grl_logits":  self.grl_head(z_L_sp, out_lengths, grl_lambda),
             }
+            if float(getattr(self.cfg, 'u_residual_recon_weight', 0.0)) > 0:
+                # The LP component owns the decoder bias; U is its additive,
+                # bias-free residual contribution.
+                out["h_hat_LP"], out["h_hat_U"] = _u_residual_components(
+                    self.sae, z_L_sp, z_P_sp, z_U_sp)
             if grl_p > 0.0:
                 out["pr_grl_logits"] = self.pr_grl_head(z_P_sp, grl_p_lambda)
             if hasattr(self, 'grl_head_u'):
@@ -389,6 +401,9 @@ class DISModel(nn.Module):
             "sid_logits":  self.sid_head(z_P_bar),
             "grl_logits":  self.grl_head(z_L, out_lengths, grl_lambda),
         }
+        if float(getattr(self.cfg, 'u_residual_recon_weight', 0.0)) > 0:
+            out["h_hat_LP"], out["h_hat_U"] = _u_residual_components(
+                self.sae, z_L_sp, z_P_sp, z_U_sp)
 
         # Exp 1: phoneme GRL on z_P (only when weight > 0)
         if grl_p > 0.0:

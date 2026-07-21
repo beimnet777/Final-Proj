@@ -320,12 +320,14 @@ def validate_resume(checkpoint: Mapping[str, Any], *, dataset_hash: str,
     # in older checkpoints mean the historical disabled behavior.
     for key, historical_default in (
         ("pcgrad_balance", "none"),
+        ("adversary_balance", "none"),
         ("separate_discriminator_optimizer", False),
         ("separate_grad_clip", False),
         ("valid_frame_dead_count", False),
         ("aux_k", 0),
         ("aux_k_coef", 0.03125),
         ("dead_steps_threshold", 256),
+        ("u_residual_recon_weight", 0.0),
     ):
         if key in now and old.get(key, historical_default) != now[key]:
             raise ValueError(

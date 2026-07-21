@@ -26,12 +26,16 @@
 #   sbatch msp/slurm/msp_corrected_strongclean_12k.sh
 
 set -euo pipefail
-. /etc/profile.d/modules.sh
-module purge 2>/dev/null
-module load rhel8/default-amp 2>/dev/null
 
-PYTHON=/home/bbg25/.conda/envs/mlmi4/bin/python
-DIS_DIR=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement
+DRY_RUN="${DRY_RUN:-0}"
+if [[ -f /etc/profile.d/modules.sh ]]; then
+  . /etc/profile.d/modules.sh
+  module purge 2>/dev/null || true
+  module load rhel8/default-amp 2>/dev/null || true
+fi
+
+PYTHON="${PYTHON:-/home/bbg25/.conda/envs/mlmi4/bin/python}"
+DIS_DIR="${DIS_DIR:-/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement}"
 export PYTHONUNBUFFERED=1
 export HF_HOME="${DIS_DIR}/../Probing/data/hf_home"
 export HF_DATASETS_CACHE="${DIS_DIR}/../Probing/data/datasets_cache"
@@ -40,13 +44,18 @@ export HF_HUB_CACHE="${DIS_DIR}/../Probing/data/hub_cache"
 mkdir -p "${DIS_DIR}/msp/logs"
 cd "${DIS_DIR}"
 
-# The companion no-balance control overrides only these two variables before
-# executing this common recipe.
+# Companion scripts may override these variables before executing this common
+# recipe. Defaults preserve the already-run corrected experiment exactly.
 RUN_NAME="${MSP_RUN_NAME:-msp_hardqfreeze4000_sc_optfix_aux64_gn0004_grlp025_dann12000_12k_s42}"
 PCGRAD_BALANCE="${MSP_PCGRAD_BALANCE:-unit}"
+ADVERSARY_BALANCE="${MSP_ADVERSARY_BALANCE:-none}"
 case "${PCGRAD_BALANCE}" in
   unit|none) ;;
   *) echo "Unsupported MSP_PCGRAD_BALANCE=${PCGRAD_BALANCE}; expected unit or none" >&2; exit 2 ;;
+esac
+case "${ADVERSARY_BALANCE}" in
+  none|unit_preserve_bundle) ;;
+  *) echo "Unsupported MSP_ADVERSARY_BALANCE=${ADVERSARY_BALANCE}" >&2; exit 2 ;;
 esac
 CHECKPOINT_DIR="${DIS_DIR}/msp/checkpoints/${RUN_NAME}"
 
@@ -100,10 +109,14 @@ CKPT_EVERY=1000
 
 echo "=== MSP corrected strong-clean 12k ==="
 echo "started     : $(date)"
-echo "gpu         : $(nvidia-smi --query-gpu=name --format=csv,noheader)"
+if [[ "${DRY_RUN}" == "1" ]]; then
+  echo "gpu         : dry-run"
+else
+  echo "gpu         : $(nvidia-smi --query-gpu=name --format=csv,noheader)"
+fi
 echo "run_name    : ${RUN_NAME}"
 echo "schedule    : total=${STEPS} freeze=${FREEZE_STEP} DANN=${DANN_RAMP_STEPS}"
-echo "optimization: separate_disc=yes separate_clip=yes PCGrad=${PCGRAD_TASKS} balance=${PCGRAD_BALANCE}"
+echo "optimization: separate_disc=yes separate_clip=yes PCGrad=${PCGRAD_TASKS} balance=${PCGRAD_BALANCE} adversary_balance=${ADVERSARY_BALANCE}"
 echo "positive    : recon=${RECON_WEIGHT} pr=${PR_WEIGHT} sid=${SID_WEIGHT} pros=${PROSODY_WEIGHT} emo=${EMOTION_WEIGHT}"
 echo "adversarial : speaker=${SPEAKER_GRL_WEIGHT}/GN${SPEAKER_GRL_NORM_TARGET} phone=${PHONEME_GRL_WEIGHT} pros=${PROSODY_GRL_WEIGHT} emo=${EMOTION_GRL_WEIGHT}"
 echo "dead revival: AuxK=${AUX_K} coef=${AUX_K_COEF} threshold=${DEAD_STEPS_THRESHOLD} valid_frames=yes"
@@ -125,6 +138,7 @@ COMMON_ARGS=(
   --routing_init_std "${ROUTING_INIT_STD}"
   --routing_spec_weight "${ROUTING_SPEC_WEIGHT}" --routing_tau "${ROUTING_TAU}"
   --pcgrad_tasks "${PCGRAD_TASKS}" --pcgrad_balance "${PCGRAD_BALANCE}"
+  --adversary_balance "${ADVERSARY_BALANCE}"
   --recon_weight "${RECON_WEIGHT}" --alpha "${PR_WEIGHT}" --beta "${SID_WEIGHT}"
   --grl_weight "${SPEAKER_GRL_WEIGHT}"
   --grl_phoneme_weight "${PHONEME_GRL_WEIGHT}"
@@ -140,14 +154,22 @@ COMMON_ARGS=(
   --ckpt_every "${CKPT_EVERY}"
 )
 
+run_or_print() {
+  echo
+  echo "+ $*"
+  if [[ "${DRY_RUN}" != "1" ]]; then
+    "$@"
+  fi
+}
+
 echo "[phase 1] learn routing to step ${FREEZE_STEP}"
-"${PYTHON}" -u -m msp.run "${COMMON_ARGS[@]}" \
+run_or_print "${PYTHON}" -u -m msp.run "${COMMON_ARGS[@]}" \
   --resume none \
   --segment_steps "${FREEZE_STEP}" \
   --resume_every "${CKPT_EVERY}"
 
 echo "[phase 2] exact resume, freeze learned routes and learned active quotas"
-"${PYTHON}" -u -m msp.run "${COMMON_ARGS[@]}" \
+run_or_print "${PYTHON}" -u -m msp.run "${COMMON_ARGS[@]}" \
   --resume "${CHECKPOINT_DIR}/latest-resume.pt" \
   --freeze_learned_routing_on_resume \
   --freeze_route_topk_on_resume \

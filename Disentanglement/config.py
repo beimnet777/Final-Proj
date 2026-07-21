@@ -228,6 +228,9 @@ class DISConfig:
     # (no task on U keeps the factors), so speaker→z_P and phonemes→z_L.
     grl_u_weight:         float = 0.0    # speaker adversary on z_U (anti-speaker)
     grl_phoneme_u_weight: float = 0.0    # phoneme adversary on z_U (anti-phoneme)
+    # Positive role for routed z_U: reconstruct only the detached residual left
+    # by z_L+z_P.  Zero preserves every existing U experiment.
+    u_residual_recon_weight: float = 0.0
 
     # ---------------------------------------------------------------- Ablation flags (D / E / F)
     no_routing:          bool  = False  # D: bypass routing, feed full z to all heads

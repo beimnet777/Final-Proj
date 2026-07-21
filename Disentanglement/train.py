@@ -1787,6 +1787,10 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
     ub_ramp_start  = getattr(cfg, 'ub_ramp_start', 0)
     ub_ramp_end    = getattr(cfg, 'ub_ramp_end', 0)
     u_l2_w         = getattr(cfg, 'projection_u_l2', 0.0)   # L2 penalty on residual z_U
+    u_residual_w   = float(getattr(cfg, 'u_residual_recon_weight', 0.0))
+    if u_residual_w > 0:
+        print(f"[stage 2] residual-U reconstruction ON: weight={u_residual_w:g}; "
+              "target=stopgrad(h_t-decode(z_L+z_P)); U contribution is bias-free")
     spec_w         = getattr(cfg, 'routing_spec_weight', 0.0)  # per-unit routing specialization
     routing_clip_params = [] if projection_mode else list(model.routing.parameters())
     all_params     = (list(model.sae.parameters()) + routing_clip_params + projection_params +
@@ -1970,6 +1974,15 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             l_u        = (out["z_U"].pow(2).mean()
                           if (u_l2_w > 0 and "z_U" in out)
                           else l_recon.new_zeros(()))
+            # Give routed z_U a non-duplicative positive role. Detaching the LP
+            # residual target stops L/P from worsening simply to create work for U.
+            l_u_residual = (
+                _masked_mse(
+                    (out["h_t"] - out["h_hat_LP"]).detach(),
+                    out["h_hat_U"], out["out_lengths"])
+                if (u_residual_w > 0 and "h_hat_LP" in out and "h_hat_U" in out)
+                else l_recon.new_zeros(())
+            )
             # VIB KL on z_L
             l_vib      = (out["vib_kl"] if "vib_kl" in out else l_recon.new_zeros(()))
             # z_U adversaries: anti-speaker + anti-phoneme (dann → eff weight 1.0)
@@ -2289,6 +2302,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                           + spec_w           * l_spec
                           + eff_ub_w         * l_ub
                           + u_l2_w           * l_u
+                          + u_residual_w     * l_u_residual
                           + eff_vib_w        * l_vib
                           + m_aux            * l_aux)
 
@@ -2486,6 +2500,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
             losses  = {"recon": l_recon.item(), "pr": l_pr.item(),
                        "sid": l_sid.item(), "grl": l_grl.item(),
                        "grl_p": l_grl_p.item(), "ub": l_ub.item(),
+                       "u_residual": l_u_residual.item(),
                        "route": l_route.item(), "total": total.item()}
             if getattr(cfg, "grl_grad_norm", False):
                 losses["grl_grad_norm_target_eff"] = float(
@@ -2581,6 +2596,8 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 if grl_p_per is not None:
                     grl_p_str += f"(per={grl_p_per:.3f})"
             ub_str    = f"  ub={l_ub.item():.4f}"        if ub_w > 0        else ""
+            u_residual_str = (f"  ures={l_u_residual.item():.4f}"
+                              if u_residual_w > 0 else "")
             u_str = ""
             if grl_u_weight > 0 or grl_p_u_weight > 0:
                 u_str = f"  grlU={l_grl_u.item():.3f}/{l_grl_p_u.item():.3f}"
@@ -2736,7 +2753,7 @@ def run_stage2(cfg: DISConfig, stage1_ckpt: Optional[Path]) -> Path:
                 f"  recon={l_recon.item():.4f}"
                 f"  pr={l_pr.item():.4f}"
                 f"  sid={l_sid.item():.4f}"
-                f"{grl_str}{grl_p_str}{cap_str}{u_str}{pros_str}{emo_str}{inv_str}{dual_inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
+                f"{grl_str}{grl_p_str}{cap_str}{u_str}{u_residual_str}{pros_str}{emo_str}{inv_str}{dual_inv_str}{vib_str}{aux_str}{ub_str}{gn_str}"
                 f"  L/P/U={n_L}/{n_P}/{n_U}"
                 f"  actL/P/U={act_L.item():.0f}/{act_P.item():.0f}/{act_U.item():.0f}"
                 f"  H={entropy:.3f}"

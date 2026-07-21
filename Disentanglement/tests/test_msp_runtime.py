@@ -85,6 +85,35 @@ class MSPGradientDiagnosticsTests(unittest.TestCase):
         self.assertAlmostEqual(0.2, scales["recon"], places=6)
         self.assertAlmostEqual(0.025, scales["emotion"], places=6)
 
+    def test_adversary_balance_preserves_original_bundle_norm(self):
+        gradients = {
+            "speaker": torch.tensor([10.0, 0.0]),
+            "phoneme": torch.tensor([0.0, 2.0]),
+        }
+        weights = {"speaker": 0.4, "phoneme": 0.2}
+        reference = (weights["speaker"] * gradients["speaker"]
+                     + weights["phoneme"] * gradients["phoneme"])
+
+        balanced, scales, bundle_scale = PCGrad.unit_balance_preserve_bundle(
+            gradients, weights, reference)
+
+        self.assertAlmostEqual(float(reference.norm()), float(balanced.norm()), places=6)
+        self.assertGreater(bundle_scale, 0.0)
+        self.assertAlmostEqual(
+            float((gradients["speaker"] * scales["speaker"]).norm())
+            / float((gradients["phoneme"] * scales["phoneme"]).norm()),
+            weights["speaker"] / weights["phoneme"],
+            places=6,
+        )
+
+    def test_adversary_balance_handles_all_zero_gradients(self):
+        reference = torch.zeros(3)
+        balanced, scales, bundle_scale = PCGrad.unit_balance_preserve_bundle(
+            {"speaker": torch.zeros(3)}, {"speaker": 0.4}, reference)
+        self.assertEqual(0.0, float(balanced.norm()))
+        self.assertEqual(0.0, scales["speaker"])
+        self.assertEqual(0.0, bundle_scale)
+
 
 class MSPOptionalAdversaryTests(unittest.TestCase):
     def test_missing_optional_adversary_output_is_zero_loss(self):

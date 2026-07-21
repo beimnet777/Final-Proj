@@ -38,6 +38,13 @@ class MSPConfig:
     # applying its task weight and PCGrad.  ``none`` preserves historical MSP
     # runs; corrected runs select ``unit`` explicitly.
     pcgrad_balance: str = "none"
+    # Optional balancing of the four adversarial representation gradients on
+    # the shared SAE.  ``unit_preserve_bundle`` equalises their factor-level
+    # contributions, reapplies the configured loss weights, then rescales their
+    # sum to the norm of the original weighted adversary bundle.  This changes
+    # factor dominance without silently changing total adversarial pressure.
+    # Historical runs remain ``none``.
+    adversary_balance: str = "none"
 
     # Corrected optimizer controls.  Historical MSP runs used one optimizer and
     # one global clip.  Keep that reproducible by default; corrected experiment
@@ -184,6 +191,7 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.pcgrad = m.pcgrad
     c.pcgrad_tasks = tuple(t.strip() for t in m.pcgrad_tasks.split(",") if t.strip())
     c.pcgrad_balance = m.pcgrad_balance
+    c.adversary_balance = m.adversary_balance
     c.separate_discriminator_optimizer = m.separate_discriminator_optimizer
     c.separate_grad_clip = m.separate_grad_clip
     c.grl_grad_norm = m.grl_grad_norm

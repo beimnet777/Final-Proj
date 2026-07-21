@@ -251,6 +251,12 @@ def _parse_args():
                    help="speaker adversary on z_U (anti-speaker → push speaker to z_P)")
     p.add_argument("--grl_phoneme_u_weight", type=float, default=cfg.grl_phoneme_u_weight,
                    help="phoneme adversary on z_U (anti-phoneme → push phonemes to z_L)")
+    p.add_argument(
+        "--u_residual_recon_weight", type=float,
+        default=cfg.u_residual_recon_weight,
+        help=("weight for z_U reconstruction of the detached residual left by "
+              "z_L+z_P; requires routed n_routes=3"),
+    )
     p.add_argument("--prosody", action=argparse.BooleanOptionalAction, default=cfg.prosody,
                    help="enable the prosody factor: per-frame log-F0+log-E regression on z_P")
     p.add_argument("--prosody_weight",       type=float, default=cfg.prosody_weight,
@@ -519,6 +525,7 @@ def _parse_args():
     cfg.grl_phoneme_weight    = args.grl_phoneme_weight
     cfg.grl_u_weight          = args.grl_u_weight
     cfg.grl_phoneme_u_weight  = args.grl_phoneme_u_weight
+    cfg.u_residual_recon_weight = args.u_residual_recon_weight
     cfg.prosody               = bool(args.prosody)
     cfg.prosody_weight        = args.prosody_weight
     cfg.grl_prosody_weight    = args.grl_prosody_weight
@@ -636,6 +643,11 @@ def _parse_args():
             p.error("--grl_grad_norm_decay_end must be greater than --grl_grad_norm_decay_start")
     if cfg.dann_ramp_steps < 0:
         p.error("--dann_ramp_steps must be >= 0")
+    if cfg.u_residual_recon_weight < 0:
+        p.error("--u_residual_recon_weight must be non-negative")
+    if cfg.u_residual_recon_weight > 0 and (
+            cfg.n_routes != 3 or cfg.no_routing or cfg.projection_disentanglement):
+        p.error("--u_residual_recon_weight requires ordinary/fixed routed n_routes=3")
     if cfg.route_topk_calib_batches <= 0:
         p.error("--route_topk_calib_batches must be positive")
     if cfg.freeze_route_topk_on_resume and not cfg.freeze_learned_routing_on_resume:

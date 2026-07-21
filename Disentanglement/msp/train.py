@@ -386,7 +386,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
           f"({sorted(coop_names)})  device={device} amp={amp_dtype}")
     print(f"[msp] optimization: discriminator_optimizer={'separate' if separate_disc else 'shared'} "
           f"gradient_clip={'per-group' if separate_clip else 'global'} "
-          f"pcgrad_balance={getattr(cfg, 'pcgrad_balance', 'none')}")
+          f"pcgrad_balance={getattr(cfg, 'pcgrad_balance', 'none')} "
+          f"adversary_balance={getattr(cfg, 'adversary_balance', 'none')}")
     print(f"[msp] weights recon={getattr(cfg, 'recon_weight', 1.0)} "
           f"α(pr)={cfg.alpha} β(sid)={cfg.beta} grl={cfg.grl_weight} "
           f"grl_p={cfg.grl_phoneme_weight} pros={cfg.prosody_weight}/{cfg.grl_prosody_weight} "
@@ -485,6 +486,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     micro_index = 0
     task_grad_sums = None
     extra_grad_sum = None
+    adv_grad_sums = None
+    adv_reference_sum = None
     disc_micro_batches = []
     while step < cfg.stage2_steps:
         try:
@@ -500,6 +503,9 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         grad_diag = None
         raw_coop_grad_norms = None
         pcgrad_balance_scales = None
+        raw_adv_grad_norms = None
+        adversary_balance_scales = None
+        adversary_bundle_scale = None
         adv_sae_grad_norms = None
         lr_now = lr_at(next_step)
         optimizer.param_groups[0]["lr"] = lr_now          # SAE follows the cosine
@@ -546,6 +552,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             micro_index = 0
             task_grad_sums = None
             extra_grad_sum = None
+            adv_grad_sums = None
+            adv_reference_sum = None
             disc_micro_batches = []
             if log_now or grad_now:
                 with torch.no_grad():
@@ -664,9 +672,26 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             "aux": float(getattr(cfg, "aux_k_coef", 0.0)),
         }
         coop = {name: coop_weights[name] * loss for name, loss in coop_raw.items()}
+        adv_factor_raw = {
+            "grl": l_grl,
+            "grl_p": l_grl_p,
+            "pros_grl": l_prosgrl,
+            "emo_grl": l_emogrl,
+        }
+        adv_factor_weights = {
+            "grl": float(cfg.grl_weight),
+            "grl_p": float(cfg.grl_phoneme_weight),
+            "pros_grl": float(cfg.grl_prosody_weight),
+            "emo_grl": float(cfg.grl_emotion_weight),
+        }
+        adv_factor_weighted = {
+            name: adv_factor_weights[name] * loss
+            for name, loss in adv_factor_raw.items()
+        }
+        adv_other = cfg.routing_spec_weight * l_spec + cfg.rho * l_route
         adv = (cfg.grl_weight * l_grl + cfg.grl_phoneme_weight * l_grl_p
                + cfg.grl_prosody_weight * l_prosgrl + cfg.grl_emotion_weight * l_emogrl
-               + cfg.routing_spec_weight * l_spec + cfg.rho * l_route)
+               + adv_other)
         total = sum(coop.values()) + adv
         disc_micro_batches.append((
             out["z_L"].detach(), out["z_P"].detach(), olen.detach(),
@@ -716,12 +741,26 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 {**coop, **adversary_losses}, rout_params, reference=active_p_soft)
         if pcgrad is not None:
             balance_mode = str(getattr(cfg, "pcgrad_balance", "none"))
+            adversary_balance_mode = str(getattr(cfg, "adversary_balance", "none"))
             managed_source = coop_raw if balance_mode == "unit" else coop
             managed = {k: v for k, v in managed_source.items() if k in coop_names}
             unmanaged = [v for k, v in coop.items() if k not in coop_names]
-            shared_extra = adv + sum(unmanaged) if unmanaged else adv
+            if adversary_balance_mode == "unit_preserve_bundle":
+                shared_extra = adv_other + sum(unmanaged) if unmanaged else adv_other
+            else:
+                shared_extra = adv + sum(unmanaged) if unmanaged else adv
             current = {name: pcgrad.flat_grad(loss).detach() / accumulation
                        for name, loss in managed.items()}
+            current_adv = None
+            current_adv_reference = None
+            if adversary_balance_mode == "unit_preserve_bundle":
+                current_adv = {
+                    name: pcgrad.flat_grad(loss).detach() / accumulation
+                    for name, loss in adv_factor_raw.items()
+                }
+                weighted_adv = sum(adv_factor_weighted.values())
+                current_adv_reference = (
+                    pcgrad.flat_grad(weighted_adv).detach() / accumulation)
             if grad_now and adversary_losses is not None:
                 adv_sae_grad_norms = {
                     name: float((pcgrad.flat_grad(loss).detach() / accumulation).float().norm().item())
@@ -730,9 +769,17 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             if task_grad_sums is None:
                 task_grad_sums = {name: grad.clone() for name, grad in current.items()}
                 extra_grad_sum = pcgrad.flat_grad(shared_extra).detach() / accumulation
+                if current_adv is not None:
+                    adv_grad_sums = {
+                        name: grad.clone() for name, grad in current_adv.items()}
+                    adv_reference_sum = current_adv_reference.clone()
             else:
                 for name, grad in current.items(): task_grad_sums[name].add_(grad)
                 extra_grad_sum.add_(pcgrad.flat_grad(shared_extra).detach() / accumulation)
+                if current_adv is not None:
+                    for name, grad in current_adv.items():
+                        adv_grad_sums[name].add_(grad)
+                    adv_reference_sum.add_(current_adv_reference)
             scaled_total = total / accumulation
             if scaler.is_enabled(): scaler.scale(scaled_total).backward()
             else: scaled_total.backward()
@@ -757,10 +804,22 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                     {name: coop_weights[name] for name in task_grad_sums},
                 )
             projected_coop = pcgrad.project_vectors(projected_inputs)
+            final_extra = extra_grad_sum
+            if str(getattr(cfg, "adversary_balance", "none")) == "unit_preserve_bundle":
+                if adv_grad_sums is None or adv_reference_sum is None:
+                    raise RuntimeError("adversary balancing reached a boundary without gradients")
+                raw_adv_grad_norms = {
+                    name: float(grad.detach().float().norm().item())
+                    for name, grad in adv_grad_sums.items()
+                }
+                balanced_adv, adversary_balance_scales, adversary_bundle_scale = (
+                    pcgrad.unit_balance_preserve_bundle(
+                        adv_grad_sums, adv_factor_weights, adv_reference_sum))
+                final_extra = extra_grad_sum + balanced_adv
             if grad_now:
                 grad_diag = pcgrad.vector_diagnostics(
-                    projected_inputs, projected_coop, extra_grad_sum)
-            pcgrad.write_(projected_coop + extra_grad_sum)
+                    projected_inputs, projected_coop, final_extra)
+            pcgrad.write_(projected_coop + final_extra)
         if separate_clip:
             sae_pre_clip, sae_clip_scale = _clip_group(sae_params, cfg.grad_clip)
             route_pre_clip, route_clip_scale = _clip_group(rout_params, cfg.grad_clip)
@@ -837,6 +896,8 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
         micro_index = 0
         task_grad_sums = None
         extra_grad_sum = None
+        adv_grad_sums = None
+        adv_reference_sum = None
         disc_micro_batches = []
 
         # ---- logging ----
@@ -943,6 +1004,13 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                       flush=True)
                 if adv_sae_grad_norms is not None:
                     print(f"    adversarial factors: {_norm_row(adv_sae_grad_norms, adv_order)}",
+                          flush=True)
+                if raw_adv_grad_norms is not None:
+                    print("    adversarial raw before unit balance: "
+                          f"{_norm_row(raw_adv_grad_norms, adv_order)}", flush=True)
+                    print("    adversarial unit-balance scales (bundle-preserving): "
+                          f"{_norm_row(adversary_balance_scales or {}, adv_order)} "
+                          f"bundle_scale={float(adversary_bundle_scale or 0.0):.2e}",
                           flush=True)
                 print(f"    PCGrad: raw={grad_diag['raw_coop_norm']:.2e}"
                       f"  projected={grad_diag['projected_coop_norm']:.2e}"
