@@ -3,7 +3,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=100G
-#SBATCH --time=36:00:00
+#SBATCH --time=21:00:00
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU

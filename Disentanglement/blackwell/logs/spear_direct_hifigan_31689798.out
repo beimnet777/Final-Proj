@@ -1,0 +1,19 @@
++ cd /rds/user/bbg25/hpc-work/Thesis/Final-Proj
+CSD3 LibriSpeech  : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/Probing/data/LibriSpeech
+Checkpoint        : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/checkpoints/blackwell/libri_advfb_prrecover_gn00015_240L16P_aux64_12k_s42/final.pt
+Data bundle       : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/librispeech_csd3_audio_bundle_full
+Feature cache     : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/spear_direct_cache_train10k_val1k
+Training output   : /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/spear_direct_hifigan_knnvc_init
++ /home/bbg25/.conda/envs/mlmi4/bin/python -m SAEUnitAnalysis.cache_spear_audio_features --checkpoint /rds/user/bbg25/hpc-work/Thesis/Final-Proj/checkpoints/blackwell/libri_advfb_prrecover_gn00015_240L16P_aux64_12k_s42/final.pt --data /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/librispeech_csd3_audio_bundle_full --output-dir /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/spear_direct_cache_train10k_val1k --device cuda --batch-size 4 --max-train-utterances 10000 --max-validation-utterances 1000 --seed 42
++ /home/bbg25/.conda/envs/mlmi4/bin/python -m SAEUnitAnalysis.train_direct_hifigan --cache /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/spear_direct_cache_train10k_val1k --data-root /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/librispeech_csd3_audio_bundle_full --output-dir /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/spear_direct_hifigan_knnvc_init --device cuda --model-size full --max-steps 250000 --batch-size 16 --segment-frames 24 --learning-rate 0.0002 --adversarial-start-step 5000 --validation-interval 5000 --checkpoint-interval 10000 --validation-batches 32 --num-workers 8 --pretrained-generator /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/pretrained/knnvc_regular_g_02500000.pt --keep-periodic 3 --seed 42
++ /home/bbg25/.conda/envs/mlmi4/bin/python -m SAEUnitAnalysis.render_direct_hifigan_demo --checkpoint /rds/user/bbg25/hpc-work/Thesis/Final-Proj/checkpoints/blackwell/libri_advfb_prrecover_gn00015_240L16P_aux64_12k_s42/final.pt --data /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/librispeech_csd3_audio_bundle_full --direct-hifigan /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/spear_direct_hifigan_knnvc_init/best.pt --pair-manifest /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/configs/direct_hifigan_demo_pairs.csv --output-dir /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/spear_direct_hifigan_knnvc_init/final_demo_10_pairs --device cuda --pairs 10 --batch-size 4 --length-tolerance 0.10
+[preflight] imports: passed
+[preflight] CSD3 LibriSpeech: train-clean-100/dev-clean/test-clean present
+[preflight] checkpoint: D=1280 block_topk=[240, 16, 0]
+[preflight] final demo: 10 registered test-clean pairs passed
+[preflight] CUDA: NVIDIA A100-SXM4-80GB, 79.3 GiB
+[direct-hifigan] creating symlink-only analysis bundle from CSD3 LibriSpeech
+Wrote LibriSpeech SAE bundle: /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/librispeech_csd3_audio_bundle_full
+utterances=33862 splits={'train': 28539, 'val': 2703, 'test': 2620}
+phone_alignments=absent intentionally
+dataset=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/librispeech_csd3_audio_bundle_full/dataset.yaml
