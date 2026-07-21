@@ -22,8 +22,14 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${REPO_ROOT:-/rds/user/bbg25/hpc-work/Thesis/Final-Proj}"
+COMMON_SCRIPT="${REPO_ROOT}/Disentanglement/msp/slurm/msp_corrected_strongclean_12k.sh"
 export MSP_RUN_NAME=msp_hardqfreeze4000_sc_optfix_nobal_aux64_gn0004_grlp025_dann12000_12k_s42
 export MSP_PCGRAD_BALANCE=none
 
-exec bash "${SCRIPT_DIR}/msp_corrected_strongclean_12k.sh"
+if [[ ! -f "${COMMON_SCRIPT}" ]]; then
+  echo "Missing common MSP recipe: ${COMMON_SCRIPT}" >&2
+  exit 3
+fi
+
+exec bash "${COMMON_SCRIPT}"
