@@ -13,6 +13,8 @@ from .utils import AnalysisError
 
 DEFAULT_RESULTS = (
     ("Fixed routing", "libri_fixed_240L16P_step12000_final_swapv2_5k_mps"),
+    ("Naive learned", "libri_learned_naive_step12000_final_swapv2_5k_mps"),
+    ("Quota-freeze", "libri_learned_qfreeze4k_step20000_final_swapv2_5k_mps"),
     ("Learned post-GP", "libri_learned_qfreeze4k_postgp030_step20000_final_swapv2_5k_mps"),
     ("Learned ramp-5k", "libri_learned_qfreeze4k_ramp5k_step20000_final_swapv2_5k_mps"),
 )
@@ -286,7 +288,7 @@ body{{font-family:Inter,system-ui,sans-serif;background:#f5f7fb;color:#172033;ma
 img{{max-width:100%;height:auto}} table{{border-collapse:collapse;width:100%}} td,th{{padding:8px;border-bottom:1px solid #e9ecef;text-align:left}}
 </style><title>Latent-swap comparison</title></head><body>
 <h1>Latent-swap comparison</h1>
-<p>The three checkpoints use the exact same 250 recipient–donor pairs (40 recipient and 40 donor speakers). Intervals use crossed recipient/donor-speaker bootstrap resampling.</p>
+<p>All {len(checkpoints)} checkpoints use the exact same 250 recipient–donor pairs (40 recipient and 40 donor speakers). Intervals use crossed recipient/donor-speaker bootstrap resampling.</p>
 <div class='panel'><h2>Double-dissociation signature</h2><img src='../plots/swap_double_dissociation.png'><p>P swapping should retain recipient phones while adopting donor identity; complementary L swapping should replace phone information while retaining recipient identity.</p></div>
 <div class='panel'><h2>Capacity-matched control</h2><img src='../plots/swap_matched_control_arrows.png'><p>Each arrow compares an activity- and decoder-norm-matched, equal-count non-P subset with its paired P subset. This avoids treating the full L route as a matched control when learned P is larger.</p></div>
 <div class='panel'><h2>Registry and matched subsets</h2><table><thead><tr><th>checkpoint</th><th>pairs</th><th>recipient speakers</th><th>donor speakers</th><th>all P units</th><th>all non-P units</th><th>matched units/side</th><th>P fraction tested</th></tr></thead><tbody>{rows}</tbody></table></div>
@@ -306,7 +308,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output", type=Path,
-        default=Path("SAEUnitAnalysis/results/swap_protocol_comparison_5k"),
+        default=Path("SAEUnitAnalysis/results/swap_protocol_comparison_5models_5k"),
     )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()

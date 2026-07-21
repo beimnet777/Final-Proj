@@ -73,6 +73,10 @@ from SAEUnitAnalysis.direct_hifigan import (
 from SAEUnitAnalysis.import_mfa_alignments import import_alignments, parse_textgrid
 from SAEUnitAnalysis.pipeline import run_analysis
 from SAEUnitAnalysis.prepare_librispeech_mfa_corpus import prepare_corpus
+from SAEUnitAnalysis.organization_trajectory import (
+    discover_timeline,
+    phone_scores as trajectory_phone_scores,
+)
 from SAEUnitAnalysis.types import ResolvedModel
 from SAEUnitAnalysis.utils import AnalysisError
 
@@ -930,16 +934,35 @@ class CoreTests(unittest.TestCase):
             script,
         )
         self.assertIn("-m SAEUnitAnalysis.build_librispeech_bundle", script)
-        self.assertIn('MAX_TRAIN_UTTERANCES="${MAX_TRAIN_UTTERANCES:-10000}"', script)
+        self.assertIn('MAX_TRAIN_UTTERANCES="${MAX_TRAIN_UTTERANCES:-0}"', script)
         self.assertIn(
-            'MAX_VALIDATION_UTTERANCES="${MAX_VALIDATION_UTTERANCES:-1000}"',
+            'MAX_VALIDATION_UTTERANCES="${MAX_VALIDATION_UTTERANCES:-0}"',
             script,
         )
+        self.assertIn('EXPECTED_TRAIN_UTTERANCES="${EXPECTED_TRAIN_UTTERANCES:-28539}"', script)
+        self.assertIn('EXPECTED_VALIDATION_UTTERANCES="${EXPECTED_VALIDATION_UTTERANCES:-2703}"', script)
+        self.assertIn('EXPECTED_TEST_UTTERANCES="${EXPECTED_TEST_UTTERANCES:-2620}"', script)
+        self.assertIn('MAX_STEPS="${MAX_STEPS:-100000}"', script)
+        self.assertIn('BEST_SNAPSHOT="${BEST_SNAPSHOT:-${OUTPUT_DIR}/best_after_step${MAX_STEPS}.pt}"', script)
+        self.assertIn('DEMO_OUTPUT_DIR="${DEMO_OUTPUT_DIR:-${OUTPUT_DIR}/demo_after_step${MAX_STEPS}_10_pairs}"', script)
+        self.assertIn("#SBATCH --time=36:00:00", script)
+        self.assertIn("spear_direct_cache_trainclean100_full", script)
+        self.assertIn("spear_direct_hifigan_trainclean100_full", script)
         self.assertNotIn(
             '${REPO_ROOT}/data/sae_analysis/librispeech_bundle_12k_mfa',
             script,
         )
         self.assertNotIn("/scratch/", script)
+        self.assertNotIn("bundle.spec.splits", script)
+        self.assertIn('bundle.spec.split_map.get("test", "test")', script)
+        self.assertLess(
+            script.index("bundle = AnalysisBundle(data_root)"),
+            script.index('if [[ "${DRY_RUN}" == "1" ]]'),
+        )
+        self.assertLess(
+            script.index('verify_pretrained "${PRETRAINED_GENERATOR}"'),
+            script.index('if [[ "${DRY_RUN}" == "1" ]]'),
+        )
 
     def test_librispeech_mfa_bridge_imports_phone_alignments(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1008,6 +1031,32 @@ item []:
             self.assertEqual(len(aligned_bundle.alignments), 2)
             self.assertEqual(set(aligned_bundle.alignments["phone"]), {"AH", "T"})
             aligned_bundle.require("causal")
+
+    def test_organization_timeline_uses_two_thousand_stride_and_exact_final(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for step in range(1000, 12001, 1000):
+                (root / f"stage2_step{step}.pt").touch()
+            (root / "final.pt").touch()
+            points = discover_timeline(root, stride=2000)
+            self.assertEqual([point.step for point in points], [1000, 3000, 5000, 7000, 9000, 11000, 12000])
+            self.assertEqual(points[-1].checkpoint.name, "final.pt")
+            self.assertTrue(points[-1].is_final)
+
+    def test_trajectory_phone_score_is_positive_directional_topk_auroc(self):
+        phones = np.asarray(["AA"] * 100 + ["T"] * 100)
+        # Unit 0 is selected in 80% of AA and 20% of T frames; unit 1 is complementary.
+        selected = np.asarray(
+            [[0]] * 80 + [[1]] * 20 + [[0]] * 20 + [[1]] * 80,
+            dtype=np.uint16,
+        )
+        score, maximum, preferred, levels = trajectory_phone_scores(
+            selected, phones, np.ones(200, dtype=bool), 2,
+        )
+        self.assertEqual(levels, ["AA", "T"])
+        self.assertAlmostEqual(float(maximum[0]), 0.6, places=6)
+        self.assertAlmostEqual(float(score[0]), 0.45, places=6)
+        self.assertEqual(preferred.tolist(), ["AA", "T"])
 
 
 if __name__ == "__main__":

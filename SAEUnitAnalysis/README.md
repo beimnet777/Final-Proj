@@ -247,15 +247,44 @@ with disjoint fitting/evaluation
 utterances; swapped examples are never used for fitting. Baseline reconstruction
 scores must be inspected before interpreting any transfer.
 
-After the fixed, post-GP and ramp-5k reports have been recomputed with the same
-pair manifest, create the registered cross-checkpoint comparison with:
+After the fixed, naive-learned negative control, quota-freeze, post-GP and
+ramp-5k reports have been computed with the same pair manifest, create the
+registered cross-checkpoint comparison with:
 
 ```bash
 python -m SAEUnitAnalysis.compare_swap_protocols
 ```
 
 This writes a double-dissociation profile and an equal-unit-count P-subset versus
-non-P control figure to `results/swap_protocol_comparison_5k/`.
+non-P control figure to `results/swap_protocol_comparison_5models_5k/`. The
+older three-model comparison folder is preserved.
+
+## Unit organisation through training
+
+`organization_trajectory` tracks unit identity within each training run without
+re-extracting audio. Every checkpoint encodes the same stored raw-SPEAR sample
+(40,000 frames: eight frames from each of the 5,000 analysis utterances). It
+recomputes the directional phone score, utterance-level speaker score, route
+membership, selectivity category and shared-sample coverage. “Unobserved” in
+this report is not the training dead-unit definition.
+
+```bash
+python -m SAEUnitAnalysis.organization_trajectory \
+  --source-cache SAEUnitAnalysis/cache/final/46752748d44a4444/features-f980afc59f70028e.npz \
+  --data data/sae_analysis/librispeech_bundle_12k_mfa \
+  --output SAEUnitAnalysis/results/unit_organization_trajectories_5k_shared_sample \
+  --device mps --stride 2000 \
+  --family "Fixed routing=checkpoints/blackwell/libri_advfb_prrecover_gn00015_240L16P_aux64_12k_s42" \
+  --family "Naive learned=checkpoints/blackwell/libri_advlearn_hard_gn00015_gp02_aux64_12k_s42" \
+  --family "Quota-freeze=checkpoints/blackwell/libri_advlearn_hardqfreeze4000_gn0002_dann6800_gp02_aux64_20k_s42" \
+  --family "Post-GP=checkpoints/hpc/libri_advlearn_hardqfreeze4000_postgp030_fromgp02base_dann6800_gn0002_aux64_20k_s42" \
+  --family "Ramp-5k=checkpoints/hpc/libri_advlearn_hardqfreeze4000_ramp5k_gn0002_dann5000_gp02_aux64_20k_s42"
+```
+
+The earliest locally available snapshot is used, followed by a 2k stride and
+the exact `final.pt`. Consequently fixed/naive begin at 1k, whereas the three
+quota-freeze families begin at 5k. Unit IDs must not be compared across
+independently trained families.
 
 ## Waveform conversion
 
@@ -397,27 +426,51 @@ python -m SAEUnitAnalysis.render_audio_swaps \
   --device cuda --max-pairs 24 --interpolation-pairs 5 --grid-size 5
 ```
 
-The CSD3 Slurm job performs both phases. It uses the existing
+The CSD3 Slurm job performs both phases. It uses the complete existing
 `Probing/data/LibriSpeech` tree and creates a symlink-only audio bundle under
 the ignored `SAEUnitAnalysis/audio_models/` directory; the local MFA bundle is
-not required for vocoder training. It validates the checkpoint, all three
-LibriSpeech splits, registered test-pair audio, Python imports and CUDA before
-extraction. It downloads and checksum-verifies the published 63 MiB warm start
-once, then resumes from `last.pt` when present. After reaching `MAX_STEPS`, it
-automatically renders ten held-out, speaker-diverse registered pairs. Each
-report row contains recipient and donor references, original-SPEAR
-reconstruction, SAE reconstruction, recipient-L + donor-P swapping, and the
-complementary L swap:
+not required for vocoder training. By default, the feature cache includes all
+28,539 `train-clean-100` utterances and all 2,703 `dev-clean` utterances; zero
+limits mean "use everything." The job rejects non-canonical split counts rather
+than silently training on a reduced bundle. It validates the checkpoint,
+registered test-pair audio, Python imports and CUDA before extraction. It
+downloads and checksum-verifies the published 63 MiB warm start once, then
+resumes from `last.pt` when present. The production default is 100,000 steps.
+After reaching `MAX_STEPS`, it preserves the selected generator as
+`best_after_step<MAX_STEPS>.pt` and automatically renders ten held-out,
+speaker-diverse registered pairs into a step-specific directory. Each report
+row contains recipient and donor references, original-SPEAR reconstruction,
+SAE reconstruction, recipient-L + donor-P swapping, and the complementary L
+swap:
 
 ```bash
+DRY_RUN=1 bash SAEUnitAnalysis/slurm/train_direct_hifigan_blackwell.sh
+# Submit only after the line "DRY_RUN passed all CPU-side checks" appears.
 sbatch SAEUnitAnalysis/slurm/train_direct_hifigan_blackwell.sh
 ```
+
+If the 100k listening result still benefits from training, continue the same
+run without rebuilding the SPEAR cache or resetting any optimizer state:
+
+```bash
+sbatch --export=ALL,MAX_STEPS=150000 \
+  SAEUnitAnalysis/slurm/train_direct_hifigan_blackwell.sh
+```
+
+The 100k selected checkpoint and listening report remain preserved when a
+continuation is launched.
+
+The dry run uses no GPU allocation. It builds and validates the CSD3
+symlink-only bundle, checks all 33,862 audio links and registered demo pairs,
+checksum-verifies the public warm start, loads its expected 235/236 compatible
+tensors into the full generator, validates resume checkpoints when present,
+and executes a full-generator forward pass.
 
 The final listening page is written to:
 
 ```text
-SAEUnitAnalysis/audio_models/spear_direct_hifigan_knnvc_init/
-  final_demo_10_pairs/report/index.html
+SAEUnitAnalysis/audio_models/spear_direct_hifigan_trainclean100_full/
+  demo_after_step100000_10_pairs/report/index.html
 ```
 
 A bounded local wiring test uses the explicitly reduced model; its sound is not
