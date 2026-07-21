@@ -397,12 +397,17 @@ python -m SAEUnitAnalysis.render_audio_swaps \
   --device cuda --max-pairs 24 --interpolation-pairs 5 --grid-size 5
 ```
 
-The Blackwell job performs both phases, validates the repository data paths,
-downloads the published 63 MiB warm start once, and resumes if `last.pt`
-exists. After reaching `MAX_STEPS`, it automatically renders ten held-out,
-speaker-diverse registered pairs. Each report row contains recipient and donor
-references, original-SPEAR reconstruction, SAE reconstruction, recipient-L +
-donor-P swapping, and the complementary L swap:
+The CSD3 Slurm job performs both phases. It uses the existing
+`Probing/data/LibriSpeech` tree and creates a symlink-only audio bundle under
+the ignored `SAEUnitAnalysis/audio_models/` directory; the local MFA bundle is
+not required for vocoder training. It validates the checkpoint, all three
+LibriSpeech splits, registered test-pair audio, Python imports and CUDA before
+extraction. It downloads and checksum-verifies the published 63 MiB warm start
+once, then resumes from `last.pt` when present. After reaching `MAX_STEPS`, it
+automatically renders ten held-out, speaker-diverse registered pairs. Each
+report row contains recipient and donor references, original-SPEAR
+reconstruction, SAE reconstruction, recipient-L + donor-P swapping, and the
+complementary L swap:
 
 ```bash
 sbatch SAEUnitAnalysis/slurm/train_direct_hifigan_blackwell.sh

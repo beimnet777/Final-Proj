@@ -918,6 +918,29 @@ class CoreTests(unittest.TestCase):
             with self.assertRaises(AnalysisError):
                 bundle.require("causal")
 
+    def test_csd3_direct_hifigan_job_builds_bundle_from_existing_audio(self):
+        script_path = (
+            Path(__file__).resolve().parents[1]
+            / "slurm"
+            / "train_direct_hifigan_blackwell.sh"
+        )
+        script = script_path.read_text(encoding="utf-8")
+        self.assertIn(
+            'LIBRISPEECH_ROOT="${LIBRISPEECH_ROOT:-${REPO_ROOT}/Probing/data/LibriSpeech}"',
+            script,
+        )
+        self.assertIn("-m SAEUnitAnalysis.build_librispeech_bundle", script)
+        self.assertIn('MAX_TRAIN_UTTERANCES="${MAX_TRAIN_UTTERANCES:-10000}"', script)
+        self.assertIn(
+            'MAX_VALIDATION_UTTERANCES="${MAX_VALIDATION_UTTERANCES:-1000}"',
+            script,
+        )
+        self.assertNotIn(
+            '${REPO_ROOT}/data/sae_analysis/librispeech_bundle_12k_mfa',
+            script,
+        )
+        self.assertNotIn("/scratch/", script)
+
     def test_librispeech_mfa_bridge_imports_phone_alignments(self):
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
