@@ -315,6 +315,7 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
     n_emotion = cfg.emotion_num_classes
 
     model = build_dis_model(cfg).to(device)
+    fixed_blocks = bool(getattr(cfg, "fixed_blocks", False))
     if stage1_ckpt:
         audit = load_sae_initialization(model, stage1_ckpt)
         print(f"[msp] loaded {len(audit['loaded'])} SAE tensors from {stage1_ckpt} "
@@ -322,6 +323,11 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
               f"shape_mismatch={len(audit['mismatched'])})")
     else:
         print("[msp] training from scratch (SAE/routing/heads from init)")
+    if fixed_blocks:
+        print("[msp] fixed blocks: "
+              f"sizes L/P/U={cfg.K_L}/{cfg.K_P}/{cfg.K_U} "
+              f"active L/P/U={cfg.topk_L}/{cfg.topk_P}/{cfg.topk_U} "
+              f"per_block_topk={cfg.per_block_topk}", flush=True)
     # Speaker adversary → GELU (isolation: overrides model.grl_head without
     # editing the shared model/heads.py).
     model.grl_head = GELUSpeakerGRLHead(cfg).to(device)
@@ -650,8 +656,12 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             l_emogrl = _loss_if_present(
                 out, "emotion_grl_logits", l_recon,
                 lambda logits: F.cross_entropy(logits, emo, weight=emo_w))
-            l_route   = route_loss(out["routing_logits"])
-            l_spec    = routing_spec_loss(out["routing_logits"])
+            if fixed_blocks:
+                l_route = l_recon.new_zeros(())
+                l_spec = l_recon.new_zeros(())
+            else:
+                l_route = route_loss(out["routing_logits"])
+                l_spec = routing_spec_loss(out["routing_logits"])
 
         coop_raw = {
             "recon": l_recon,
@@ -717,28 +727,29 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
             if cfg.rho > 0:
                 adversary_losses["route_balance"] = cfg.rho * l_route
 
-            with torch.no_grad():
-                _z_active = (out["z_t"] != 0).float()
-                _T = _z_active.shape[1]
-                _valid = (torch.arange(_T, device=device).unsqueeze(0)
-                          < olen.unsqueeze(1)).float()
-                if out["routing_logits"].dim() == 2:
-                    active_freq_for_router = (
-                        (_z_active * _valid.unsqueeze(-1)).sum(dim=(0, 1))
-                        / _valid.sum().clamp(min=1)
-                    )
-                else:
-                    active_freq_for_router = (
-                        (_z_active * _valid.unsqueeze(-1)).sum(dim=1)
-                        / _valid.sum(dim=1, keepdim=True).clamp(min=1)
-                    )
-            route_p_soft = torch.softmax(out["routing_logits"], dim=-1)[..., 1]
-            active_p_soft = (
-                (active_freq_for_router * route_p_soft).sum()
-                / active_freq_for_router.sum().clamp(min=1e-12)
-            )
-            router_grad_diag = named_gradient_diagnostics(
-                {**coop, **adversary_losses}, rout_params, reference=active_p_soft)
+            if not fixed_blocks:
+                with torch.no_grad():
+                    _z_active = (out["z_t"] != 0).float()
+                    _T = _z_active.shape[1]
+                    _valid = (torch.arange(_T, device=device).unsqueeze(0)
+                              < olen.unsqueeze(1)).float()
+                    if out["routing_logits"].dim() == 2:
+                        active_freq_for_router = (
+                            (_z_active * _valid.unsqueeze(-1)).sum(dim=(0, 1))
+                            / _valid.sum().clamp(min=1)
+                        )
+                    else:
+                        active_freq_for_router = (
+                            (_z_active * _valid.unsqueeze(-1)).sum(dim=1)
+                            / _valid.sum(dim=1, keepdim=True).clamp(min=1)
+                        )
+                route_p_soft = torch.softmax(out["routing_logits"], dim=-1)[..., 1]
+                active_p_soft = (
+                    (active_freq_for_router * route_p_soft).sum()
+                    / active_freq_for_router.sum().clamp(min=1e-12)
+                )
+                router_grad_diag = named_gradient_diagnostics(
+                    {**coop, **adversary_losses}, rout_params, reference=active_p_soft)
         if pcgrad is not None:
             balance_mode = str(getattr(cfg, "pcgrad_balance", "none"))
             adversary_balance_mode = str(getattr(cfg, "adversary_balance", "none"))
@@ -916,17 +927,33 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 else:
                     gp_n = gp_d = 0
 
-                route_idx = out["routing_logits"].detach().argmax(dim=-1)
-                if route_idx.dim() == 1:
-                    n_L = int((route_idx == 0).sum())
-                    n_P = int((route_idx == 1).sum())
-                    route_L = (route_idx == 0).float().view(1, 1, -1)
-                    route_P = (route_idx == 1).float().view(1, 1, -1)
+                if fixed_blocks:
+                    n_L, n_P = int(cfg.K_L), int(cfg.K_P)
+                    route_L = model.block_m_L.view(1, 1, -1)
+                    route_P = model.block_m_P.view(1, 1, -1)
+                    proportions = torch.tensor(
+                        [n_L / cfg.K, n_P / cfg.K], device=device)
+                    balance_entropy = float(
+                        -(proportions * proportions.clamp_min(1e-12).log()).sum())
+                    route_diag = {
+                        "balance_entropy": balance_entropy,
+                        "unit_entropy": 0.0,
+                        "specialized_frac_h_lt_0_5": 1.0,
+                        "top1_top2_margin": 1.0,
+                    }
                 else:
-                    n_L = int((route_idx == 0).sum(dim=-1).float().mean())
-                    n_P = int((route_idx == 1).sum(dim=-1).float().mean())
-                    route_L = (route_idx == 0).float().unsqueeze(1)
-                    route_P = (route_idx == 1).float().unsqueeze(1)
+                    route_idx = out["routing_logits"].detach().argmax(dim=-1)
+                    if route_idx.dim() == 1:
+                        n_L = int((route_idx == 0).sum())
+                        n_P = int((route_idx == 1).sum())
+                        route_L = (route_idx == 0).float().view(1, 1, -1)
+                        route_P = (route_idx == 1).float().view(1, 1, -1)
+                    else:
+                        n_L = int((route_idx == 0).sum(dim=-1).float().mean())
+                        n_P = int((route_idx == 1).sum(dim=-1).float().mean())
+                        route_L = (route_idx == 0).float().unsqueeze(1)
+                        route_P = (route_idx == 1).float().unsqueeze(1)
+                    route_diag = model.routing.routing_diagnostics
                 z_active = (out["z_t"] != 0).float()
                 T = z_active.shape[1]
                 fmask = (torch.arange(T, device=device).unsqueeze(0)
@@ -934,7 +961,6 @@ def run(cfg, stage1_ckpt: Optional[str] = None) -> Path:
                 n_valid = fmask.sum().clamp(min=1)
                 act_L = float(((z_active * route_L).sum(-1) * fmask).sum() / n_valid)
                 act_P = float(((z_active * route_P).sum(-1) * fmask).sum() / n_valid)
-                route_diag = model.routing.routing_diagnostics
                 n_dead = int((model.sae.steps_since_fired > model.sae.dead_threshold).sum())
                 dead_frac = n_dead / cfg.K
                 zL_grl_frame = (cfg.grl_grad_norm_target * ramp

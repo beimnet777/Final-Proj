@@ -123,6 +123,18 @@ class MSPConfig:
     freeze_route_topk_on_resume:      bool = False
     route_topk_calib_batches:         int  = 20
 
+    # Fixed-block MSP control.  These fields are opt-in so existing learned and
+    # quota-freeze runs keep their historical configuration.  MSP uses two
+    # factors (L/P); a zero-sized U block is valid.
+    fixed_blocks:   bool = False
+    K_L:            int  = 3072
+    K_P:            int  = 2048
+    K_U:            int  = 0
+    per_block_topk: bool = True
+    topk_L:         int  = 192
+    topk_P:         int  = 64
+    topk_U:         int  = 0
+
 
 def to_dis_cfg(m: MSPConfig) -> DISConfig:
     """Materialise a DISConfig the shared model/optimiser understand, with the MSP
@@ -178,6 +190,10 @@ def to_dis_cfg(m: MSPConfig) -> DISConfig:
     c.freeze_learned_routing_on_resume = m.freeze_learned_routing_on_resume
     c.freeze_route_topk_on_resume = m.freeze_route_topk_on_resume
     c.route_topk_calib_batches = m.route_topk_calib_batches
+    c.fixed_blocks = m.fixed_blocks
+    c.K_L, c.K_P, c.K_U = m.K_L, m.K_P, m.K_U
+    c.per_block_topk = m.per_block_topk
+    c.topk_L, c.topk_P, c.topk_U = m.topk_L, m.topk_P, m.topk_U
     c.aux_k = m.aux_k
     c.aux_k_coef = m.aux_k_coef
     c.dead_steps_threshold = m.dead_steps_threshold

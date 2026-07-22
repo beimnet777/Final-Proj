@@ -58,6 +58,18 @@ def main() -> None:
                    help="after learned-route freeze, calibrate/enforce route-local TopK quotas")
     p.add_argument("--route_topk_calib_batches", type=int,
                    default=d.route_topk_calib_batches)
+    p.add_argument("--fixed_blocks", action=argparse.BooleanOptionalAction,
+                   default=d.fixed_blocks,
+                   help="use fixed contiguous L/P blocks instead of learned routing")
+    p.add_argument("--K_L", type=int, default=d.K_L)
+    p.add_argument("--K_P", type=int, default=d.K_P)
+    p.add_argument("--K_U", type=int, default=d.K_U)
+    p.add_argument("--per_block_topk", action=argparse.BooleanOptionalAction,
+                   default=d.per_block_topk,
+                   help="enforce separate active-unit quotas inside each fixed block")
+    p.add_argument("--topk_L", type=int, default=d.topk_L)
+    p.add_argument("--topk_P", type=int, default=d.topk_P)
+    p.add_argument("--topk_U", type=int, default=d.topk_U)
     # gradient-conflict
     p.add_argument("--no_pcgrad", action="store_true", help="disable PCGrad surgery")
     p.add_argument("--pcgrad_tasks", default=d.pcgrad_tasks)
@@ -140,6 +152,10 @@ def main() -> None:
         freeze_learned_routing_on_resume=a.freeze_learned_routing_on_resume,
         freeze_route_topk_on_resume=a.freeze_route_topk_on_resume,
         route_topk_calib_batches=a.route_topk_calib_batches,
+        fixed_blocks=a.fixed_blocks,
+        K_L=a.K_L, K_P=a.K_P, K_U=a.K_U,
+        per_block_topk=a.per_block_topk,
+        topk_L=a.topk_L, topk_P=a.topk_P, topk_U=a.topk_U,
         pcgrad=not a.no_pcgrad, pcgrad_tasks=a.pcgrad_tasks,
         pcgrad_balance=a.pcgrad_balance,
         adversary_balance=a.adversary_balance,
@@ -193,6 +209,21 @@ def main() -> None:
         p.error("--freeze_route_topk_on_resume requires --freeze_learned_routing_on_resume")
     if cfg.route_topk_calib_batches <= 0:
         p.error("--route_topk_calib_batches must be positive")
+    if cfg.fixed_blocks:
+        if cfg.freeze_learned_routing_on_resume or cfg.freeze_route_topk_on_resume:
+            p.error("fixed blocks cannot be combined with learned-route freeze options")
+        block_sizes = (cfg.K_L, cfg.K_P, cfg.K_U)
+        block_topks = (cfg.topk_L, cfg.topk_P, cfg.topk_U)
+        if any(size < 0 for size in block_sizes):
+            p.error(f"fixed block sizes must be non-negative, got {block_sizes}")
+        if sum(block_sizes) != cfg.K:
+            p.error(f"K_L+K_P+K_U must equal K={cfg.K}, got {sum(block_sizes)}")
+        if any(k < 0 or k > size for k, size in zip(block_topks, block_sizes)):
+            p.error(f"each fixed-block TopK must lie within its block: "
+                    f"sizes={block_sizes}, topks={block_topks}")
+        if cfg.per_block_topk and sum(block_topks) != cfg.topk:
+            p.error(f"topk_L+topk_P+topk_U must equal topk={cfg.topk}, "
+                    f"got {sum(block_topks)}")
     if cfg.aux_k < 0:
         p.error("--aux_k must be non-negative")
     if cfg.aux_k_coef < 0:
@@ -201,7 +232,8 @@ def main() -> None:
         p.error("--dead_steps_threshold must be non-negative")
     if cfg.adversary_balance != "none" and not cfg.pcgrad:
         p.error("--adversary_balance requires PCGrad (remove --no_pcgrad)")
-    print(f"=== MSP run '{a.run_name}'  pcgrad={cfg.pcgrad}  routing={'hard' if m.hard_routing else 'soft'} ===")
+    routing_name = "fixed-block" if cfg.fixed_blocks else ("hard" if m.hard_routing else "soft")
+    print(f"=== MSP run '{a.run_name}'  pcgrad={cfg.pcgrad}  routing={routing_name} ===")
     train.run(cfg, stage1_ckpt=a.stage1_ckpt)
 
 

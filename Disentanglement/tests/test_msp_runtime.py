@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 import sys
+from unittest import mock
 
 import torch
 
@@ -166,6 +167,45 @@ class MSPOptionalAdversaryTests(unittest.TestCase):
         out = {"pr_grl_logits": torch.tensor([2.0, 4.0])}
         loss = _loss_if_present(out, "pr_grl_logits", ref, lambda value: value.mean())
         self.assertEqual(3.0, float(loss))
+
+
+class MSPFixedRoutingTests(unittest.TestCase):
+    def test_fixed_msp_config_enforces_empirical_active_budget(self):
+        dis_dir = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(dis_dir))
+        from model.sae import SparseAutoencoder
+        from msp.config import MSPConfig, to_dis_cfg
+
+        cfg = to_dis_cfg(MSPConfig(
+            fixed_blocks=True,
+            K_L=2130, K_P=2990, K_U=0,
+            topk_L=210, topk_P=46, topk_U=0,
+        ))
+        sae = SparseAutoencoder(cfg)
+        z, _ = sae.encode(torch.randn(2, 3, cfg.D))
+        self.assertTrue(torch.all((z[..., :cfg.K_L] != 0).sum(-1) == 210))
+        self.assertTrue(torch.all((z[..., cfg.K_L:] != 0).sum(-1) == 46))
+
+    def test_fixed_cli_reaches_trainer_with_complete_structure(self):
+        dis_dir = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(dis_dir))
+        from msp import run as msp_run
+
+        lexicon = dis_dir.parent / "Probing" / "data" / "librispeech-lexicon.txt"
+        argv = [
+            "msp.run", "--fixed_blocks",
+            "--K_L", "2130", "--K_P", "2990", "--K_U", "0",
+            "--topk_L", "210", "--topk_P", "46", "--topk_U", "0",
+            "--routing_spec_weight", "0",
+            "--lexicon_path", str(lexicon),
+        ]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                msp_run.train, "run") as train_run:
+            msp_run.main()
+        cfg = train_run.call_args.args[0]
+        self.assertTrue(cfg.fixed_blocks)
+        self.assertEqual((2130, 2990, 0), (cfg.K_L, cfg.K_P, cfg.K_U))
+        self.assertEqual((210, 46, 0), (cfg.topk_L, cfg.topk_P, cfg.topk_U))
 
 
 class MSPSeparatedOptimizerTests(unittest.TestCase):
