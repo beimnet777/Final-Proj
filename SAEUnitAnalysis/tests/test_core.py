@@ -945,7 +945,7 @@ class CoreTests(unittest.TestCase):
         self.assertIn('MAX_STEPS="${MAX_STEPS:-100000}"', script)
         self.assertIn('BEST_SNAPSHOT="${BEST_SNAPSHOT:-${OUTPUT_DIR}/best_after_step${MAX_STEPS}.pt}"', script)
         self.assertIn('DEMO_OUTPUT_DIR="${DEMO_OUTPUT_DIR:-${OUTPUT_DIR}/demo_after_step${MAX_STEPS}_10_pairs}"', script)
-        self.assertIn("#SBATCH --time=36:00:00", script)
+        self.assertIn("#SBATCH --time=21:00:00", script)
         self.assertIn("spear_direct_cache_trainclean100_full", script)
         self.assertIn("spear_direct_hifigan_trainclean100_full", script)
         self.assertNotIn(
@@ -954,7 +954,7 @@ class CoreTests(unittest.TestCase):
         )
         self.assertNotIn("/scratch/", script)
         self.assertNotIn("bundle.spec.splits", script)
-        self.assertIn('bundle.spec.split_map.get("test", "test")', script)
+        self.assertIn('bundle.spec.split_map["test"]', script)
         self.assertLess(
             script.index("bundle = AnalysisBundle(data_root)"),
             script.index('if [[ "${DRY_RUN}" == "1" ]]'),

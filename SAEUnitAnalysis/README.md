@@ -460,6 +460,25 @@ sbatch --export=ALL,MAX_STEPS=150000 \
 The 100k selected checkpoint and listening report remain preserved when a
 continuation is launched.
 
+If original-SPEAR reconstruction is good but SAE reconstruction is degraded,
+adapt a perceptually selected *periodic* checkpoint to the frozen SAE decoder
+manifold. This is a separate run: it restores the complete generator,
+discriminator and optimizer state, then uses an exact 50/50 per-batch mixture
+of original SPEAR and fixed-SAE reconstructed conditions. Validation and WAV
+previews are written separately for both domains. Swapped conditions are never
+paired with the source waveform during training.
+
+```bash
+sbatch SAEUnitAnalysis/slurm/finetune_sae_aware_direct_hifigan_csd3.sh \
+  /rds/user/bbg25/hpc-work/Thesis/Final-Proj/SAEUnitAnalysis/audio_models/\
+spear_direct_hifigan_trainclean100_full/step_00100000.pt
+```
+
+The base checkpoint argument is mandatory and must be a full periodic or
+resume checkpoint, not the inference-only `best.pt`. Outputs go to a new
+`spear_direct_hifigan_saeaware_*` directory and never overwrite the original
+vocoder run.
+
 The dry run uses no GPU allocation. It builds and validates the CSD3
 symlink-only bundle, checks all 33,862 audio links and registered demo pairs,
 checksum-verifies the public warm start, loads its expected 235/236 compatible
