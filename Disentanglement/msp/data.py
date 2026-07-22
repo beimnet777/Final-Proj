@@ -24,6 +24,7 @@ secondary emotion-generalization set (speaker_id=-1) and is returned as a 4th lo
 from __future__ import annotations
 
 import csv
+import random
 import re
 import zipfile
 from collections import Counter, defaultdict
@@ -68,6 +69,43 @@ def _load_audio(path: Path, sr: int) -> np.ndarray:
 def _read_manifest(manifest: Path) -> List[dict]:
     with open(manifest, newline="") as f:
         return list(csv.DictReader(f))
+
+
+def speaker_disjoint_probe_rows(rows: List[dict], seed: int = 42,
+                                val_speaker_fraction: float = 0.1,
+                                test_speaker_fraction: float = 0.1) -> List[dict]:
+    """Repartition the closed-set rows into deterministic speaker-disjoint splits.
+
+    This is a probe-only diagnostic: it pools the original train/val/test rows,
+    assigns every speaker wholly to one new split, and leaves the source row
+    dictionaries untouched.  It must not be used for closed-set SID training.
+    """
+    pooled = [r for r in rows if r.get("split") in {"train", "val", "test"}]
+    speakers = sorted({int(r["speaker_idx"]) for r in pooled})
+    if len(speakers) < 3:
+        raise ValueError("speaker-disjoint probing requires at least three speakers")
+    if not 0.0 < val_speaker_fraction < 1.0 or not 0.0 < test_speaker_fraction < 1.0:
+        raise ValueError("speaker-disjoint validation/test fractions must lie in (0, 1)")
+    if val_speaker_fraction + test_speaker_fraction >= 1.0:
+        raise ValueError("speaker-disjoint validation/test fractions must sum to less than one")
+
+    random.Random(int(seed)).shuffle(speakers)
+    n_test = max(1, round(len(speakers) * test_speaker_fraction))
+    n_val = max(1, round(len(speakers) * val_speaker_fraction))
+    if n_test + n_val >= len(speakers):
+        raise ValueError("speaker-disjoint fractions leave no training speakers")
+
+    split_by_speaker = {speaker: "test" for speaker in speakers[:n_test]}
+    split_by_speaker.update({speaker: "val"
+                             for speaker in speakers[n_test:n_test + n_val]})
+    split_by_speaker.update({speaker: "train"
+                             for speaker in speakers[n_test + n_val:]})
+    repartitioned = []
+    for row in pooled:
+        copied = dict(row)
+        copied["split"] = split_by_speaker[int(row["speaker_idx"])]
+        repartitioned.append(copied)
+    return repartitioned
 
 
 def _preload_transcripts(file_names, transcripts: Path) -> Dict[str, str]:
@@ -173,6 +211,14 @@ def make_msp_dataloaders(cfg):
     if manifest.is_dir():
         manifest = manifest / "manifest.csv"
     rows = _read_manifest(manifest)
+
+    if bool(getattr(cfg, "msp_speaker_disjoint_probe_split", False)):
+        rows = speaker_disjoint_probe_rows(
+            rows,
+            seed=int(getattr(cfg, "msp_speaker_disjoint_seed", cfg.seed)),
+        )
+        print("[msp_data] probe-only speaker-disjoint split enabled "
+              f"(seed={getattr(cfg, 'msp_speaker_disjoint_seed', cfg.seed)})")
 
     by_split: Dict[str, List[dict]] = defaultdict(list)
     for r in rows:

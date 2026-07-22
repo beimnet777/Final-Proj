@@ -57,6 +57,34 @@ class MSPCheckpointTests(unittest.TestCase):
         self.assertEqual(["--grl_grad_norm"], _msp_args({"grl_grad_norm": True}))
 
 
+class MSPSpeakerDisjointProbeTests(unittest.TestCase):
+    def test_repartition_is_deterministic_disjoint_and_keeps_every_row(self):
+        dis_dir = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(dis_dir))
+        from msp.data import speaker_disjoint_probe_rows
+
+        rows = []
+        for speaker in range(20):
+            for original_split in ("train", "val", "test"):
+                rows.append({"speaker_idx": str(speaker), "split": original_split,
+                             "FileName": f"{speaker}-{original_split}.wav"})
+
+        first = speaker_disjoint_probe_rows(rows, seed=42)
+        second = speaker_disjoint_probe_rows(rows, seed=42)
+        self.assertEqual(first, second)
+        self.assertEqual(len(rows), len(first))
+        speakers_by_split = {
+            split: {int(row["speaker_idx"]) for row in first if row["split"] == split}
+            for split in ("train", "val", "test")
+        }
+        self.assertTrue(speakers_by_split["train"])
+        self.assertTrue(speakers_by_split["val"])
+        self.assertTrue(speakers_by_split["test"])
+        self.assertTrue(speakers_by_split["train"].isdisjoint(speakers_by_split["val"]))
+        self.assertTrue(speakers_by_split["train"].isdisjoint(speakers_by_split["test"]))
+        self.assertTrue(speakers_by_split["val"].isdisjoint(speakers_by_split["test"]))
+
+
 class MSPGradientDiagnosticsTests(unittest.TestCase):
     def test_vector_diagnostics_does_not_advance_pcgrad_rng(self):
         parameter = torch.nn.Parameter(torch.zeros(2))

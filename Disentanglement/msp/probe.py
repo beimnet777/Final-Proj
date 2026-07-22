@@ -26,7 +26,7 @@ from training_runtime import atomic_json_dump
 from data.dataset import CharTokenizer
 
 from .checkpoints import checkpoint_model_state
-from .data import make_msp_dataloaders
+from .data import EMOTION_NAMES, make_msp_dataloaders
 from .heads import GELUSpeakerGRLHead
 from . import utils as U
 
@@ -237,7 +237,8 @@ class _PearsonAcc:
 
 @torch.no_grad()
 def evaluate(model, probes, dl, device, sources, tasks, asr_tokenizer=None,
-             sv_max_pairs: int = 20000, sv_seed: int = 42):
+             sv_max_pairs: int = 20000, sv_seed: int = 42,
+             include_emotion_details: bool = False):
     probes.eval()
     asr_loss = nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True) \
         if "asr" in tasks else None
@@ -350,6 +351,16 @@ def evaluate(model, probes, dl, device, sources, tasks, asr_tokenizer=None,
             conf = values["conf"]
             row["emotion_uar"] = U.uar_from_confusion(conf)
             row["emotion_acc"] = float(conf.diag().sum() / conf.sum().clamp(min=1))
+            if include_emotion_details:
+                support = conf.sum(dim=1)
+                recall = conf.diag() / support.clamp(min=1)
+                row["emotion_per_class_recall"] = {
+                    EMOTION_NAMES[i]: float(recall[i]) for i in range(len(EMOTION_NAMES))
+                }
+                row["emotion_class_support"] = {
+                    EMOTION_NAMES[i]: int(support[i]) for i in range(len(EMOTION_NAMES))
+                }
+                row["emotion_confusion"] = conf.to(dtype=torch.int64).tolist()
         if "prosody" in tasks:
             row["prosody_loss"] = values["prosody_loss_sum"] / max(values["prosody_n"], 1)
             row["prosody_f0_corr"] = values["f0_corr"].value()
@@ -401,6 +412,11 @@ def main():
     p.add_argument("--sv_max_pairs", type=int, default=20000,
                    help="speaker-verification same/different cosine trials per eval")
     p.add_argument("--sv_seed", type=int, default=42)
+    p.add_argument("--emotion_diagnostics", action="store_true",
+                   help="include test emotion confusion matrices and per-class recall")
+    p.add_argument("--speaker_disjoint_emotion_split", action="store_true",
+                   help="probe emotion on a deterministic 80/10/10 speaker-disjoint "
+                        "repartition of the closed-set MSP rows")
     p.add_argument("--output", type=Path, default=Path("msp_probe_results.json"))
     args = p.parse_args()
 
@@ -418,6 +434,8 @@ def main():
         raise ValueError(f"unknown probe task(s): {bad_tasks}; expected {sorted(valid_tasks)}")
     if not sources or not tasks:
         raise ValueError("--sources and --tasks must each select at least one item")
+    if args.speaker_disjoint_emotion_split and set(tasks) != {"emotion"}:
+        raise ValueError("--speaker_disjoint_emotion_split is an emotion-only diagnostic")
     train_tasks = tuple(t for t in tasks if t != "sv")
     asr_tokenizer = CharTokenizer() if "asr" in tasks else None
 
@@ -435,6 +453,8 @@ def main():
     cfg.num_workers = args.num_workers
     cfg.invariance = False
     cfg.device = str(device)
+    cfg.msp_speaker_disjoint_probe_split = args.speaker_disjoint_emotion_split
+    cfg.msp_speaker_disjoint_seed = args.seed
 
     if not Path(cfg.lexicon_path).is_file():
         raise FileNotFoundError(
@@ -599,10 +619,12 @@ def main():
         f"{source}.{task}": value for (source, task), value in best.items()},
         "sources": list(sources),
         "tasks": list(tasks),
+        "speaker_disjoint_emotion_split": args.speaker_disjoint_emotion_split,
         "test": evaluate(model, probes, test_dl, device, sources, tasks,
                          asr_tokenizer=asr_tokenizer,
                          sv_max_pairs=args.sv_max_pairs,
-                         sv_seed=args.sv_seed)}
+                         sv_seed=args.sv_seed,
+                         include_emotion_details=args.emotion_diagnostics)}
     if extra:
         result["test_unseen"] = evaluate(model, probes, extra[0], device, sources, tasks,
                                          asr_tokenizer=asr_tokenizer,

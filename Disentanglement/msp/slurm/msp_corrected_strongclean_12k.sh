@@ -95,7 +95,8 @@ PHONEME_GRL_WEIGHT=0.25
 PROSODY_WEIGHT=0.5
 PROSODY_GRL_WEIGHT=0.10
 EMOTION_WEIGHT=0.5
-EMOTION_GRL_WEIGHT=0.10
+EMOTION_GRL_WEIGHT="${MSP_EMOTION_GRL_WEIGHT:-0.10}"
+POSTFREEZE_EMOTION_GRL_WEIGHT="${MSP_POSTFREEZE_EMOTION_GRL_WEIGHT:-${EMOTION_GRL_WEIGHT}}"
 INVARIANCE_WEIGHT=0.0
 
 AUX_K=64
@@ -118,7 +119,7 @@ echo "run_name    : ${RUN_NAME}"
 echo "schedule    : total=${STEPS} freeze=${FREEZE_STEP} DANN=${DANN_RAMP_STEPS}"
 echo "optimization: separate_disc=yes separate_clip=yes PCGrad=${PCGRAD_TASKS} balance=${PCGRAD_BALANCE} adversary_balance=${ADVERSARY_BALANCE}"
 echo "positive    : recon=${RECON_WEIGHT} pr=${PR_WEIGHT} sid=${SID_WEIGHT} pros=${PROSODY_WEIGHT} emo=${EMOTION_WEIGHT}"
-echo "adversarial : speaker=${SPEAKER_GRL_WEIGHT}/GN${SPEAKER_GRL_NORM_TARGET} phone=${PHONEME_GRL_WEIGHT} pros=${PROSODY_GRL_WEIGHT} emo=${EMOTION_GRL_WEIGHT}"
+echo "adversarial : speaker=${SPEAKER_GRL_WEIGHT}/GN${SPEAKER_GRL_NORM_TARGET} phone=${PHONEME_GRL_WEIGHT} pros=${PROSODY_GRL_WEIGHT} emo_pre=${EMOTION_GRL_WEIGHT} emo_post=${POSTFREEZE_EMOTION_GRL_WEIGHT}"
 echo "dead revival: AuxK=${AUX_K} coef=${AUX_K_COEF} threshold=${DEAD_STEPS_THRESHOLD} valid_frames=yes"
 echo "checkpoints : every ${CKPT_EVERY}; compare steps 8000, 10000, 12000"
 
@@ -171,6 +172,7 @@ run_or_print "${PYTHON}" -u -m msp.run "${COMMON_ARGS[@]}" \
 echo "[phase 2] exact resume, freeze learned routes and learned active quotas"
 run_or_print "${PYTHON}" -u -m msp.run "${COMMON_ARGS[@]}" \
   --resume "${CHECKPOINT_DIR}/latest-resume.pt" \
+  --grl_emotion_weight "${POSTFREEZE_EMOTION_GRL_WEIGHT}" \
   --freeze_learned_routing_on_resume \
   --freeze_route_topk_on_resume \
   --route_topk_calib_batches "${ROUTE_TOPK_CALIB_BATCHES}" \
