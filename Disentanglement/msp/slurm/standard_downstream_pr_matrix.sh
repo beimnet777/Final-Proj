@@ -8,14 +8,14 @@
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
 #SBATCH --job-name=std_pr_matrix
-#SBATCH --array=0-9%4
+#SBATCH --array=0-2%3
 #SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/logs/%x_%A_%a.out
 #SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/logs/%x_%A_%a.err
 
-# SUPERB-style LibriSpeech PR comparison.  The raw SPEAR reference and every
-# checkpoint route use the same official tokenizer, projected-linear CTC head,
-# data splits, optimizer, schedule, seed, and validation selection.  Eight
-# epochs are used (shorter than the original 10-epoch local reference).
+# SUPERB-style LibriSpeech PR for one checkpoint across z_t/z_L/z_P.  The
+# default target is the fixed Libri checkpoint.  After the matched MSP matrix
+# selects one MSP winner, resubmit with TARGET_KIND=msp and TARGET_RUN=<winner>.
+# Raw SPEAR is deliberately not rerun.
 
 set -euo pipefail
 
@@ -35,41 +35,32 @@ LIBRISPEECH_ROOT="${LIBRISPEECH_ROOT:-${REPO_ROOT}/Probing/data/LibriSpeech}"
 LEXICON_PATH="${LEXICON_PATH:-${REPO_ROOT}/Probing/data/librispeech-lexicon.txt}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_ROOT}/Probing/pr/standard_downstream}"
 
-declare -a RUN_NAMES=(
-  "libri_advfb_prrecover_gn00015_240L16P_aux64_12k_s42"
-  "msp_hardqfreeze4000_strongclean_dann12000_advpe010_s42"
-  "msp_hardqfreeze4000_sc_optfix_nobal_aux64_gn0004_grlp025_dann12000_12k_s42"
-)
-declare -a RUN_KINDS=("libri" "msp" "msp")
 declare -a SOURCES=("z_t" "z_L" "z_P")
+TARGET_KIND="${TARGET_KIND:-libri}"
+TARGET_RUN="${TARGET_RUN:-libri_advfb_prrecover_gn00015_240L16P_aux64_12k_s42}"
 
-if (( TASK_ID < 0 || TASK_ID > 9 )); then
-  echo "Unknown TASK_ID=${TASK_ID}; expected 0..9." >&2
+if (( TASK_ID < 0 || TASK_ID > 2 )); then
+  echo "Unknown TASK_ID=${TASK_ID}; expected 0..2." >&2
   exit 2
 fi
 
-declare -a MODEL_ARGS=()
-if (( TASK_ID == 0 )); then
-  LABEL="raw_spear"
-  MODEL_ARGS=(--model_family spear)
+SOURCE="${SOURCES[${TASK_ID}]}"
+if [[ -n "${TARGET_CHECKPOINT:-}" ]]; then
+  CHECKPOINT="${TARGET_CHECKPOINT}"
+elif [[ "${TARGET_KIND}" == "libri" ]]; then
+  CHECKPOINT="${REPO_ROOT}/checkpoints/blackwell/${TARGET_RUN}/final.pt"
+elif [[ "${TARGET_KIND}" == "msp" ]]; then
+  CHECKPOINT="${DIS_DIR}/msp/checkpoints/${TARGET_RUN}/final.pt"
 else
-  OFFSET=$((TASK_ID - 1))
-  RUN_INDEX=$((OFFSET / 3))
-  SOURCE_INDEX=$((OFFSET % 3))
-  RUN_NAME="${RUN_NAMES[${RUN_INDEX}]}"
-  SOURCE="${SOURCES[${SOURCE_INDEX}]}"
-  if [[ "${RUN_KINDS[${RUN_INDEX}]}" == "libri" ]]; then
-    CHECKPOINT="${REPO_ROOT}/checkpoints/blackwell/${RUN_NAME}/final.pt"
-  else
-    CHECKPOINT="${DIS_DIR}/msp/checkpoints/${RUN_NAME}/final.pt"
-  fi
-  LABEL="${RUN_NAME}_${SOURCE}"
-  MODEL_ARGS=(
-    --model_family disentanglement
-    --checkpoint_path "${CHECKPOINT}"
-    --representation_source "${SOURCE}"
-  )
+  echo "Unknown TARGET_KIND=${TARGET_KIND}; expected libri or msp." >&2
+  exit 3
 fi
+LABEL="${TARGET_RUN}_${SOURCE}"
+MODEL_ARGS=(
+  --model_family disentanglement
+  --checkpoint_path "${CHECKPOINT}"
+  --representation_source "${SOURCE}"
+)
 
 RUN_DIR="${OUTPUT_ROOT}/runs/${LABEL}_seed${SEED}"
 PROBE_CKPT_DIR="${OUTPUT_ROOT}/checkpoints/${LABEL}_seed${SEED}"
@@ -81,9 +72,7 @@ if [[ "${DRY_RUN}" != "1" ]]; then
     echo "Missing LibriSpeech train-clean-100: ${LIBRISPEECH_ROOT}" >&2; exit 4;
   }
   [[ -f "${LEXICON_PATH}" ]] || { echo "Missing lexicon: ${LEXICON_PATH}" >&2; exit 5; }
-  if (( TASK_ID > 0 )); then
-    [[ -f "${CHECKPOINT}" ]] || { echo "Missing checkpoint: ${CHECKPOINT}" >&2; exit 6; }
-  fi
+  [[ -f "${CHECKPOINT}" ]] || { echo "Missing checkpoint: ${CHECKPOINT}" >&2; exit 6; }
 fi
 
 MAX_EXAMPLES=0
@@ -114,6 +103,7 @@ COMMAND=("${PYTHON}" -u Probing/pr/pr_run.py
 echo "=== Standard downstream PR ==="
 echo "task_id : ${TASK_ID}"
 echo "label   : ${LABEL}"
+echo "ckpt    : ${CHECKPOINT}"
 echo "epochs  : ${EPOCHS}"
 printf '+ %q ' "${COMMAND[@]}"; printf '\n'
 if [[ "${DRY_RUN}" != "1" ]]; then

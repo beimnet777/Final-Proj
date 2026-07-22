@@ -8,14 +8,13 @@
 #SBATCH --gres=gpu:1
 #SBATCH --account=MLMI-bbg25-SL2-GPU
 #SBATCH --job-name=std_sid_matrix
-#SBATCH --array=0-8%4
+#SBATCH --array=0-2%3
 #SBATCH --output=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/logs/%x_%A_%a.out
 #SBATCH --error=/rds/user/bbg25/hpc-work/Thesis/Final-Proj/Disentanglement/msp/logs/%x_%A_%a.err
 
-# SUPERB-style VoxCeleb1 closed-set SID for the three checkpoints × three
-# representations.  The raw SPEAR reference is intentionally not duplicated;
-# its existing full four-epoch result is the comparison point.  This array keeps
-# the exact 4-epoch, 8-second train-crop, projected mean-pool linear protocol.
+# SUPERB-style VoxCeleb1 closed-set SID for one checkpoint across z_t/z_L/z_P.
+# The default is the fixed Libri checkpoint.  Resubmit for only the MSP winner
+# selected by the matched matrix.  Raw SPEAR is deliberately not rerun.
 
 set -euo pipefail
 
@@ -34,29 +33,27 @@ SEED="${SEED:-42}"
 VOXCELEB1_ROOT="${VOXCELEB1_ROOT:-/rds/user/${USER}/hpc-work/data/VoxCeleb1}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_ROOT}/Probing/sid/standard_downstream}"
 
-declare -a RUN_NAMES=(
-  "libri_advfb_prrecover_gn00015_240L16P_aux64_12k_s42"
-  "msp_hardqfreeze4000_strongclean_dann12000_advpe010_s42"
-  "msp_hardqfreeze4000_sc_optfix_nobal_aux64_gn0004_grlp025_dann12000_12k_s42"
-)
-declare -a RUN_KINDS=("libri" "msp" "msp")
 declare -a SOURCES=("z_t" "z_L" "z_P")
+TARGET_KIND="${TARGET_KIND:-libri}"
+TARGET_RUN="${TARGET_RUN:-libri_advfb_prrecover_gn00015_240L16P_aux64_12k_s42}"
 
-if (( TASK_ID < 0 || TASK_ID > 8 )); then
-  echo "Unknown TASK_ID=${TASK_ID}; expected 0..8." >&2
+if (( TASK_ID < 0 || TASK_ID > 2 )); then
+  echo "Unknown TASK_ID=${TASK_ID}; expected 0..2." >&2
   exit 2
 fi
 
-RUN_INDEX=$((TASK_ID / 3))
-SOURCE_INDEX=$((TASK_ID % 3))
-RUN_NAME="${RUN_NAMES[${RUN_INDEX}]}"
-SOURCE="${SOURCES[${SOURCE_INDEX}]}"
-if [[ "${RUN_KINDS[${RUN_INDEX}]}" == "libri" ]]; then
-  CHECKPOINT="${REPO_ROOT}/checkpoints/blackwell/${RUN_NAME}/final.pt"
+SOURCE="${SOURCES[${TASK_ID}]}"
+if [[ -n "${TARGET_CHECKPOINT:-}" ]]; then
+  CHECKPOINT="${TARGET_CHECKPOINT}"
+elif [[ "${TARGET_KIND}" == "libri" ]]; then
+  CHECKPOINT="${REPO_ROOT}/checkpoints/blackwell/${TARGET_RUN}/final.pt"
+elif [[ "${TARGET_KIND}" == "msp" ]]; then
+  CHECKPOINT="${DIS_DIR}/msp/checkpoints/${TARGET_RUN}/final.pt"
 else
-  CHECKPOINT="${DIS_DIR}/msp/checkpoints/${RUN_NAME}/final.pt"
+  echo "Unknown TARGET_KIND=${TARGET_KIND}; expected libri or msp." >&2
+  exit 3
 fi
-LABEL="${RUN_NAME}_${SOURCE}"
+LABEL="${TARGET_RUN}_${SOURCE}"
 
 RUN_DIR="${OUTPUT_ROOT}/runs/${LABEL}_seed${SEED}"
 PROBE_CKPT_DIR="${OUTPUT_ROOT}/checkpoints/${LABEL}_seed${SEED}"
