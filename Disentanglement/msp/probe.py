@@ -374,6 +374,16 @@ def _better(task, value, best):
     return value < best if task in {"pr", "prosody", "asr"} else value > best
 
 
+def _warmup_linear_scale(step: int, total_steps: int, warmup_steps: int) -> float:
+    """Warm up to the peak LR, then decay linearly to zero."""
+    if warmup_steps <= 0:
+        return 1.0
+    if step <= warmup_steps:
+        return step / max(warmup_steps, 1)
+    return max(0.0, (total_steps - step) /
+               max(total_steps - warmup_steps, 1))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--checkpoint", required=True)
@@ -399,6 +409,11 @@ def main():
                    help="PR CTC probe architecture. Default preserves older MSP probes; "
                         "use 'linear' for SUPERB-style projected linear PR.")
     p.add_argument("--pr_probe_proj_dim", type=int, default=256)
+    p.add_argument("--pr_probe_lr", type=float, default=None,
+                   help="Peak PR learning rate. Defaults to --lr for backwards compatibility.")
+    p.add_argument("--pr_probe_warmup_steps", type=int, default=0,
+                   help="If positive, warm up PR then linearly decay it to zero. "
+                        "The default 0 preserves the historical constant-LR protocol.")
     p.add_argument("--asr_probe_arch", choices=("lstm", "linear", "direct", "mlp"),
                    default="lstm")
     p.add_argument("--asr_probe_lr", type=float, default=5e-4)
@@ -419,6 +434,8 @@ def main():
                         "repartition of the closed-set MSP rows")
     p.add_argument("--output", type=Path, default=Path("msp_probe_results.json"))
     args = p.parse_args()
+
+    pr_probe_lr = args.lr if args.pr_probe_lr is None else args.pr_probe_lr
 
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -516,7 +533,8 @@ def main():
                       args).to(device)
     param_groups = []
     if "pr" in train_tasks:
-        param_groups.append({"params": probes.pr.parameters(), "lr": args.lr, "name": "pr"})
+        param_groups.append({"params": probes.pr.parameters(), "lr": pr_probe_lr,
+                             "initial_lr": pr_probe_lr, "name": "pr"})
     if "asr" in train_tasks:
         param_groups.append({"params": probes.asr.parameters(), "lr": args.asr_probe_lr,
                              "initial_lr": args.asr_probe_lr, "name": "asr"})
@@ -545,15 +563,18 @@ def main():
             except StopIteration:
                 iterator = iter(train_dl); batch = next(iterator)
             reps, olen = _representations(model, batch, device, sources)
-            if "asr" in train_tasks and args.asr_probe_warmup_steps > 0:
-                if step <= args.asr_probe_warmup_steps:
-                    scale = step / max(args.asr_probe_warmup_steps, 1)
-                else:
-                    scale = max(0.0, (args.steps - step) /
-                                max(args.steps - args.asr_probe_warmup_steps, 1))
-                for group in optimizer.param_groups:
-                    if group.get("name") == "asr":
-                        group["lr"] = group.get("initial_lr", args.asr_probe_lr) * scale
+            scheduled_lrs = {
+                "pr": (pr_probe_lr, args.pr_probe_warmup_steps),
+                "asr": (args.asr_probe_lr, args.asr_probe_warmup_steps),
+            }
+            for group in optimizer.param_groups:
+                name = group.get("name")
+                if name not in scheduled_lrs:
+                    continue
+                peak_lr, warmup_steps = scheduled_lrs[name]
+                if warmup_steps > 0:
+                    group["lr"] = group.get("initial_lr", peak_lr) * \
+                        _warmup_linear_scale(step, args.steps, warmup_steps)
             if "pr" in train_tasks:
                 targets = batch["targets"].to(device)
                 target_lengths = batch["target_lengths"].to(device)
@@ -615,7 +636,15 @@ def main():
 
     for (source, task), state_dict in best_states.items():
         getattr(probes, task)[source].load_state_dict(state_dict)
-    result = {"checkpoint": str(args.checkpoint), "validation_selection": {
+    result = {"checkpoint": str(args.checkpoint), "probe_protocol": {
+        "steps": args.steps,
+        "val_every": args.val_every,
+        "base_lr": args.lr,
+        "pr_lr": pr_probe_lr,
+        "pr_warmup_steps": args.pr_probe_warmup_steps,
+        "asr_lr": args.asr_probe_lr,
+        "asr_warmup_steps": args.asr_probe_warmup_steps,
+    }, "validation_selection": {
         f"{source}.{task}": value for (source, task), value in best.items()},
         "sources": list(sources),
         "tasks": list(tasks),

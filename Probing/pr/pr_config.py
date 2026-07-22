@@ -76,7 +76,9 @@ class PRConfig:
 
     # ----------------------------------------------------- Encoder
     model_id: str          = "marcoyang/spear-xlarge-speech-audio"
-    model_family: Literal["spear", "hf"] = "spear"
+    model_family: Literal["spear", "hf", "disentanglement"] = "spear"
+    checkpoint_path: Optional[Path] = None
+    representation_source: Literal["z_t", "z_L", "z_P"] = "z_t"
     encoder_layer_count: int = 0
 
     # ---------------------------------------------------------------- Probe

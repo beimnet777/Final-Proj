@@ -158,7 +158,12 @@ def build_sid_model(cfg: SIDConfig):
     Returns (encoder, probe).
     cfg.encoder_layer_count is set as a side-effect.
     """
-    encoder = FrozenEncoder(cfg.model_id, model_family=cfg.model_family)
+    encoder = FrozenEncoder(
+        cfg.model_id,
+        model_family=cfg.model_family,
+        checkpoint_path=cfg.checkpoint_path,
+        representation_source=cfg.representation_source,
+    )
     cfg.encoder_layer_count = encoder.num_layers
 
     if cfg.probe_type == "final":

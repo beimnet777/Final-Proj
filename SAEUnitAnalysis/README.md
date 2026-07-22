@@ -286,6 +286,25 @@ the exact `final.pt`. Consequently fixed/naive begin at 1k, whereas the three
 quota-freeze families begin at 5k. Unit IDs must not be compared across
 independently trained families.
 
+## Final consolidated reports
+
+After the final 12k analyses, registered Swap-v2 runs, and shared-sample
+trajectories are present, build the single final collection with:
+
+```bash
+python -m SAEUnitAnalysis.consolidate_final_reports
+```
+
+The entry point is
+`SAEUnitAnalysis/results/final_unit_analysis/report/index.html`. It contains a
+cross-model ledger and one self-contained report for fixed routing, naive
+learned routing, quota-freeze, post-GP, ramp-5k, and the unrouted baseline.
+Each model page copies the essential final figures and CSV tables while linking
+the original reports for provenance; no existing result is deleted or edited.
+Structural estimates use the 12k analysis, Swap-v2 uses the registered 5k/250-
+pair protocol, and trajectories use the shared 40k-frame sample. These sample
+sizes remain explicit rather than being pooled into one implied experiment.
+
 ## Waveform conversion
 
 Waveform validation is deliberately separate from `swap`: the SAE checkpoint is

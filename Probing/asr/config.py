@@ -15,6 +15,9 @@ class Config:
     # LibriSpeech is fetched via `datasets` and cached under this directory.
     # We carve a ~10h slice out of train-clean-100 (see data.py).
     data_cache_dir: Path = Path("./data")
+    local_data: bool = False
+    librispeech_root: Path = Path("../data/LibriSpeech")
+    max_examples: int = 0
     train_hours: float = 100.0           # informational only; full train-clean-100 is always used
     sample_rate: int = 16_000            # SPEAR and LibriSpeech both expect 16 kHz mono
 
@@ -29,7 +32,9 @@ class Config:
     model_id: str = "marcoyang/spear-xlarge-speech-audio"
     # Encoder family: 'spear' for SPEAR (custom Zipformer API) or 'hf' for
     # any standard HuggingFace speech encoder (wav2vec2, HuBERT, WavLM, …).
-    model_family: Literal["spear", "hf"] = "spear"
+    model_family: Literal["spear", "hf", "disentanglement"] = "spear"
+    checkpoint_path: Optional[Path] = None
+    representation_source: Literal["z_t", "z_L", "z_P"] = "z_t"
     # Number of transformer layers the encoder exposes via hidden_states.
     # Populated at runtime in model.py once the encoder is loaded.
     encoder_layer_count: int = 0

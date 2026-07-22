@@ -48,7 +48,11 @@ def parse_args() -> PRConfig:
     )
     p.add_argument("--model_id",        default=cfg.model_id)
     p.add_argument("--model_family",    default=cfg.model_family,
-                   choices=["spear", "hf"])
+                   choices=["spear", "hf", "disentanglement"])
+    p.add_argument("--checkpoint_path", default=None,
+                   help="Disentanglement checkpoint when --model_family=disentanglement.")
+    p.add_argument("--representation_source", choices=["z_t", "z_L", "z_P"],
+                   default=cfg.representation_source)
     p.add_argument("--epochs",          type=int,   default=cfg.num_epochs)
     p.add_argument("--batch_size",      type=int,   default=cfg.batch_size)
     p.add_argument("--eval_batch_size", type=int,   default=cfg.eval_batch_size)
@@ -56,6 +60,9 @@ def parse_args() -> PRConfig:
     p.add_argument("--warmup_steps",    type=int,   default=cfg.warmup_steps)
     p.add_argument("--layer_idx",       type=int,   default=cfg.layer_idx)
     p.add_argument("--data_cache_dir",  default=str(cfg.data_cache_dir))
+    p.add_argument("--local_data", action="store_true",
+                   help="Read an extracted LibriSpeech tree instead of HF streaming.")
+    p.add_argument("--librispeech_root", default=str(cfg.librispeech_root))
     p.add_argument("--lexicon_path",    default=str(cfg.librispeech_lexicon),
                    help="Path to librispeech-lexicon.txt from openslr.org/11.")
     p.add_argument("--max_examples",    type=int, default=cfg.max_examples,
@@ -64,11 +71,14 @@ def parse_args() -> PRConfig:
     p.add_argument("--checkpoint_dir",  default=None)
     p.add_argument("--log_dir",         default=None)
     p.add_argument("--seed",            type=int,   default=cfg.seed)
+    p.add_argument("--num_workers",     type=int,   default=cfg.num_workers)
     args = p.parse_args()
 
     cfg.probe_type      = args.probe
     cfg.model_id        = args.model_id
     cfg.model_family    = args.model_family
+    cfg.checkpoint_path = Path(args.checkpoint_path) if args.checkpoint_path else None
+    cfg.representation_source = args.representation_source
     cfg.num_epochs      = args.epochs
     cfg.batch_size      = args.batch_size
     cfg.eval_batch_size = args.eval_batch_size
@@ -76,12 +86,15 @@ def parse_args() -> PRConfig:
     cfg.warmup_steps    = args.warmup_steps
     cfg.layer_idx       = args.layer_idx
     cfg.data_cache_dir  = Path(args.data_cache_dir)
+    cfg.local_data      = args.local_data
+    cfg.librispeech_root = Path(args.librispeech_root)
     cfg.librispeech_lexicon = Path(args.lexicon_path)
     cfg.max_examples        = args.max_examples
     cfg.runs_dir        = Path(args.runs_dir)       if args.runs_dir       else cfg.runs_dir
     cfg.checkpoint_dir  = Path(args.checkpoint_dir) if args.checkpoint_dir else cfg.checkpoint_dir
     cfg.log_dir         = Path(args.log_dir)         if args.log_dir        else cfg.log_dir
     cfg.seed            = args.seed
+    cfg.num_workers     = args.num_workers
     return cfg
 
 
@@ -98,6 +111,9 @@ def main() -> None:
     print(f"=== probe_type   : {cfg.probe_type}")
     print(f"=== model_id     : {cfg.model_id}")
     print(f"=== model_family : {cfg.model_family}")
+    if cfg.model_family == "disentanglement":
+        print(f"=== source        : {cfg.representation_source}")
+        print(f"=== encoder ckpt  : {cfg.checkpoint_path}")
     print(f"=== checkpoint   : {cfg.checkpoint_dir}")
     print(f"=== runs         : {cfg.runs_dir}")
     print(f"=== epochs       : {cfg.num_epochs}  lr={cfg.learning_rate}")
@@ -134,6 +150,8 @@ def main() -> None:
         "probe_type":    cfg.probe_type,
         "model_id":      cfg.model_id,
         "model_family":  cfg.model_family,
+        "encoder_checkpoint": str(cfg.checkpoint_path) if cfg.checkpoint_path else None,
+        "representation_source": cfg.representation_source,
         "seed":          cfg.seed,
         "deterministic": True,
         "num_workers":   cfg.num_workers,

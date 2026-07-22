@@ -53,6 +53,7 @@ from SAEUnitAnalysis.bundle import AnalysisBundle
 from SAEUnitAnalysis.build_librispeech_bundle import build_bundle as build_librispeech_bundle
 from SAEUnitAnalysis.build_timit_bundle import build_bundle
 from SAEUnitAnalysis.checkpoint import load_checkpoint, route_information, unresolved_critical
+from SAEUnitAnalysis.consolidate_final_reports import MODELS as FINAL_REPORT_MODELS
 from SAEUnitAnalysis.extraction import (
     FeatureCache, _block_spec, _encode_sparse, _quick_sample,
     _speaker_balanced_sample, parse_split_limits,
@@ -1042,6 +1043,19 @@ item []:
             self.assertEqual([point.step for point in points], [1000, 3000, 5000, 7000, 9000, 11000, 12000])
             self.assertEqual(points[-1].checkpoint.name, "final.pt")
             self.assertTrue(points[-1].is_final)
+
+    def test_final_report_collection_covers_each_model_family_once(self):
+        slugs = [model.slug for model in FINAL_REPORT_MODELS]
+        self.assertEqual(
+            slugs,
+            ["fixed_routing", "naive_learned", "quota_freeze", "post_gp", "ramp_5k", "unrouted_baseline"],
+        )
+        self.assertEqual(len({model.main_result for model in FINAL_REPORT_MODELS}), len(FINAL_REPORT_MODELS))
+        routed = [model for model in FINAL_REPORT_MODELS if model.slug != "unrouted_baseline"]
+        self.assertTrue(all(model.swap_result and model.trajectory_result for model in routed))
+        baseline = FINAL_REPORT_MODELS[-1]
+        self.assertIsNone(baseline.swap_result)
+        self.assertIsNone(baseline.trajectory_result)
 
     def test_trajectory_phone_score_is_positive_directional_topk_auroc(self):
         phones = np.asarray(["AA"] * 100 + ["T"] * 100)

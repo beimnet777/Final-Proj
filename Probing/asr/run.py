@@ -56,11 +56,19 @@ def parse_args() -> Config:
     p.add_argument("--model_id", default=cfg.model_id,
                    help="HuggingFace model id or local path for the encoder.")
     p.add_argument("--model_family", default=cfg.model_family,
-                   choices=["spear", "hf"],
+                   choices=["spear", "hf", "disentanglement"],
                    help="Encoder family: 'spear' for SPEAR (custom API) or 'hf' for standard "
                         "HuggingFace speech encoders (wav2vec2, HuBERT, WavLM, …).")
+    p.add_argument("--checkpoint_path", default=None,
+                   help="Disentanglement checkpoint when --model_family=disentanglement.")
+    p.add_argument("--representation_source", choices=["z_t", "z_L", "z_P"],
+                   default=cfg.representation_source)
     p.add_argument("--train_hours", type=float, default=cfg.train_hours)
     p.add_argument("--data_cache_dir", default=str(cfg.data_cache_dir))
+    p.add_argument("--local_data", action="store_true",
+                   help="Read an extracted LibriSpeech tree instead of HF streaming.")
+    p.add_argument("--librispeech_root", default=str(cfg.librispeech_root))
+    p.add_argument("--max_examples", type=int, default=cfg.max_examples)
     p.add_argument("--device", default=cfg.device)
     p.add_argument("--layer_idx", type=int, default=cfg.layer_idx,
                    help="For --probe final, which SPEAR layer to use (0-based, -1 for last).")
@@ -75,6 +83,9 @@ def parse_args() -> Config:
     p.add_argument("--feature_cache_dir", default=None,
                    help="If set, load pre-extracted SPEAR features from this directory "
                         "instead of running the encoder. Created by cache_features.py.")
+    p.add_argument("--checkpoint_dir", default=None,
+                   help="Directory for the trained downstream probe checkpoint.")
+    p.add_argument("--num_workers", type=int, default=cfg.num_workers)
     p.add_argument("--seed", type=int, default=cfg.seed,
                    help="Random seed for model init, shuffling, and augmentation.")
     args = p.parse_args()
@@ -86,14 +97,21 @@ def parse_args() -> Config:
     cfg.learning_rate = args.lr
     cfg.model_id = args.model_id
     cfg.model_family = args.model_family
+    cfg.checkpoint_path = Path(args.checkpoint_path) if args.checkpoint_path else None
+    cfg.representation_source = args.representation_source
     cfg.train_hours = args.train_hours
     cfg.data_cache_dir = Path(args.data_cache_dir)
+    cfg.local_data = args.local_data
+    cfg.librispeech_root = Path(args.librispeech_root)
+    cfg.max_examples = args.max_examples
     cfg.device = args.device
     cfg.layer_idx = args.layer_idx
     cfg.warmup_steps = args.warmup_steps
     cfg.lstm_hidden = args.lstm_hidden
     cfg.lstm_layers = args.lstm_layers
     cfg.runs_dir = Path(args.runs_dir)
+    cfg.checkpoint_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else cfg.checkpoint_dir
+    cfg.num_workers = args.num_workers
     cfg.feature_cache_dir = Path(args.feature_cache_dir) if args.feature_cache_dir else None
     cfg.seed = args.seed
     return cfg
@@ -104,6 +122,10 @@ def main() -> None:
     set_seed(cfg.seed)
     print(f"=== probe_type     : {cfg.probe_type}")
     print(f"=== model_id       : {cfg.model_id}")
+    print(f"=== model_family   : {cfg.model_family}")
+    if cfg.model_family == "disentanglement":
+        print(f"=== source         : {cfg.representation_source}")
+        print(f"=== encoder ckpt   : {cfg.checkpoint_path}")
     print(f"=== train_hours    : {cfg.train_hours}")
     print(f"=== seed           : {cfg.seed}")
 
@@ -141,6 +163,9 @@ def main() -> None:
     logger.write_summary({
         "probe_type": cfg.probe_type,
         "model_id": cfg.model_id,
+        "model_family": cfg.model_family,
+        "encoder_checkpoint": str(cfg.checkpoint_path) if cfg.checkpoint_path else None,
+        "representation_source": cfg.representation_source,
         "train_hours": cfg.train_hours,
         "seed": cfg.seed,
         "deterministic": True,

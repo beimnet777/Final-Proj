@@ -182,6 +182,7 @@ def fit(cfg: Config, encoder: Optional[FrozenSpear], probe: nn.Module, tokenizer
 
     Path(cfg.checkpoint_dir).mkdir(parents=True, exist_ok=True)
     best_cer = float("inf")
+    best_state = None
     step = 0
 
     for epoch in range(cfg.num_epochs):
@@ -258,12 +259,18 @@ def fit(cfg: Config, encoder: Optional[FrozenSpear], probe: nn.Module, tokenizer
 
             if metrics["cer"] < best_cer:
                 best_cer = metrics["cer"]
+                best_state = {key: value.detach().cpu().clone()
+                              for key, value in probe.state_dict().items()}
                 ckpt = Path(cfg.checkpoint_dir) / f"probe_{cfg.probe_type}_best.pt"
                 torch.save({
-                    "probe_state": probe.state_dict(),
+                    "probe_state": best_state,
                     "cfg": cfg.__dict__,
                     "val_cer": metrics["cer"],
                     "val_wer": metrics["wer"],
                     "epoch": epoch + 1,
                 }, ckpt)
                 print(f"  saved best probe to {ckpt}")
+
+    if best_state is not None:
+        probe.load_state_dict(best_state)
+        print(f"restored best validation probe (cer={best_cer:.4f})")

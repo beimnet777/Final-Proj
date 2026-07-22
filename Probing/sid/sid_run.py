@@ -51,7 +51,12 @@ def parse_args():
     p.add_argument("--voxceleb1_root", required=True,
                    help="Path to the VoxCeleb1 root directory (contains dev/ and test/).")
     p.add_argument("--model_id",     default=cfg.model_id)
-    p.add_argument("--model_family", default=cfg.model_family, choices=["spear", "hf"])
+    p.add_argument("--model_family", default=cfg.model_family,
+                   choices=["spear", "hf", "disentanglement"])
+    p.add_argument("--checkpoint_path", default=None,
+                   help="Disentanglement checkpoint when --model_family=disentanglement.")
+    p.add_argument("--representation_source", choices=["z_t", "z_L", "z_P"],
+                   default=cfg.representation_source)
     p.add_argument("--epochs",          type=int,   default=cfg.num_epochs)
     p.add_argument("--batch_size",      type=int,   default=cfg.batch_size)
     p.add_argument("--eval_batch_size", type=int,   default=cfg.eval_batch_size)
@@ -79,6 +84,8 @@ def parse_args():
     cfg.voxceleb1_root  = Path(args.voxceleb1_root)
     cfg.model_id        = args.model_id
     cfg.model_family    = args.model_family
+    cfg.checkpoint_path = Path(args.checkpoint_path) if args.checkpoint_path else None
+    cfg.representation_source = args.representation_source
     cfg.num_epochs      = args.epochs
     cfg.batch_size      = args.batch_size
     cfg.eval_batch_size = args.eval_batch_size
@@ -108,6 +115,9 @@ def main() -> None:
     print(f"=== probe_type    : {cfg.probe_type}")
     print(f"=== model_id      : {cfg.model_id}")
     print(f"=== model_family  : {cfg.model_family}")
+    if cfg.model_family == "disentanglement":
+        print(f"=== source        : {cfg.representation_source}")
+        print(f"=== encoder ckpt  : {cfg.checkpoint_path}")
     print(f"=== voxceleb1_root: {cfg.voxceleb1_root}")
     print(f"=== checkpoint    : {cfg.checkpoint_dir}")
     print(f"=== runs          : {cfg.runs_dir}")
@@ -146,6 +156,8 @@ def main() -> None:
         "probe_type":     cfg.probe_type,
         "model_id":       cfg.model_id,
         "model_family":   cfg.model_family,
+        "encoder_checkpoint": str(cfg.checkpoint_path) if cfg.checkpoint_path else None,
+        "representation_source": cfg.representation_source,
         "seed":           cfg.seed,
         "deterministic":  True,
         "num_workers":    cfg.num_workers,

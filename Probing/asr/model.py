@@ -45,11 +45,26 @@ class FrozenEncoder(nn.Module):
         Frame lengths derived from the attention_mask of the last forward pass.
     """
 
-    def __init__(self, model_id: str, model_family: str = "spear"):
+    def __init__(self, model_id: str, model_family: str = "spear",
+                 checkpoint_path: str | None = None,
+                 representation_source: str = "z_t"):
         super().__init__()
-        assert model_family in ("spear", "hf"), \
-            f"model_family must be 'spear' or 'hf', got {model_family!r}"
+        assert model_family in ("spear", "hf", "disentanglement"), \
+            f"unsupported model_family {model_family!r}"
         self.model_family = model_family
+
+        if model_family == "disentanglement":
+            if not checkpoint_path:
+                raise ValueError("checkpoint_path is required for model_family='disentanglement'")
+            from disentanglement_encoder import CheckpointRepresentationEncoder
+            self.encoder = CheckpointRepresentationEncoder(
+                checkpoint_path, representation_source)
+            self.hidden_size = self.encoder.hidden_size
+            self.num_layers = self.encoder.num_layers
+            self._last_input_T = 0
+            self._last_output_T = 0
+            self._last_attention_mask = None
+            return
 
         trust = (model_family == "spear")
         self.encoder = AutoModel.from_pretrained(model_id, trust_remote_code=trust)
@@ -92,6 +107,8 @@ class FrozenEncoder(nn.Module):
         audio_lengths: (B,)          true sample counts per example
         returns:       list of num_layers tensors, each (B, T_frames, hidden_size)
         """
+        if self.model_family == "disentanglement":
+            return self.encoder(audio, audio_lengths)
         if self.model_family == "spear":
             out = self.encoder(audio, audio_lengths)
             hidden_states = list(out["hidden_states"])          # list of 13 tensors
@@ -117,6 +134,8 @@ class FrozenEncoder(nn.Module):
 
     def output_lengths(self, audio_lengths: torch.Tensor) -> torch.Tensor:
         """Map raw-audio sample counts → per-frame output counts."""
+        if self.model_family == "disentanglement":
+            return self.encoder.output_lengths(audio_lengths)
         if self.model_family == "spear":
             if self._last_input_T == 0:
                 return torch.div(audio_lengths, 640, rounding_mode="floor").clamp(min=1).long()
@@ -402,7 +421,12 @@ class LSTMProbe(nn.Module):
 
 def build_model(cfg: Config) -> Tuple[FrozenEncoder, nn.Module]:
     """Construct the frozen encoder and the chosen probe head."""
-    encoder = FrozenEncoder(cfg.model_id, model_family=cfg.model_family)
+    encoder = FrozenEncoder(
+        cfg.model_id,
+        model_family=cfg.model_family,
+        checkpoint_path=cfg.checkpoint_path,
+        representation_source=cfg.representation_source,
+    )
     cfg.encoder_layer_count = encoder.num_layers  # populate runtime field
 
     if cfg.probe_type == "final":

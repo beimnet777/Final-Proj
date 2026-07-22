@@ -29,7 +29,7 @@ Request access and download from https://www.robots.ox.ac.uk/~vgg/data/voxceleb/
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 # All default output paths are anchored to this sid/ directory.
 _SID_DIR = Path(__file__).parent
@@ -54,7 +54,9 @@ class SIDConfig:
     # ------------------------------------------------------------ Encoder
     model_id: str = "marcoyang/spear-xlarge-speech-audio"
     # 'spear' for SPEAR-XLarge; 'hf' for standard HF speech encoders.
-    model_family: Literal["spear", "hf"] = "spear"
+    model_family: Literal["spear", "hf", "disentanglement"] = "spear"
+    checkpoint_path: Optional[Path] = None
+    representation_source: Literal["z_t", "z_L", "z_P"] = "z_t"
     # Populated at runtime once the encoder is loaded.
     encoder_layer_count: int = 0
 
